@@ -672,6 +672,39 @@ public partial class ApiServer
             });
         });
 
+        // ---- chat template: what the model file says, and what a template choice would produce
+        app.MapGet("/api/models/template", async ctx =>
+        {
+            var model = _host.Library.Find(Q(ctx, "model")) ?? throw new FileNotFoundException($"No local model matches '{Q(ctx, "model")}'");
+            var info = FitEstimator.ReadModel(model.Path).Info;
+            var (bos, eos) = PromptTemplates.SpecialTokens(model.Path, info);
+            await WriteJson(ctx, new
+            {
+                model.Id, architecture = info.Architecture, hasTemplate = info.HasChatTemplate, template = info.ChatTemplate, bos, eos,
+                reasoning = Reasoning.Detect(info.ChatTemplate).ToString().ToLowerInvariant(),
+                toolFormat = ToolFormats.Detect(info.ChatTemplate).ToString().ToLowerInvariant(),
+                sample = PromptTemplates.SampleConversation.Select(m => new { role = m.Role, content = m.Content }),
+            });
+        });
+
+        app.MapPost("/api/models/template/preview", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var model = _host.Library.Find(body["model"]?.GetValue<string>() ?? "") ?? throw new FileNotFoundException("The model is not downloaded.");
+            var choice = body["template"]?.Deserialize<PromptTemplateSettings>(Json.Options) ?? new PromptTemplateSettings();
+            var messages = (body["messages"] as JsonArray)?.Select(m => (m?["role"]?.GetValue<string>() ?? "user", m?["content"]?.GetValue<string>() ?? "")).ToList()
+                           ?? PromptTemplates.SampleConversation.ToList();
+            bool add = body["addAssistant"]?.GetValue<bool>() ?? true;
+            var problems = PromptTemplates.Check(choice).ToList();
+            if (problems.Count > 0) { await WriteJson(ctx, new { prompt = (string?)null, error = string.Join(" ", problems) }); return; }
+            try
+            {
+                var (prompt, engine) = PromptTemplates.Preview(model, choice, messages, add);
+                await WriteJson(ctx, new { prompt, engine, stopStrings = choice.Mode == PromptTemplateSettings.Manual ? choice.ManualFormat.StopStrings : new List<string>() });
+            }
+            catch (JinjaException ex) { await WriteJson(ctx, new { prompt = (string?)null, error = ex.Message }); }
+        });
+
         app.MapPost("/api/models/cache/clear", async ctx =>
         {
             var body = await ReadBody(ctx);

@@ -178,6 +178,7 @@ public class Shell
             case "image": case "img": return AttachImage(a);
             case "video": return await AttachVideoAsync(a);
             case "audio": return AttachAudio(a);
+            case "template": return ShowTemplate(a);
             case "chat": return await ChatCommandAsync(a);
             default:
                 Ui.Error($"unknown command '{cmd}'. Type /help.");
@@ -203,7 +204,7 @@ public class Shell
               rm <model>                 delete a downloaded model
             Running
               load <model> [--cpu|--gpu max|auto|off|0.5] [--gpu-layers N] [--identifier name] [--context-length N] [--ctx N] [--threads N (default 75% of cores)] [--batch N]
-                           [--flash] [--no-mmap] [--mlock] [--kv-k q8_0] [--kv-v q8_0] [--no-vision] [--mmproj <file>] [--draft <small model>] [--draft-tokens 6]
+                           [--flash] [--no-mmap] [--mlock] [--kv-k q8_0] [--kv-v q8_0] [--no-vision] [--mmproj <file>] [--draft <small model>] [--draft-tokens 6] [--template-file chat.jinja]
                            [--id name] [--ttl minutes] [--embeddings]
                            [--gpus 0,1] [--split 3,1] [--split-mode layer|row|none]   multi-GPU: devices (priority order), shares, mode
                            [--parallel N]   requests generated at the same time (continuous batching, default 4)
@@ -220,6 +221,7 @@ public class Shell
               /image <file> [...]       attach image(s) to the next message (vision models)
               /video <file> [--fps 1] [--frames 8]   attach frames of a video (needs ffmpeg) to the next message
               /audio <file> [...]       attach WAV / MP3 / FLAC audio to the next message (audio-capable models)
+              template [model]           show the chat template stored in a model file and a sample prompt
               /clear  /history  /undo  /regen  /save  /chats  /resume <id>  /export <file>
               /cache [on|off|clear]     prompt/KV cache: reuse the evaluated prompt prefix between turns
               /complete <text>          raw (non-chat) completion
@@ -758,6 +760,11 @@ public class Shell
         if (a.Value("ttl") is { } ttl) o.TtlMinutes = int.Parse(ttl);
         if (a.Value("draft") is { } dm) o.DraftModel = dm;
         if (a.Value("draft-tokens") is { } dt) o.DraftTokens = int.Parse(dt);
+        if (a.Value("template-file") is { } tf)
+        {
+            if (!File.Exists(tf)) { Ui.Error($"template file not found: {tf}"); return false; }
+            o.PromptTemplate = new PromptTemplateSettings { Mode = PromptTemplateSettings.Jinja, JinjaText = File.ReadAllText(tf) };
+        }
         if (a.Value("rope-base") is { } rb) o.RopeFrequencyBase = float.Parse(rb, System.Globalization.CultureInfo.InvariantCulture);
 
         var query = string.Join(' ', a.Positional);
@@ -1304,6 +1311,26 @@ public class Shell
         var rt = _activeModel != null ? _host.Models.Get(_activeModel) : null;
         Ui.Info($"{_pendingImages.Count} attachment(s) will be sent with your next message." +
                 (rt != null && !rt.SupportsAudio ? Ui.Yellow(" Warning: the active model cannot listen to audio.") : ""));
+        return true;
+    }
+
+    /// <summary>template [model] — prints the chat template stored in a model file and the prompt it produces for a sample chat.</summary>
+    private bool ShowTemplate(Args a)
+    {
+        string? query = a.Positional.FirstOrDefault() ?? _activeModel;
+        var model = query == null ? null : _host.Library.Find(query);
+        if (model == null) { Ui.Error("usage: template <model>   (a downloaded model)"); return false; }
+        var info = FitEstimator.ReadModel(model.Path).Info;
+        if (!info.HasChatTemplate) { Ui.Info("The model file has no chat template (ChatML is used)."); return true; }
+        Ui.Info(Ui.Dim("--- chat template ---"));
+        Ui.Info(info.ChatTemplate!);
+        try
+        {
+            var (prompt, engine) = PromptTemplates.Preview(model, new PromptTemplateSettings(), PromptTemplates.SampleConversation, true);
+            Ui.Info(Ui.Dim($"--- sample prompt ({engine}) ---"));
+            Ui.Info(prompt);
+        }
+        catch (Exception ex) when (ex is JinjaException or InvalidOperationException) { Ui.Info(Ui.Yellow("Could not render a sample: " + ex.Message)); }
         return true;
     }
 

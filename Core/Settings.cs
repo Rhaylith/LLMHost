@@ -75,6 +75,8 @@ public class LoadOptions
     public int DraftTokens { get; set; }
     /// <summary>The draft stops proposing when it is less sure than this about its next token.</summary>
     public float DraftMinP { get; set; } = 0.5f;
+    /// <summary>Replaces the chat template stored in the model file (Jinja text or manual prefixes / suffixes). Default: the model's own.</summary>
+    public PromptTemplateSettings PromptTemplate { get; set; } = new();
     [JsonIgnore]
     public int SlotCount => Math.Min(16, Math.Max(Math.Clamp(MaxConcurrent, 1, 16), CacheSlots > 0 ? CacheSlots : MaxConcurrent + 2));
     public uint BatchSize { get; set; } = 512;
@@ -115,6 +117,7 @@ public class LoadOptions
         var c = (LoadOptions)MemberwiseClone();
         c.GpuDevices = GpuDevices != null ? new List<int>(GpuDevices) : null;
         c.TensorSplit = TensorSplit != null ? new List<float>(TensorSplit) : null;
+        c.PromptTemplate = PromptTemplate?.Clone() ?? new PromptTemplateSettings();
         return c;
     }
 }
@@ -234,6 +237,8 @@ public class AppSettings
     public bool VerboseNativeLog { get; set; }
     public LoggingSettings Logging { get; set; } = new();
     public PromptCacheSettings PromptCache { get; set; } = new();
+    /// <summary>Open the prompt-template section of the load dialog by default.</summary>
+    public bool AlwaysShowTemplate { get; set; }
     public VisionSettings Vision { get; set; } = new();
     /// <summary>Write the last /v1/messages request to ~/.llmhost/debug/anthropic-last.json (to see what a client such as Claude Code really sends). Contains your prompts.</summary>
     public bool DebugRequests { get; set; }
@@ -336,7 +341,7 @@ public class AppSettings
         MinimizeToTray = other.MinimizeToTray; CheckUpdates = other.CheckUpdates; DebugRequests = other.DebugRequests; AnthropicReasoningAsText = other.AnthropicReasoningAsText;
         UpdateFeedUrl = string.IsNullOrWhiteSpace(other.UpdateFeedUrl) ? null : other.UpdateFeedUrl.Trim();
         LoadGuardrail = other.LoadGuardrail is "off" or "strict" ? other.LoadGuardrail : "balanced";
-        VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); PromptCache = other.PromptCache ?? new(); Vision = other.Vision ?? new(); DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
+        VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); PromptCache = other.PromptCache ?? new(); Vision = other.Vision ?? new(); AlwaysShowTemplate = other.AlwaysShowTemplate; DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
         Save();
     }
 }

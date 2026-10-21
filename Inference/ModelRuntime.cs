@@ -327,6 +327,7 @@ public sealed class ModelRuntime : IDisposable
         rt.LoadWarnings.AddRange(warnings);
         rt.Estimate = estimate;
         rt.Plan = plan;
+        rt.ValidateTemplate();
         await rt.RestoreAutoAsync();
         return rt;
     }
@@ -364,9 +365,74 @@ public sealed class ModelRuntime : IDisposable
 
     public int CountTokens(string text) => _weights.Tokenize(text, false, true, Encoding.UTF8).Length;
 
+    // ------------------------------------------------------------------ prompt template override
+
+    private JinjaTemplate? _jinja;
+    private bool _templateWarned;
+    private (string Bos, string Eos)? _special;
+
+    /// <summary>The template text the model really uses: the override when one is set, otherwise the one stored in the file.</summary>
+    public string? EffectiveTemplate =>
+        Options.PromptTemplate is { Mode: PromptTemplateSettings.Jinja } p && !string.IsNullOrWhiteSpace(p.JinjaText)
+            ? p.JinjaText
+            : FitEstimator.ReadModel(Model.Path).Info.ChatTemplate;
+
+    private (string Bos, string Eos) SpecialTokenText()
+    {
+        if (_special != null) return _special.Value;
+        try { _special = PromptTemplates.SpecialTokens(Model.Path, FitEstimator.ReadModel(Model.Path).Info); }
+        catch { _special = ("", ""); }
+        return _special.Value;
+    }
+
+    /// <summary>Stop strings that belong to a manual template; added to every request.</summary>
+    private IReadOnlyList<string> TemplateStops =>
+        Options.PromptTemplate is { Mode: PromptTemplateSettings.Manual } p ? p.ManualFormat.StopStrings : Array.Empty<string>();
+
+    /// <summary>Renders with the override. Returns null when there is none, or when it failed (the model's own template is used instead).</summary>
+    private string? ApplyOverrideTemplate(IReadOnlyList<ChatMessage> messages, bool addAssistant)
+    {
+        var choice = Options.PromptTemplate;
+        if (choice is not { IsOverride: true }) return null;
+        try
+        {
+            var msgs = messages.Select(m => (m.Role, WithMarkers(m))).ToList();
+            if (choice.Mode == PromptTemplateSettings.Manual) return PromptTemplates.RenderManual(choice.ManualFormat, msgs, addAssistant);
+            _jinja ??= new JinjaTemplate(choice.JinjaText ?? "");
+            var (bos, eos) = SpecialTokenText();
+            return PromptTemplates.RenderJinja(_jinja, msgs, addAssistant, bos, eos);
+        }
+        catch (JinjaException ex)
+        {
+            if (!_templateWarned)
+            {
+                _templateWarned = true;
+                LogBuffer.Add("gen", $"{Identifier}: the custom prompt template failed ({ex.Message}); using the model's own template.", LogLevel.Warn);
+            }
+            return null;
+        }
+    }
+
+    /// <summary>Renders a sample conversation with the override so mistakes show up at load time.</summary>
+    internal void ValidateTemplate()
+    {
+        if (Options.PromptTemplate is not { IsOverride: true } choice) return;
+        foreach (var problem in PromptTemplates.Check(choice)) LoadWarnings.Add("Prompt template: " + problem);
+        if (LoadWarnings.Any(w => w.StartsWith("Prompt template:"))) { _templateWarned = true; return; }
+        try
+        {
+            var sample = PromptTemplates.SampleConversation.Select(m => new ChatMessage(m.Role, m.Content)).ToList();
+            var text = ApplyOverrideTemplate(sample, true);
+            if (text == null) LoadWarnings.Add("Prompt template: the custom template could not render a sample conversation; the model's own template is used (see the log).");
+            else if (!text.Contains("How are you?")) LoadWarnings.Add("Prompt template: the rendered prompt does not contain the user's message; check the template.");
+        }
+        catch (Exception ex) { LoadWarnings.Add("Prompt template: " + ex.Message); }
+    }
+
     /// <summary>Applies the model's own chat template (falls back to ChatML).</summary>
     public string ApplyChatTemplate(IReadOnlyList<ChatMessage> messages, bool addAssistant = true)
     {
+        if (ApplyOverrideTemplate(messages, addAssistant) is { } custom) return custom;
         string prompt;
         try
         {
@@ -398,7 +464,7 @@ public sealed class ModelRuntime : IDisposable
         get
         {
             if (_style != null) return _style.Value;
-            try { _style = Reasoning.Detect(FitEstimator.ReadModel(Model.Path).Info.ChatTemplate); }
+            try { _style = Reasoning.Detect(EffectiveTemplate); }
             catch { _style = ReasoningStyle.None; }
             // older GGUF templates do not mention thinking although the model does it: go by the model's name
             if (_style == ReasoningStyle.None)
@@ -418,7 +484,7 @@ public sealed class ModelRuntime : IDisposable
         get
         {
             if (_toolFormat != null) return _toolFormat.Value;
-            try { _toolFormat = ToolFormats.Detect(FitEstimator.ReadModel(Model.Path).Info.ChatTemplate); }
+            try { _toolFormat = ToolFormats.Detect(EffectiveTemplate); }
             catch { _toolFormat = Inference.ToolFormat.Generic; }
             return _toolFormat.Value;
         }
@@ -632,6 +698,9 @@ public sealed class ModelRuntime : IDisposable
         // a leading BOS text would be doubled because the tokenizer adds BOS itself
         foreach (var bos in new[] { "<s>", "<|begin_of_text|>", "<bos>" })
             if (prompt.StartsWith(bos, StringComparison.Ordinal)) { prompt = prompt[bos.Length..]; break; }
+        // a template that prints the model's own BOS token: the tokenizer adds it again
+        if (SpecialTokenText().Bos is { Length: > 0 } ownBos && _weights.Vocab.ShouldAddBOS && prompt.StartsWith(ownBos, StringComparison.Ordinal))
+            prompt = prompt[ownBos.Length..];
 
         bool multimodal = images is { Count: > 0 };
         RequireAudioSupport(images);
@@ -664,7 +733,7 @@ public sealed class ModelRuntime : IDisposable
         req.PromptTokens = promptTokens;
         req.MaxTokens = g.MaxTokens > 0 ? Math.Min(g.MaxTokens, room) : room;
         req.Sampler = BuildSampler(g);
-        req.Scanner = new TextScanner(g.Stop, Reasoning.EndsInsideThink(prompt));
+        req.Scanner = new TextScanner(TemplateStops.Count == 0 ? g.Stop : g.Stop.Concat(TemplateStops).Distinct().ToList(), Reasoning.EndsInsideThink(prompt));
         req.ThinkBudget = Reasoning.Budget(g.ReasoningEffort);
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);

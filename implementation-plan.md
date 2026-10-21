@@ -11,7 +11,9 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding (4 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override (5 of ~50).
+
+**To revisit — tests not run:** Windows Smart App Control blocked the test assembly (`LLMHost.Tests.dll`, Code Integrity event 3077) while §1.3 was being built, so `JinjaTests`, `PromptTemplateTests` (unit, API and the `TemplateParityTests` that compare the engine with llama.cpp on the Qwen3-14B and SmolVLM templates), the updated `OptionsPlumbingTests`, and a full regression run after the §1.3 changes still have to be executed once tests can run again. Treat §1.3 as unverified until they pass, and fix the Jinja engine or the tests as needed.
 
 ---
 
@@ -125,7 +127,7 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
 Deviations: an unusable draft (vocabulary mismatch, missing file) produces a load **warning** and the model loads without it, instead of refusing the load; pairings live in `DraftPairing` rather than `Catalog.cs`; no Discover "draft" badge. A model that cannot drop a cache tail (recurrent / sliding-window) switches speculation off with a message. **MTP:** only detected (`GgufInfo.MtpLayers` from `nextn_predict_layers`); the pinned llama.cpp build in LLamaSharp 0.27 has no use for it, so nothing is gated or enabled.
 Verified (SmolVLM-256M as its own draft): identical text at temperature 0 and with a fixed seed, every proposal accepted when the draft equals the model, a corrupted draft (test hook) is rolled back without changing the output and leaves a consistent cache, limits and finish reasons unchanged, incompatible draft ignored with a warning. **Speed-up not measured:** the ≥ 1.3× target needs a real small draft (e.g. Qwen3-0.6B for Qwen3-14B), which is not downloaded here.
 
-#### §1.3 Prompt-template override — **M**
+#### ✅ §1.3 Prompt-template override — **M** (implemented; tests written but not yet run — see To revisit)
 * Today `ApplyChatTemplate` uses the GGUF template. Add `LoadOptions.PromptTemplate { Mode: auto|jinja|manual, Jinja, Manual }`
   where `Manual = { system:{prefix,suffix}, user:{…}, assistant:{…}, tool:{…}, bos, eos, stopStrings[] }`.
 * Jinja rendering: LLamaSharp's `LLamaTemplate` supports llama.cpp's built-in set only. For arbitrary Jinja add
@@ -138,6 +140,10 @@ Verified (SmolVLM-256M as its own draft): identical text at temperature 0 and wi
   the rendered prompt so the UI can show a live preview.
 * Interaction: reasoning/tool formatting in `Reasoning.cs`/`ToolCalling.cs` detect model families from the template text — they
   must keep working with an override (feed them the *effective* template).
+
+**As built:** `LoadOptions.PromptTemplate` (`PromptTemplateSettings`: `mode` auto|jinja|manual, `jinjaText`, `manualFormat` with system/user/assistant/tool prefix+suffix, `bos`, `generationPrefix`, `stopStrings`) in `Inference/PromptTemplates.cs`; the Jinja engine is **written in-house** (`Inference/Jinja.cs`, ~800 lines: if/for/set/macro/raw, namespace, slices, filters, tests, string/list/dict methods, `tojson`, `strftime_now`, `raise_exception`, Hugging Face's trim_blocks/lstrip_blocks) because Fluid/Scriban are not Jinja and the one Jinja library on NuGet (Jinja2.NET) lacks `namespace`, slices, method calls and `is defined`. `ModelRuntime.ApplyChatTemplate` uses the override first and falls back to the model's own template (with a log line) when the override fails; a sample conversation is rendered at load and problems become load warnings; reasoning/tool detection read the effective template; manual stop strings are added to every request; the model's own BOS text is dropped from the prompt when the tokenizer adds it. API: `GET /api/models/template?model=` and `POST /api/models/template/preview`; UI: "Prompt template" section in the load dialog (mode, Jinja editor with "start from the model's template", manual fields, preview) and the setting `alwaysShowTemplate`; CLI `template [model]` and `load --template-file`. `GgufInfo` now records the BOS/EOS ids and where the token list starts (`ReadTokenText`).
+Deviations: no separate `eos` field in the manual format (put it in the assistant suffix); the preview of an unloaded model with the *auto* template uses the built-in Jinja engine instead of llama.cpp (the response says so in `engine`).
+**Verification status:** compiled, and the engine was reviewed by hand against the test expectations, but **no test of §1.3 has been run** (see To revisit).
 
 #### ✅ §1.4 Additional samplers — **M** (`f5326bb`)
 * Extend `GenerationOptions`: `Mirostat (0|1|2)`, `MirostatTau`, `MirostatEta`, `DryMultiplier`, `DryBase`, `DryAllowedLength`,

@@ -201,6 +201,7 @@ dialog::backdrop{background:#0008}
       <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
       <div><label>Load guardrail (refuse loads that exceed memory)</label><select id="s-guard"><option value="off">off</option><option value="balanced">balanced</option><option value="strict">strict</option></select></div>
       <div><label>&nbsp;</label><label style="margin:6px 0" title="Integrated GPUs then stop borrowing system RAM"><input type="checkbox" id="s-dedicated" style="width:auto"> Limit offload to dedicated GPU memory</label></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0" title="Open the prompt-template section of the load dialog by default"><input type="checkbox" id="s-showtpl" style="width:auto"> Always show the prompt template when loading</label></div>
       <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-cors" style="width:auto"> CORS</label><label style="margin:6px 0"><input type="checkbox" id="s-anthropic" style="width:auto"> Anthropic-compatible API (/v1/messages)</label><label style="margin:6px 0"><input type="checkbox" id="s-autoload" style="width:auto"> Auto-load model on request</label></div>
     </div>
     <h3>Default load parameters</h3>
@@ -390,6 +391,27 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
     <div><label>Draft tokens per step (0 = 6)</label><input type="number" id="l-drafttokens" value="0" min="0" max="64"></div>
   </div>
   <div class="grid2"><div><label>Flash attention</label><select id="l-flash"><option value="auto">auto (recommended)</option><option value="on">on</option><option value="off">off</option></select></div></div>
+  <details id="l-template" style="margin:8px 0"><summary style="cursor:pointer">Prompt template</summary>
+    <div class="grid2"><div><label>Template</label><select id="l-tpl-mode"><option value="auto">the model's own (auto)</option><option value="jinja">Jinja</option><option value="manual">Manual prefixes / suffixes</option></select></div></div>
+    <div id="l-tpl-info" class="dim" style="margin:4px 0"></div>
+    <div id="l-tpl-jinja" style="display:none">
+      <label>Jinja chat template</label><textarea id="l-tpl-text" rows="8" spellcheck="false" style="font-family:monospace"></textarea>
+      <button class="b sec" id="l-tpl-fetch" type="button">Start from the model's template</button>
+    </div>
+    <div id="l-tpl-manual" style="display:none">
+      <div class="dim">Write <code>\n</code> for a line break.</div>
+      <div class="grid2">
+        <div><label>System prefix</label><input id="l-tpl-sys-p"></div><div><label>System suffix</label><input id="l-tpl-sys-s"></div>
+        <div><label>User prefix</label><input id="l-tpl-usr-p"></div><div><label>User suffix</label><input id="l-tpl-usr-s"></div>
+        <div><label>Assistant prefix</label><input id="l-tpl-ast-p"></div><div><label>Assistant suffix</label><input id="l-tpl-ast-s"></div>
+        <div><label>Tool prefix</label><input id="l-tpl-tool-p"></div><div><label>Tool suffix</label><input id="l-tpl-tool-s"></div>
+        <div><label>Start of prompt (BOS text, usually empty)</label><input id="l-tpl-bos"></div><div><label>Answer prefix (blank = assistant prefix)</label><input id="l-tpl-gen"></div>
+      </div>
+      <label>Stop strings (comma separated)</label><input id="l-tpl-stop">
+    </div>
+    <button class="b sec" id="l-tpl-preview" type="button" style="margin-top:6px">Preview the prompt</button>
+    <pre id="l-tpl-out" style="display:none;white-space:pre-wrap;max-height:200px;overflow:auto;border:1px solid var(--line,#444);padding:6px;margin-top:6px"></pre>
+  </details>
   <label><input type="checkbox" id="l-mmap" checked style="width:auto"> Use mmap</label>
   <label><input type="checkbox" id="l-mlock" style="width:auto"> Keep model in RAM (mlock)</label>
   <label><input type="checkbox" id="l-emb" style="width:auto"> Embedding model</label>
@@ -896,6 +918,7 @@ function fillLoad(d) {
   $('l-kvk').value = d.kvCacheTypeK || 'f16'; $('l-kvv').value = d.kvCacheTypeV || 'f16';
   $('l-main').value = d.mainGpu || 0; $('l-conc').value = d.maxConcurrent || 4;
   $('l-drafttokens').value = d.draftTokens || 0; window._draftWanted = d.draftModel || '';
+  fillTemplate(d.promptTemplate);
   $('l-flash').value = d.flashAttentionMode && d.flashAttentionMode !== 'auto' ? d.flashAttentionMode : (d.flashAttention ? 'on' : 'auto'); $('l-mmap').checked = d.useMmap !== false; $('l-mlock').checked = !!d.useMlock;
   $('l-vision').checked = d.vision !== false;
 }
@@ -928,7 +951,7 @@ function collectLoad() {
     tensorSplit: on.length > 1 && ratios.every(r => r != null && r > 0) ? ratios : null, splitMode: $('l-splitmode').value,
     device: $('l-device').value, gpuLayers: gl === '' ? null : Number(gl), contextSize: Number($('l-ctx').value), threads: Number($('l-threads').value),
     batchSize: Number($('l-batch').value), uBatchSize: Number($('l-batch').value), ttlMinutes: Number($('l-ttl').value), kvCacheTypeK: $('l-kvk').value, kvCacheTypeV: $('l-kvv').value,
-    identifier: $('l-id').value || null, mainGpu: Number($('l-main').value), maxConcurrent: Number($('l-conc').value) || 4, draftModel: $('l-draft').value || null, draftTokens: Number($('l-drafttokens').value) || 0, flashAttentionMode: $('l-flash').value, flashAttention: $('l-flash').value === 'on', useMmap: $('l-mmap').checked, useMlock: $('l-mlock').checked,
+    identifier: $('l-id').value || null, mainGpu: Number($('l-main').value), maxConcurrent: Number($('l-conc').value) || 4, draftModel: $('l-draft').value || null, draftTokens: Number($('l-drafttokens').value) || 0, promptTemplate: collectTemplate(), flashAttentionMode: $('l-flash').value, flashAttention: $('l-flash').value === 'on', useMmap: $('l-mmap').checked, useMlock: $('l-mlock').checked,
     embeddings: $('l-emb').checked, vision: $('l-vision').checked};
 }
 function fillGen(g) {
@@ -940,6 +963,53 @@ function collectGen() {
     repeatPenalty: Number($('g-repeat').value), maxTokens: Number($('g-max').value), systemPrompt: $('g-system').value || null};
 }
 // mode: 'load' (Load button) or 'defaults' (the gear dialog: only edits the model's saved defaults)
+// ---- prompt template section of the load dialog
+const tplUnesc = s => (s || '').replace(/\n/g, '\n').replace(/\t/g, '\t');
+const tplEsc = s => (s || '').replace(/\n/g, '\n').replace(/\t/g, '\t');
+const TPL_FIELDS = [['sys-p','system','prefix'],['sys-s','system','suffix'],['usr-p','user','prefix'],['usr-s','user','suffix'],
+  ['ast-p','assistant','prefix'],['ast-s','assistant','suffix'],['tool-p','tool','prefix'],['tool-s','tool','suffix']];
+function tplShow() {
+  const m = $('l-tpl-mode').value;
+  $('l-tpl-jinja').style.display = m === 'jinja' ? '' : 'none';
+  $('l-tpl-manual').style.display = m === 'manual' ? '' : 'none';
+}
+function fillTemplate(t) {
+  t = t || {};
+  $('l-tpl-mode').value = t.mode || 'auto';
+  $('l-tpl-text').value = t.jinjaText || '';
+  const f = t.manualFormat || {};
+  for (const [id, role, side] of TPL_FIELDS) $('l-tpl-' + id).value = tplEsc((f[role] || {})[side]);
+  $('l-tpl-bos').value = tplEsc(f.bos); $('l-tpl-gen').value = tplEsc(f.generationPrefix);
+  $('l-tpl-stop').value = (f.stopStrings || []).map(tplEsc).join(',');
+  tplShow();
+}
+function collectTemplate() {
+  const f = {bos: tplUnesc($('l-tpl-bos').value), generationPrefix: tplUnesc($('l-tpl-gen').value),
+    stopStrings: $('l-tpl-stop').value.split(',').map(tplUnesc).filter(Boolean)};
+  for (const [id, role, side] of TPL_FIELDS) (f[role] ||= {})[side] = tplUnesc($('l-tpl-' + id).value);
+  return {mode: $('l-tpl-mode').value, jinjaText: $('l-tpl-text').value || null, manualFormat: f};
+}
+$('l-tpl-mode').onchange = tplShow;
+$('l-tpl-fetch').onclick = async () => {
+  try { const r = await api('/api/models/template?model=' + encodeURIComponent(loadTarget)); $('l-tpl-text').value = r.template || ''; if (!r.template) $('l-tpl-out').textContent = 'The model file has no chat template.'; }
+  catch (e) { $('l-tpl-out').style.display = ''; $('l-tpl-out').textContent = e.message; }
+};
+$('l-tpl-preview').onclick = async () => {
+  const out = $('l-tpl-out'); out.style.display = '';
+  try {
+    const r = await api('/api/models/template/preview', {method:'POST', body:{model: loadTarget, template: collectTemplate()}});
+    out.textContent = r.error ? 'Error: ' + r.error : r.prompt + (r.stopStrings?.length ? '\n— stops at: ' + r.stopStrings.join(' ') : '') + '\n— rendered by: ' + r.engine;
+  } catch (e) { out.textContent = e.message; }
+};
+async function showTemplateInfo(id) {
+  $('l-tpl-info').textContent = '';
+  $('l-tpl-out').style.display = 'none';
+  try {
+    const r = await api('/api/models/template?model=' + encodeURIComponent(id));
+    $('l-tpl-info').textContent = r.hasTemplate ? `The model file has a chat template (${r.template.length} characters; reasoning: ${r.reasoning}, tools: ${r.toolFormat}).` : 'The model file has no chat template; ChatML is used unless you set one here.';
+  } catch {}
+  try { const s = window._settings || await api('/api/settings'); $('l-template').open = !!s.alwaysShowTemplate || $('l-tpl-mode').value !== 'auto'; } catch {}
+}
 // models that can act as draft for speculative decoding (same vocabulary, much smaller) + suggested downloads
 async function loadDrafts(id) {
   const sel = $('l-draft');
@@ -967,7 +1037,7 @@ async function openLoad(id, emb, mode = 'load') {
   $('l-go').style.display = mode === 'defaults' ? 'none' : '';
   $('l-clear').style.display = d.hasLoad || d.hasGeneration ? '' : 'none';
   $('l-badge').textContent = d.hasLoad || d.hasGeneration ? 'saved defaults applied' : 'global defaults';
-  loadDrafts(id);
+  loadDrafts(id); showTemplateInfo(id);
   loadTarget = id; $('loadname').textContent = id; $('l-emb').checked = emb; $('l-msg').textContent = ''; $('l-msg').className = 'dim';
   $('l-force').style.display = 'none'; $('l-fit').textContent = 'Estimating memory use…';
   $('loaddlg').showModal();
@@ -1145,6 +1215,7 @@ async function loadSettings() {
   $('s-maxdl').value = s.maxConcurrentDownloads || 2;
   $('s-feed').value = s.updateFeedUrl || ''; $('s-updates').checked = !!s.checkUpdates; $("s-tray").checked = !!s.minimizeToTray; $('s-debug').checked = !!s.debugRequests; $('s-reastext').checked = s.anthropicReasoningAsText !== false;
   $('s-guard').value = s.loadGuardrail || 'balanced'; $('s-dedicated').checked = !!s.limitToDedicatedGpuMemory;
+  $('s-showtpl').checked = !!s.alwaysShowTemplate;
   window._settings = s;
   $('s-load').innerHTML = ['contextSize','gpuLayers','threads','batchSize'].map(k => `<div><label>${k}</label><input data-k="${k}" value="${s.defaultLoad[k] ?? ''}"></div>`).join('') +
     `<div><label>device</label><select data-k="device"><option>cpu</option><option>auto</option><option>gpu</option></select></div>`;
@@ -1313,6 +1384,7 @@ async function saveSettings() {
   s.maxConcurrentDownloads = Number($('s-maxdl').value) || 2; s.requireAuth = $('s-auth').checked;
   s.updateFeedUrl = $('s-feed').value.trim() || null; s.checkUpdates = $('s-updates').checked; s.minimizeToTray = $('s-tray').checked; s.debugRequests = $('s-debug').checked; s.anthropicReasoningAsText = $('s-reastext').checked;
   s.loadGuardrail = $('s-guard').value; s.limitToDedicatedGpuMemory = $('s-dedicated').checked;
+  s.alwaysShowTemplate = $('s-showtpl').checked;
   $('s-load').querySelectorAll('[data-k]').forEach(el => { const k = el.dataset.k; s.defaultLoad[k] = el.tagName === 'SELECT' ? el.value : (el.value === '' ? null : (isNaN(el.value) ? el.value : Number(el.value))); });
   if (s.apiKey) { apiKey = s.apiKey; localStorage.setItem('apikey', apiKey); }
   document.querySelectorAll('#settings .bad').forEach(el => { el.classList.remove('bad'); el.title = ''; });

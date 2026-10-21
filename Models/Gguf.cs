@@ -40,6 +40,10 @@ public class GgufInfo
     public long PoolingType { get; set; } = -1;
     /// <summary>Built-in multi-token-prediction heads (GGUF <c>nextn_predict_layers</c>); 0 when the model has none. Detected only: the pinned engine cannot use them yet.</summary>
     public long MtpLayers { get; set; }
+    /// <summary>Ids of the BOS / EOS tokens (-1 when the file does not say) and where the token list starts in the file.</summary>
+    public long BosId { get; set; } = -1;
+    public long EosId { get; set; } = -1;
+    public long TokensOffset { get; set; } = -1;
     /// <summary>Multimodal projector (mmproj) files: which encoders they carry.</summary>
     public bool HasVisionEncoder { get; set; }
     public bool HasAudioEncoder { get; set; }
@@ -94,6 +98,7 @@ public class GgufInfo
             {
                 string key = ReadString(r);
                 uint type = r.ReadUInt32();
+                long valuePos = fs.Position;
                 object? v = ReadValue(r, type);
                 switch (key)
                 {
@@ -105,7 +110,9 @@ public class GgufInfo
                     case "tokenizer.chat_template": info.HasChatTemplate = true; info.ChatTemplate = v as string; break;
                     case "clip.has_vision_encoder": info.HasVisionEncoder = v is true; break;
                     case "clip.has_audio_encoder": info.HasAudioEncoder = v is true; break;
-                    case "tokenizer.ggml.tokens": info.VocabSize = v is SkippedArray sa ? sa.Count : 0; break;
+                    case "tokenizer.ggml.bos_token_id": info.BosId = ToLong(v); break;
+                    case "tokenizer.ggml.eos_token_id": info.EosId = ToLong(v); break;
+                    case "tokenizer.ggml.tokens": info.VocabSize = v is SkippedArray sa ? sa.Count : 0; info.TokensOffset = valuePos; break;
                     default:
                         if (info.Architecture.Length > 0 && key.StartsWith(info.Architecture + "."))
                         {
@@ -164,6 +171,31 @@ public class GgufInfo
         if (fileType is >= 0 && fileType < FileTypeNames.Length) info.Quantization = FileTypeNames[fileType.Value];
         if (info.Architecture is "bert" or "nomic-bert" or "jina-bert-v2" or "modern-bert") info.IsEmbeddingModel = true;
         return info;
+    }
+
+    /// <summary>Text of the requested tokens, read from the token list of the file (which the header reader skips).</summary>
+    public static Dictionary<long, string> ReadTokenText(string path, GgufInfo info, IEnumerable<long> ids)
+    {
+        var wanted = new HashSet<long>(ids);
+        var result = new Dictionary<long, string>();
+        if (info.TokensOffset < 0 || wanted.Count == 0) return result;
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 16);
+            using var r = new BinaryReader(fs, Encoding.UTF8);
+            fs.Seek(info.TokensOffset, SeekOrigin.Begin);
+            if (r.ReadUInt32() != 8) return result;                       // array of strings
+            ulong n = r.ReadUInt64();
+            long last = wanted.Max();
+            for (ulong i = 0; i < n && (long)i <= last; i++)
+            {
+                ulong len = r.ReadUInt64();
+                if (wanted.Contains((long)i) && len < 4096) { result[(long)i] = Encoding.UTF8.GetString(r.ReadBytes((int)len)); }
+                else fs.Seek((long)len, SeekOrigin.Current);
+            }
+        }
+        catch { }
+        return result;
     }
 
     private static long ToLong(object? v) => v switch { null => 0, string => 0, SkippedArray => 0, _ => Convert.ToInt64(v) };

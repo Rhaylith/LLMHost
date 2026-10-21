@@ -27,7 +27,8 @@ internal static class GgufBuilder
 {
     public static byte[] Build(string arch = "llama", int blocks = 4, int embd = 64, int heads = 4, int kvHeads = 2, int ctx = 2048,
         int vocab = 5, string? chatTemplate = null, int dataBytesPerTensor = 256, bool truncate = false, int? experts = null,
-        string name = "Test Model", int? poolingType = null, bool? clipVision = null, bool? clipAudio = null)
+        string name = "Test Model", int? poolingType = null, bool? clipVision = null, bool? clipAudio = null,
+        int? bosId = null, int? eosId = null)
     {
         var ms = new MemoryStream();
         var w = new BinaryWriter(ms, Encoding.UTF8);
@@ -49,6 +50,8 @@ internal static class GgufBuilder
             () => KvU32($"{arch}.attention.head_count", (uint)heads),
             () => KvU32($"{arch}.attention.head_count_kv", (uint)kvHeads),
         };
+        if (bosId.HasValue) kvs.Add(() => KvU32("tokenizer.ggml.bos_token_id", (uint)bosId.Value));
+        if (eosId.HasValue) kvs.Add(() => KvU32("tokenizer.ggml.eos_token_id", (uint)eosId.Value));
         if (experts.HasValue) kvs.Add(() => KvU32($"{arch}.expert_count", (uint)experts.Value));
         if (poolingType.HasValue) kvs.Add(() => KvU32($"{arch}.pooling_type", (uint)poolingType.Value));
         void KvBool(string k, bool v) { Str(k); w.Write(7u); w.Write((byte)(v ? 1 : 0)); }
