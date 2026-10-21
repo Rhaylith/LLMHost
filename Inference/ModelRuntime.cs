@@ -486,6 +486,8 @@ public sealed class ModelRuntime : IDisposable
         public string Prompt = "";
         public IReadOnlyList<byte[]>? Images;
         public bool Multimodal;
+        /// <summary>The prompt has a token signature (images as stand-in tokens), so its KV cache can be reused and kept.</summary>
+        public bool ImageReuse;
         public GenerationOptions G = null!;
         public GenerationStats Stats = null!;
         public CancellationToken Ct;
@@ -591,6 +593,8 @@ public sealed class ModelRuntime : IDisposable
             {
                 using var chunks = TokenizeMultimodal(prompt, images!);
                 promptTokens = (int)chunks.CountTokens();
+                var sig = ImageSignature(chunks, images!);
+                if (sig != null) { req.Tokens = sig; req.ImageReuse = true; }
             }
         }
         int room = (int)ContextSize - promptTokens - 1;
@@ -692,7 +696,7 @@ public sealed class ModelRuntime : IDisposable
     {
         Slot? best = null; int bestCommon = 0;
         int need = Math.Min(MinReuseTokens, Math.Max(1, req.Tokens.Length - 1));
-        if (!req.Multimodal && req.G.CachePrompt)
+        if (req.G.CachePrompt && (!req.Multimodal || req.ImageReuse))
             foreach (var s in _slots.Where(s => s.Req == null))
             {
                 int common = CommonPrefix(s.Cache, req.Tokens);
@@ -714,7 +718,7 @@ public sealed class ModelRuntime : IDisposable
             var r = s.Req!;
             s.Req = null;
             try { r.Sampler.Dispose(); } catch { }
-            if (r.Multimodal) ClearSlot(s);
+            if (r.Multimodal && !r.ImageReuse) ClearSlot(s);
             r.Out.Writer.TryComplete();
         }
 
@@ -816,7 +820,7 @@ public sealed class ModelRuntime : IDisposable
         {
             var r = s.Req;
             if (r == null || r.InFlight.Count == 0) continue;
-            if (!r.Multimodal) s.Cache.AddRange(r.InFlight);
+            if (!r.Multimodal || r.ImageReuse) s.Cache.AddRange(r.InFlight);
             r.NextPos += r.InFlight.Count;
             if (r.State == SlotState.Prefill) r.PromptIndex += r.InFlight.Count;
             r.InFlight = new List<LLamaToken>();
@@ -830,6 +834,105 @@ public sealed class ModelRuntime : IDisposable
             try { SampleAndHandle(s, idx, ctx); }
             catch (Exception ex) { Fail(s, ex); }
         }
+    }
+
+    // ------------------------------------------------------------------ prompts with images: token signature and KV reuse
+    //
+    // A prompt with pictures is a list of chunks: text (real tokens) and images (N embeddings each). To compare it with what a
+    // slot has cached, every image becomes N stand-in "tokens" derived from the picture's hash; they can never equal a real
+    // token, so the usual longest-common-prefix logic works. An image is reused as a whole or not at all.
+
+    private static int ImageHash(byte[] data)
+    {
+        return BitConverter.ToInt32(System.Security.Cryptography.SHA256.HashData(data), 0);
+    }
+
+    /// <summary>Stand-in token of a picture's i-th embedding: always negative, so never a vocabulary id.</summary>
+    internal static LLamaToken ImageToken(int hash, int i) => (LLamaToken)(-1 - (int)(((uint)hash * 2654435761u + (uint)i * 40503u) & 0x3FFFFFFF));
+
+    /// <summary>The token signature of a tokenized prompt, or null when its KV cache cannot be reused (M-RoPE models, image count mismatch).</summary>
+    private LLamaToken[]? ImageSignature(SafeMtmdInputChunks chunks, IReadOnlyList<byte[]> images)
+    {
+        if (_mtmd == null || _mtmd.UsesMRope) return null;
+        var sig = new List<LLamaToken>((int)chunks.CountTokens());
+        int next = 0;
+        foreach (var chunk in chunks.Enumerate())
+        {
+            if (chunk.Type == SafeMtmdInputChunk.SafeMtmdInputChunkType.Text)
+            {
+                foreach (var t in chunk.GetTextTokensSpan()) sig.Add(t);
+                continue;
+            }
+            if (next >= images.Count || (int)chunk.NPos != (int)chunk.NTokens) return null;
+            int hash = ImageHash(images[next++]);
+            for (int i = 0; i < (int)chunk.NTokens; i++) sig.Add(ImageToken(hash, i));
+        }
+        return next == images.Count ? sig.ToArray() : null;
+    }
+
+    /// <summary>
+    /// Evaluates a tokenized multimodal prompt after the part the slot already holds. Returns the number of reused cells;
+    /// <paramref name="nPast"/> is the position after the prompt, with logits ready for the last token.
+    /// </summary>
+    private int EvaluateWithReuse(Slot slot, GenRequest req, SafeMtmdInputChunks chunks, LLamaContext ctx, out int nPast)
+    {
+        var seq = (LLamaSeqId)slot.Id;
+        int reuse = CommonPrefix(slot.Cache, req.Tokens);
+
+        // an image is reused whole or not at all: step back to where the chunk containing the cut starts
+        var layout = new List<(SafeMtmdInputChunk Chunk, int Start, int Cells, bool Text)>();
+        int pos = 0;
+        foreach (var c in chunks.Enumerate())
+        {
+            int n = (int)c.NTokens;
+            layout.Add((c, pos, n, c.Type == SafeMtmdInputChunk.SafeMtmdInputChunkType.Text));
+            pos += n;
+        }
+        foreach (var l in layout)
+            if (!l.Text && reuse > l.Start && reuse < l.Start + l.Cells) { reuse = l.Start; break; }
+
+        // drop the old tail from the sequence (some architectures cannot: then start over)
+        if (reuse < slot.Cache.Count || reuse == 0)
+        {
+            bool ok = false;
+            if (reuse > 0)
+            {
+                ctx.NativeHandle.MemorySequenceRemove(seq, reuse, -1);
+                ok = (int)ctx.NativeHandle.MemorySequenceMaxPosition(seq) == reuse - 1;
+            }
+            if (!ok) { ClearSlot(slot); reuse = 0; }
+        }
+        if (reuse > 0 && reuse < slot.Cache.Count) slot.Cache.RemoveRange(reuse, slot.Cache.Count - reuse);
+
+        nPast = reuse;
+        for (int ci = 0; ci < layout.Count; ci++)
+        {
+            var (chunk, start, cells, isText) = layout[ci];
+            int end = start + cells;
+            if (end <= reuse) continue;
+            bool last = ci == layout.Count - 1;
+            if (isText)
+            {
+                var toks = chunk.GetTextTokensSpan();
+                int from = Math.Max(0, reuse - start);
+                int size = (int)Math.Max(1, Options.BatchSize);
+                var batch = new LLamaBatch();
+                for (int i = from; i < toks.Length; i += size)
+                {
+                    batch.Clear();
+                    int stop = Math.Min(toks.Length, i + size);
+                    for (int j = i; j < stop; j++) batch.Add(toks[j], nPast++, seq, last && j == toks.Length - 1);
+                    if (ctx.Decode(batch) != DecodeResult.Ok)
+                        throw new InvalidOperationException("Decoding the text around the images failed.");
+                }
+            }
+            else
+            {
+                var er = _mtmd!.NativeHandle.EvaluateChunk(chunk.NativePtr, ctx.NativeHandle, ref nPast, slot.Id, (int)Options.BatchSize, last);
+                if (er != 0) throw new InvalidOperationException($"Image evaluation failed (status {er}).");
+            }
+        }
+        return reuse;
     }
 
     private void Admit(Slot slot, GenRequest req, LLamaContext ctx)
@@ -866,16 +969,30 @@ public sealed class ModelRuntime : IDisposable
         }
 
         // ---- multimodal prompt: images are encoded by the projector and evaluated together with the text.
-        // The KV of image content cannot be shared between requests, so the slot starts empty and is dropped afterwards.
-        ClearSlot(slot);
-        int nPast = 0;
-        lock (_mtmdLock)
+        int nPast = 0, cached = 0;
+        if (!req.ImageReuse || !req.G.CachePrompt)
         {
-            using var chunks = TokenizeMultimodal(req.Prompt, req.Images!);
-            var er = _mtmd!.EvaluateChunks(chunks, ctx.NativeHandle, ref nPast, slot.Id, (int)Options.BatchSize, true);
-            if (er != 0) throw new InvalidOperationException($"Image/prompt evaluation failed (status {er}).");
+            // no usable token signature (M-RoPE models, mismatched images): the slot starts empty and is dropped afterwards
+            ClearSlot(slot);
+            lock (_mtmdLock)
+            {
+                using var chunks = TokenizeMultimodal(req.Prompt, req.Images!);
+                var er = _mtmd!.EvaluateChunks(chunks, ctx.NativeHandle, ref nPast, slot.Id, (int)Options.BatchSize, true);
+                if (er != 0) throw new InvalidOperationException($"Image/prompt evaluation failed (status {er}).");
+            }
         }
-        req.Stats.CachedTokens = 0;
+        else
+        {
+            // images are part of the cached prefix: only what follows the shared start is evaluated
+            lock (_mtmdLock)
+            {
+                using var chunks = TokenizeMultimodal(req.Prompt, req.Images!);
+                cached = EvaluateWithReuse(slot, req, chunks, ctx, out nPast);
+            }
+            slot.Cache.Clear();
+            slot.Cache.AddRange(req.Tokens);
+        }
+        req.Stats.CachedTokens = cached;
         req.Stats.PromptTokens = req.PromptTokens;
         req.NextPos = nPast;
         req.State = SlotState.Generating;
@@ -967,7 +1084,7 @@ public sealed class ModelRuntime : IDisposable
         try { r.Sampler.Dispose(); } catch { }
         slot.Req = null;
         slot.LastUsed = ++_tick;
-        if (!r.G.CachePrompt || r.Multimodal) ClearSlot(slot);
+        if (!r.G.CachePrompt || (r.Multimodal && !r.ImageReuse)) ClearSlot(slot);
         r.Out.Writer.TryComplete();
     }
 

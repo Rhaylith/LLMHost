@@ -88,9 +88,10 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
 #### §1.2 Vision follow-ups — **L** (split into independently shippable pieces)
 1. ✅ **Per-image options (S).** `detail: low|high|auto` on `image_url` → max edge (e.g. 512 / 1344) resized in `ImageInput`
    As built: `System.Drawing` (the app is Windows-only); `vision.maxImageEdge` (0 = off) and `vision.lowDetailEdge` (512) in settings; `detail` read from OpenAI chat, Responses and native `image` parts; the CLI `/image` applies the general limit.
-2. **Encoded-image cache (M).** Hash image bytes (xxhash) → cache the `mtmd` encoded chunk/embeddings per runtime (LRU, N MB);
+2. ✅ **Encoded-image cache (M).** Hash image bytes (xxhash) → cache the `mtmd` encoded chunk/embeddings per runtime (LRU, N MB);
    lets a request with images reuse the KV prefix too: store `ImageKey` list on cache entries (§1.1) and treat an image chunk as a
    token run of known length. Removes "requests with images always re-evaluate".
+   As built: the KV reuse only (`ImageSignature`, `EvaluateWithReuse` in `ModelRuntime`): each image becomes N stand-in tokens from the hash of its bytes, the usual longest-prefix logic picks the slot, and evaluation resumes at the first changed chunk. An embedding-only cache for an image that moved position was not built. Not used for M-RoPE models (`UsesMRope`: position count differs from token count), which keep the old behaviour. Verified on SmolVLM-256M: follow-up turns reuse the image, and a warm answer equals a cold one.
 3. ✅ **Images in tool results (M).** Accept tool-result content arrays containing images in OpenAI `tool` messages, Responses
    `function_call_output`, Anthropic `tool_result` blocks; map to a synthetic user message carrying the image after the tool
    message when the template cannot embed images in tool turns. Add MCP tool results that return `image` content.

@@ -157,7 +157,6 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - Native backend (CPU vs Vulkan vs custom) is chosen once per process; per-model CPU placement works via `gpu_layers = 0`.
 - Only one request per loaded model runs at a time.
 - Tool calling is prompt-based and model-quality dependent; no reasoning-content field.
-- Requests with images always re-evaluate the prompt (the KV cache is not shared with image content).
 - Auth is a single static key accepted via `Authorization` or `x-api-key`.
 - Download job list is in-memory only (partial files do resume when re-requested).
 - GPU index → Vulkan device mapping is assumed to match DXGI order.

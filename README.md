@@ -54,7 +54,7 @@ see [docs/adding-options.md](docs/adding-options.md). Saved data is versioned (`
 ## Notes / limits
 
 * GGUF models only (llama.cpp). Vision models need their `mmproj` file next to the model (downloaded automatically with `get`); audio input is not supported yet.
-* Requests that contain images re-evaluate the whole prompt (the KV cache is not shared with image content).
+* Follow-up turns of a conversation with images are served from the prompt cache (pictures count as stand-in tokens; an image is reused whole or not at all). Models with M-RoPE vision (Qwen2-VL family) still re-evaluate the prompt.
 * CPU-vs-GPU backend choice (`config backend auto|vulkan|cpu`) is process wide; per-model CPU/GPU placement is
   controlled with `--cpu`, `--gpu`, `--gpu-layers`.
 * The prompt/KV cache keeps several conversations per loaded model (`cacheSlots`, default parallel requests + 2): alternating between chats reuses each one's evaluated prompt, and caches can be saved to disk (`POST /api/models/cache/save`, `promptCache.autoSave`). Idle caches share the context window and are recycled oldest first.
