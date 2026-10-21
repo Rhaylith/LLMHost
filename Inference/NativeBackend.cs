@@ -35,6 +35,18 @@ public static class NativeBackend
     /// <summary>Id of the runtime build in use ("bundled:vulkan", "user:name"...); empty before initialisation.</summary>
     public static string ActiveRuntimeId { get; private set; } = "";
 
+    public static LogLevel MapNativeLevel(LLamaLogLevel level) => level switch
+    {
+        LLamaLogLevel.Debug => LogLevel.Debug,
+        LLamaLogLevel.Warning => LogLevel.Warn,
+        LLamaLogLevel.Error => LogLevel.Error,
+        _ => LogLevel.Info,
+    };
+
+    /// <summary>Lowest llama.cpp level kept. The older <c>verboseNativeLog</c> switch still forces debug.</summary>
+    public static LogLevel NativeThreshold(AppSettings s) =>
+        s.VerboseNativeLog ? LogLevel.Debug : LogLevels.Parse(s.Logging?.Native, LogLevel.Info);
+
     public static void Initialize()
     {
         lock (Gate)
@@ -45,8 +57,9 @@ public static class NativeBackend
 
             cfg.WithLogCallback((level, message) =>
             {
-                if (level == LLamaLogLevel.Debug && !s.VerboseNativeLog) return;
-                LogBuffer.Add("llama", message);
+                var mapped = MapNativeLevel(level);
+                if (mapped < NativeThreshold(AppSettings.Current)) return;
+                LogBuffer.Add("llama", message, mapped);
             });
 
             string backend = s.Backend.ToLowerInvariant();

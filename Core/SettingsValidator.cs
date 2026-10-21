@@ -40,6 +40,14 @@ public static class SettingsValidator
             catch { e.Add(new("modelsDirectory", "Models folder is not a valid path.")); }
         }
 
+        if (s.Logging == null) e.Add(new("logging", "Missing."));
+        else
+        {
+            OneOf("logging.level", s.Logging.Level, new[] { "trace", "debug", "info", "warn", "error", "off" }, "Log level");
+            OneOf("logging.native", s.Logging.Native, new[] { "debug", "info", "warn", "error", "off" }, "Native log level");
+            Range("logging.retainDays", s.Logging.RetainDays, 0, 3650, "Log retention (days)");
+            Range("logging.maxFileMb", s.Logging.MaxFileMb, 1, 1024, "Log file size (MB)");
+        }
         ValidateLoad(s.DefaultLoad, "defaultLoad", e, Range, OneOf);
         ValidateGeneration(s.DefaultGeneration, "defaultGeneration", e, Range, OneOf);
         return e;

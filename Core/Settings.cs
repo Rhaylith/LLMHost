@@ -187,6 +187,7 @@ public class AppSettings
     /// <summary>Downloads running at the same time; the rest wait in the queue.</summary>
     public int MaxConcurrentDownloads { get; set; } = 2;
     public bool VerboseNativeLog { get; set; }
+    public LoggingSettings Logging { get; set; } = new();
     /// <summary>Write the last /v1/messages request to ~/.llmhost/debug/anthropic-last.json (to see what a client such as Claude Code really sends). Contains your prompts.</summary>
     public bool DebugRequests { get; set; }
     /// <summary>Send reasoning to Anthropic-API clients as ordinary text (inside a think tag) so it streams visibly; off = separate thinking blocks.</summary>
@@ -223,6 +224,9 @@ public class AppSettings
             lock (Gate) return _current ??= Load();
         }
     }
+
+    /// <summary>The settings if they are already loaded, without triggering a load (safe to call from logging).</summary>
+    internal static AppSettings? Loaded { get { lock (Gate) return _current; } }
 
     private static AppSettings Load()
     {
@@ -285,7 +289,7 @@ public class AppSettings
         MinimizeToTray = other.MinimizeToTray; CheckUpdates = other.CheckUpdates; DebugRequests = other.DebugRequests; AnthropicReasoningAsText = other.AnthropicReasoningAsText;
         UpdateFeedUrl = string.IsNullOrWhiteSpace(other.UpdateFeedUrl) ? null : other.UpdateFeedUrl.Trim();
         LoadGuardrail = other.LoadGuardrail is "off" or "strict" ? other.LoadGuardrail : "balanced";
-        VerboseNativeLog = other.VerboseNativeLog; DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
+        VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
         Save();
     }
 }

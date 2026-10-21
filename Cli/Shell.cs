@@ -160,6 +160,8 @@ public class Shell
             case "stop": await _server.StopAsync(); return true;
             case "logs": case "log":
                 if (a.Positional.FirstOrDefault() is "stream" or "follow" || a.Flag("follow") || a.Flag("f")) return await LogStreamAsync(a);
+                if (a.Positional.FirstOrDefault() is "level") return LogLevelCommand(a);
+                if (a.Positional.FirstOrDefault() is "path" or "dir") { Ui.Info(LogBuffer.Sink.Directory); return true; }
                 return Logs(a);
             case "clear": case "new": NewConversation(); Ui.Info(Ui.Dim("Conversation cleared.")); return true;
             case "history": return ShowHistory();
@@ -230,6 +232,7 @@ public class Shell
               server start|stop|status [--json]   control the background server (daemon); also: daemon up|down|status|update|install|uninstall
               chat [model] [--server url] [--token t]   terminal chat; against the running daemon when there is one
               log stream                follow the daemon log live
+              log level [lvl] [--native lvl]   show / set how much goes to the log files (trace|debug|info|warn|error|off); log path = folder
               claude [folder] [--model id]   open PowerShell with Claude Code using the running server and a loaded model
               stop                      stop the server (in this shell)
               config [key] [value]      backend, port, host, apikey, modelsdir, hftoken, cors, anthropic
@@ -1078,6 +1081,22 @@ public class Shell
     }
 
     private bool _daemonMode;
+
+    /// <summary>log level [&lt;level&gt;] [--native &lt;level&gt;] — shows or sets how much is written to the log files.</summary>
+    private bool LogLevelCommand(Args a)
+    {
+        var cfg = _host.Settings.Logging;
+        string? level = a.Positional.Count > 1 ? a.Positional[1] : null;
+        string? native = a.Value("native");
+        string[] levels = { "trace", "debug", "info", "warn", "error", "off" };
+        if (level != null && !levels.Contains(level.ToLowerInvariant())) throw new ArgumentException($"Level must be one of: {string.Join(", ", levels)}");
+        if (native != null && !levels.Skip(1).Contains(native.ToLowerInvariant())) throw new ArgumentException($"Native level must be one of: {string.Join(", ", levels.Skip(1))}");
+        if (level != null) cfg.Level = level.ToLowerInvariant();
+        if (native != null) cfg.Native = native.ToLowerInvariant();
+        if (level != null || native != null) _host.Settings.Save();
+        Ui.Info($"log level: {cfg.Level}   native (llama.cpp) level: {cfg.Native}   files: {LogBuffer.Sink.Directory}");
+        return true;
+    }
 
     private bool Logs(Args a)
     {
