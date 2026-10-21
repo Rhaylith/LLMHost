@@ -1,0 +1,1365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLMHost — Local LLM</title>
+<style>
+:root{--bg:#14161a;--panel:#1c1f26;--panel2:#242832;--line:#2f3542;--text:#e6e8ee;--dim:#8b93a7;--acc:#e5484d;--acc2:#4c8bf5;--ok:#3fb950}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex}
+nav{width:190px;background:var(--panel);border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:4px;flex:none}
+nav h1{font-size:15px;margin:0 6px 12px}
+nav button{background:none;border:0;color:var(--dim);text-align:left;padding:8px 10px;border-radius:6px;cursor:pointer;font:inherit}
+nav button.on,nav button:hover{background:var(--panel2);color:var(--text)}
+#status{margin-top:auto;font-size:12px;color:var(--dim);padding:6px}
+main{flex:1;min-width:0;display:flex}
+section{display:none;flex:1;min-width:0;overflow:auto;padding:18px}
+section.on{display:flex}
+h2{margin:0 0 12px;font-size:16px}
+h3{margin:18px 0 8px;font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+button.b,.btn{background:var(--acc2);border:0;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+button.b.sec{background:var(--panel2);border:1px solid var(--line)}
+button.b.red{background:var(--acc)}
+button.b:disabled{opacity:.5;cursor:default}
+input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 8px;font:inherit;width:100%}
+textarea{resize:vertical}
+label{display:block;font-size:12px;color:var(--dim);margin:10px 0 3px}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{color:var(--dim);font-weight:500;font-size:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px}
+.tag{display:inline-block;background:var(--panel2);border-radius:4px;padding:0 6px;font-size:11px;color:var(--dim);margin-right:4px}
+.ok{color:var(--ok)}.dim{color:var(--dim)}.err{color:var(--acc)}
+.col{flex-direction:column;gap:0}
+/* chat */
+#chat{padding:0}
+#chats{width:220px;border-right:1px solid var(--line);overflow:auto;padding:10px;flex:none}
+#chats div.it{padding:7px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#chats div.it:hover,#chats div.it.on{background:var(--panel2)}
+#conv{flex:1;display:flex;flex-direction:column;min-width:0}
+#msgs{flex:1;overflow:auto;padding:18px}
+.msg{max-width:820px;margin:0 auto 16px}
+.msg .who{font-size:11px;color:var(--dim);text-transform:uppercase;margin-bottom:2px}
+.msg .body{white-space:pre-wrap;word-wrap:break-word}
+.msg.user .body{background:var(--panel2);padding:8px 12px;border-radius:8px}
+.msg pre{background:#0d0f12;border:1px solid var(--line);border-radius:6px;padding:10px;overflow:auto;white-space:pre}
+.msg code{font-family:Consolas,monospace;font-size:13px}
+.msg .meta{font-size:11px;color:var(--dim);margin-top:3px}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}.thumbs img{height:84px;max-width:160px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+#attachments{display:none;max-width:860px;width:100%;margin:0 auto;padding:8px 12px 0;gap:8px;flex-wrap:wrap;align-items:center}
+#attachments .att{position:relative}#attachments .att img{height:64px;border-radius:6px;border:1px solid var(--line);display:block}
+#attachments .att button{position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:18px;height:18px;line-height:16px;padding:0;background:var(--acc);color:#fff;cursor:pointer;font-size:12px}
+.toolcall{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 8px;margin-top:6px;font-size:12px;word-break:break-all}
+.msg.tool{opacity:.85}
+.msg .acts{display:none;margin-left:8px}.msg:hover .acts{display:inline}.msg .acts button,.variants button{background:none;border:0;color:var(--dim);cursor:pointer;padding:0 4px;font-size:13px}
+.msg .acts button:hover,.variants button:hover:not(:disabled){color:var(--text)}.variants{margin-left:6px;font-size:11px;color:var(--dim)}.variants button:disabled{opacity:.3;cursor:default}
+.think{color:var(--dim);border-left:2px solid var(--line);padding-left:10px;font-style:italic}
+#composer{border-top:1px solid var(--line);padding:12px;display:flex;gap:8px;max-width:860px;width:100%;margin:0 auto}
+#composer textarea{flex:1;height:64px}
+#params{width:280px;border-left:1px solid var(--line);overflow:auto;padding:12px;flex:none}
+.row{display:flex;gap:8px;align-items:center}
+.row input[type=range]{flex:1;padding:0}
+.row .v{width:46px;text-align:right;color:var(--dim);font-size:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bar{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--acc2)}
+pre.log{background:#0d0f12;padding:10px;border-radius:6px;overflow:auto;font:12px/1.4 Consolas,monospace;white-space:pre-wrap}
+.qm{display:inline-block;margin-left:6px;width:15px;height:15px;line-height:15px;text-align:center;border-radius:50%;background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-size:10px;font-weight:700;cursor:help;vertical-align:1px;user-select:none}
+.qm:hover,.qm:focus{background:var(--acc2);color:#fff;border-color:var(--acc2);outline:0}
+#tip{display:none;position:fixed;z-index:1000;max-width:300px;background:#0d0f12;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.45;box-shadow:0 6px 20px #000a;pointer-events:none}
+#tip .tr,#tip .te{margin-top:5px;color:var(--dim)}#tip b{color:var(--text)}
+.help dl{margin:0 0 6px}.help .h{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:8px;max-width:860px}
+.help dt{font-weight:600}.help dd{margin:4px 0 0;color:var(--text)}.help .ex{margin-top:6px;padding:6px 8px;background:var(--panel2);border-radius:6px;color:var(--dim);font-size:12.5px}
+.help code{font-family:Consolas,monospace;font-size:12px;color:#9cc4ff}.help h3{margin-top:20px}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:18px;width:460px}
+dialog::backdrop{background:#0008}
+</style>
+</head>
+<body>
+<nav>
+  <h1>⚡ LLMHost</h1>
+  <button data-tab="chat" class="on">Chat</button>
+  <button data-tab="models">My Models</button>
+  <button data-tab="discover">Discover</button>
+  <button data-tab="settings">Server &amp; Settings</button>
+  <button data-tab="help">Help</button>
+  <button data-tab="logs">Logs</button>
+  <div id="status">…</div>
+</nav>
+<main>
+<!-- ======================== CHAT ======================== -->
+<section id="chat" class="on">
+  <div id="chats"><button class="b" style="width:100%" onclick="newChat()">+ New chat</button><div id="chatlist"></div></div>
+  <div id="conv">
+    <div id="msgs"></div>
+    <div id="attachments"></div>
+    <div id="tps" class="dim" style="display:none;max-width:860px;width:100%;margin:0 auto;padding:0 12px;font-size:12px"></div>
+    <div id="composer">
+      <textarea id="input" placeholder="Send a message… (Enter to send, Shift+Enter for newline)"></textarea>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button class="b sec" id="attach" title="Attach images (vision models) or documents (.pdf .docx .txt .md ...) - or drop them here">📎</button>
+        <input type="file" id="file" accept="image/*,.pdf,.docx,.txt,.md,.markdown,.csv,.json,.log,.xml,.html,.yaml,.yml,.py,.cs,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.sql" multiple hidden>
+        <button class="b" id="send">Send</button>
+        <button class="b red" id="stop" style="display:none">Stop</button>
+      </div>
+    </div>
+  </div>
+  <div id="params">
+    <h2>Parameters</h2>
+    <label>Model</label><select id="p-model"></select>
+    <button class="b sec" style="width:100%;margin-top:6px" onclick="launchClaudeCode($('p-model').value)" title="Opens PowerShell with ANTHROPIC_BASE_URL / ANTHROPIC_MODEL set for this server and starts Claude Code">Open in Claude Code (PowerShell)…</button>
+    <div class="row" style="margin-top:4px"><button class="b sec" style="flex:1" onclick="configureClaudeApp($('p-model').value)" title="Writes the connection settings into a Claude Code settings file so the Claude Code desktop app (and CLI) use this server in that folder">Configure Claude Code app…</button><button class="b sec" onclick="unconfigureClaudeApp()" title="Remove the entries again">Undo</button></div>
+    <label>System prompt</label><textarea id="p-system" rows="4"></textarea>
+    <label>Temperature</label><div class="row"><input type="range" id="p-temperature" min="0" max="2" step="0.05"><span class="v"></span></div>
+    <label>Top P</label><div class="row"><input type="range" id="p-top_p" min="0" max="1" step="0.01"><span class="v"></span></div>
+    <label>Top K</label><div class="row"><input type="range" id="p-top_k" min="0" max="200" step="1"><span class="v"></span></div>
+    <label>Min P</label><div class="row"><input type="range" id="p-min_p" min="0" max="1" step="0.01"><span class="v"></span></div>
+    <label>Repeat penalty</label><div class="row"><input type="range" id="p-repeat_penalty" min="1" max="2" step="0.01"><span class="v"></span></div>
+    <label>Frequency penalty</label><div class="row"><input type="range" id="p-frequency_penalty" min="-2" max="2" step="0.05"><span class="v"></span></div>
+    <label>Presence penalty</label><div class="row"><input type="range" id="p-presence_penalty" min="-2" max="2" step="0.05"><span class="v"></span></div>
+    <div class="grid2">
+      <div><label>Max tokens (-1 = ∞)</label><input type="number" id="p-max_tokens"></div>
+      <div><label>Seed (blank = random)</label><input type="number" id="p-seed"></div>
+    </div>
+    <label>Stop strings (comma separated)</label><input id="p-stop">
+    <label>Reasoning (thinking models)</label>
+    <select id="p-reasoning"><option value="">model default</option><option value="off">off</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="on">on</option></select>
+    <label title="Tools of the MCP servers configured in Settings"><input type="checkbox" id="p-mcp" style="width:auto"> Use MCP tools</label>
+    <select id="p-mcp-confirm"><option value="ask">Ask before each tool call</option><option value="never">Run tools without asking</option></select>
+    <label><input type="checkbox" id="p-json" style="width:auto"> JSON mode</label>
+    <label title="Reuse the evaluated prompt prefix between requests (KV cache)"><input type="checkbox" id="p-cache" style="width:auto" checked> Prompt cache</label>
+    <label>JSON schema (structured output)</label><textarea id="p-schema" rows="3" placeholder='{"type":"object","properties":{...}}'></textarea>
+    <h3>Presets</h3>
+    <div class="row"><select id="preset-sel"></select><button class="b sec" onclick="loadPreset()">Load</button></div>
+    <div class="row" style="margin-top:6px"><input id="preset-name" placeholder="name"><button class="b sec" onclick="savePreset()">Save</button></div>
+  </div>
+</section>
+
+<!-- ======================== MODELS ======================== -->
+<section id="models" class="col">
+  <h2>Downloads</h2>
+  <div id="mydownloads" style="margin-bottom:8px"><span class="dim">No downloads</span></div>
+  <h2 style="margin-top:20px">Loaded models</h2>
+  <div id="loaded"></div>
+  <h2 style="margin-top:20px">Downloaded models <span class="dim" id="mdir" style="font-size:12px;font-weight:400"></span></h2>
+  <div id="local"></div>
+  <h3>Import an existing .gguf file</h3>
+  <div class="row"><input id="imp-path" placeholder="C:\path\to\model.gguf (shards and the mmproj next to it come along)">
+    <select id="imp-mode" style="width:130px"><option value="copy">copy</option><option value="move">move</option><option value="link">link</option></select>
+    <button class="b" onclick="importModel()">Import</button></div>
+  <div class="row" style="margin-top:6px"><input id="imp-pub" placeholder="publisher (default: local)"><input id="imp-name" placeholder="model folder name (default: from the file)"></div>
+  <div id="imp-msg" class="dim" style="min-height:18px"></div>
+</section>
+
+<!-- ======================== DISCOVER ======================== -->
+<section id="discover" class="col">
+  <h2>Discover models</h2>
+  <div class="row"><input id="q" placeholder="Search Hugging Face for GGUF models (e.g. llama, qwen, mistral)…"><button class="b" onclick="search()">Search</button></div>
+  <div class="row" style="margin-top:8px"><input id="dl-input" placeholder="…or paste a Hugging Face link, user/model[:quant], user/model/file.gguf, or a direct .gguf URL"><button class="b" onclick="downloadInput()">Download</button></div>
+  <div id="dl-msg" class="dim" style="min-height:18px"></div>
+  <div id="results"></div>
+  <h3>Downloads</h3>
+  <div id="downloads"><span class="dim">No downloads</span></div>
+  <h3>Curated catalog</h3>
+  <div id="catalog"></div>
+</section>
+
+<!-- ======================== SETTINGS ======================== -->
+<section id="settings" class="col">
+  <h2>Hardware</h2>
+  <div class="card" id="hw"></div>
+  <h2>MCP servers</h2>
+  <div class="card" style="max-width:760px">
+    <div class="dim" style="margin-bottom:6px">mcp.json (Cursor notation): local servers with command / args / env, remote servers with url / headers.</div>
+    <textarea id="mcp-config" rows="8" style="font-family:Consolas,monospace;font-size:12px"></textarea>
+    <div class="row" style="margin-top:6px"><button class="b" onclick="saveMcp()">Save and reconnect</button><button class="b sec" onclick="loadMcp(true)">Connect and list tools</button><span id="mcp-msg" class="dim"></span></div>
+    <div id="mcp-servers" style="margin-top:8px"></div>
+  </div>
+  <h2 id="runtimes-h">Runtimes <span class="dim" style="font-size:12px;font-weight:400">(Ctrl+Shift+R)</span></h2>
+  <div class="card" id="runtimes"></div>
+  <h2>Server &amp; application settings</h2>
+  <div class="card" style="max-width:640px">
+    <div class="grid2">
+      <div><label>Bind host (0.0.0.0 = whole network)</label><input id="s-host"></div>
+      <div><label>Port</label><input type="number" id="s-port"></div>
+      <div><label>API key (blank = none)</label><input id="s-apikey"></div>
+      <div><label>GPU backend</label><select id="s-backend"><option>auto</option><option>vulkan</option><option>cpu</option></select></div>
+      <div><label>Models directory</label><input id="s-modelsdir"></div>
+      <div><label>Hugging Face token</label><input id="s-hftoken" type="password"></div>
+      <div><label>Max concurrent downloads</label><input type="number" id="s-maxdl" min="1" max="8"></div>
+      <div><label>Update feed URL (JSON with version, url, notes; blank = none)</label><input id="s-feed" placeholder="https://example.com/llmhost/latest.json"></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
+      <div><label>Load guardrail (refuse loads that exceed memory)</label><select id="s-guard"><option value="off">off</option><option value="balanced">balanced</option><option value="strict">strict</option></select></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0" title="Integrated GPUs then stop borrowing system RAM"><input type="checkbox" id="s-dedicated" style="width:auto"> Limit offload to dedicated GPU memory</label></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-cors" style="width:auto"> CORS</label><label style="margin:6px 0"><input type="checkbox" id="s-anthropic" style="width:auto"> Anthropic-compatible API (/v1/messages)</label><label style="margin:6px 0"><input type="checkbox" id="s-autoload" style="width:auto"> Auto-load model on request</label></div>
+    </div>
+    <h3>Default load parameters</h3>
+    <div class="grid2" id="s-load"></div>
+    <p><button class="b" onclick="saveSettings()">Save settings</button> <span class="dim" id="s-msg">Host, port, key and backend changes take effect after restarting the app.</span></p>
+  </div>
+  <h2>API tokens</h2>
+  <div class="card" style="max-width:760px">
+    <label><input type="checkbox" id="s-auth" style="width:auto"> Require an API token for /v1 and /api requests <span class="dim">(save settings to apply; this window keeps working)</span></label>
+    <div id="tokens" style="margin-top:8px"></div>
+    <div class="row" style="margin-top:10px"><input id="tk-name" placeholder="token name (e.g. my-laptop)"><button class="b" onclick="createToken()">Create token</button></div>
+    <div id="tk-perms" class="row" style="flex-wrap:wrap;margin-top:6px"></div>
+    <pre class="log" id="tk-secret" style="display:none;margin-top:8px"></pre>
+  </div>
+  <h2>API</h2>
+  <div class="card"><pre class="log" id="apiex"></pre></div>
+</section>
+
+<!-- ======================== LOGS ======================== -->
+<!-- ======================== HELP ======================== -->
+<section id="help" class="col">
+  <h2>Help: what the parameters mean</h2>
+  <input id="help-filter" placeholder="Filter (e.g. temperature, context, gpu, reasoning, tools)…" style="max-width:420px;margin-bottom:10px">
+  <div id="help-body" class="help">
+
+  <h3>Sampling (the Parameters panel in Chat)</h3>
+  <dl>
+    <div class="h" data-k="temperature"><dt>Temperature <span class="tag">0 – 2</span></dt>
+      <dd>How adventurous the next word choice is. Low = focused and repeatable, high = varied and creative.
+        <div class="ex">0.0–0.3 for code, extraction and facts · 0.7 for normal chat · 1.0+ for brainstorming or stories.</div></dd></div>
+    <div class="h" data-k="top p nucleus"><dt>Top P <span class="tag">0 – 1</span></dt>
+      <dd>Only the most likely words whose probabilities add up to P are considered. Lower = safer, more predictable.
+        <div class="ex">0.95 is a good default. 0.5 gives very conservative text. Change either Temperature or Top P, not both.</div></dd></div>
+    <div class="h" data-k="top k"><dt>Top K</dt>
+      <dd>Consider only the K most likely words at every step. 0 disables it.
+        <div class="ex">40 (default). 1 = always the single most likely word (deterministic, "greedy").</div></dd></div>
+    <div class="h" data-k="min p"><dt>Min P <span class="tag">0 – 1</span></dt>
+      <dd>Drops words that are less than P × (the best word's probability). A modern, gentler alternative to Top K / Top P.
+        <div class="ex">0.05 (default). 0.1 for tighter output at high temperatures.</div></dd></div>
+    <div class="h" data-k="repeat penalty frequency presence"><dt>Repeat / Frequency / Presence penalty</dt>
+      <dd>Discourage repeating words. <b>Repeat</b> (1.0 = off, 1.1 default) punishes anything seen recently; <b>Frequency</b> grows with each repetition;
+        <b>Presence</b> is a flat cost for any word already used. Negative frequency/presence values encourage repetition.
+        <div class="ex">If a small model loops ("the the the…"), raise Repeat penalty to 1.15 or Frequency penalty to 0.3.</div></dd></div>
+    <div class="h" data-k="max tokens length"><dt>Max tokens</dt>
+      <dd>Upper limit on the length of the answer. −1 = until the model stops or the context is full. One token ≈ ¾ of an English word.
+        <div class="ex">200 for short answers · 2000 for essays. The finish reason is <code>length</code> when the limit cut the answer.</div></dd></div>
+    <div class="h" data-k="seed"><dt>Seed</dt>
+      <dd>Fixes the random choices so the same prompt gives the same answer (with the same model and settings). Blank = random.
+        <div class="ex">Seed 42 + Temperature 0.7 → reproducible variations. Temperature 0 is always deterministic.</div></dd></div>
+    <div class="h" data-k="stop strings"><dt>Stop strings</dt>
+      <dd>Generation ends as soon as one of these appears (it is not included in the output). Comma separated; <code>\n</code> means a line break.
+        <div class="ex"><code>###, \n\n</code> — stop at a "###" marker or at the first blank line.</div></dd></div>
+    <div class="h" data-k="system prompt"><dt>System prompt</dt>
+      <dd>Standing instructions that apply to the whole conversation: role, tone, rules, format.
+        <div class="ex">"You are a concise assistant. Answer in at most three sentences and reply in German."</div></dd></div>
+    <div class="h" data-k="json mode schema structured output grammar"><dt>JSON mode / JSON schema</dt>
+      <dd>Forces the output to be valid JSON, or to match a JSON Schema exactly (enforced by a grammar while generating, so it cannot be malformed).
+        <div class="ex"><code>{"type":"object","properties":{"city":{"type":"string"},"temp_c":{"type":"number"}},"required":["city","temp_c"]}</code></div></dd></div>
+    <div class="h" data-k="prompt cache kv"><dt>Prompt cache</dt>
+      <dd>Keeps the already-processed start of the conversation in memory, so a follow-up message only processes the new text. Leave on; turn off to measure raw speed.
+        <div class="ex">The "N prompt tokens cached" note under a reply shows how much was reused.</div></dd></div>
+    <div class="h" data-k="reasoning thinking effort"><dt>Reasoning</dt>
+      <dd>For "thinking" models (Qwen3, DeepSeek-R1, gpt-oss…): <b>off</b> skips the thinking phase (fast), <b>low / medium</b> cap how long it may think
+        (≈500 / ≈2000 tokens), <b>high / on</b> let it think freely. Thinking is shown in its own grey block and is not sent back to the model.
+        <div class="ex">Quick factual questions: off. Maths or planning: high.</div></dd></div>
+    <div class="h" data-k="mcp tools"><dt>Use MCP tools</dt>
+      <dd>Gives the model the tools of the MCP servers in <i>Server &amp; Settings → MCP servers</i>. With "Ask before each tool call" you approve every call (Allow once / Always allow this tool / Deny).
+        <div class="ex">Ask "What files are in my project folder?" with a filesystem MCP server connected.</div></dd></div>
+  </dl>
+
+  <h3>Loading a model (Load dialog, ⚙ defaults dialog, <code>load</code> in the CLI)</h3>
+  <dl>
+    <div class="h" data-k="device gpu cpu offload layers"><dt>Device and GPU layers</dt>
+      <dd><b>CPU</b> uses only the processor. <b>GPU all</b> puts every layer in graphics memory (fastest). <b>GPU auto</b> offloads as many layers as fit. "GPU layers" sets an exact count (overrides Device).
+        <div class="ex">CLI: <code>load qwen3 --gpu max</code> · <code>--gpu auto</code> · <code>--gpu 0.5</code> (half of the layers) · <code>--gpu-layers 20</code>.</div></dd></div>
+    <div class="h" data-k="context length ctx"><dt>Context length</dt>
+      <dd>How many tokens (prompt + conversation + answer) the model can keep in view. Bigger = longer conversations, but more memory (KV cache).
+        <div class="ex">4096 for chat · 16384+ for long documents. The "Will it fit?" box shows the memory cost live.</div></dd></div>
+    <div class="h" data-k="batch size"><dt>Batch size</dt>
+      <dd>How many prompt tokens are processed at once. Larger = faster prompt processing, slightly more memory.</dd></div>
+    <div class="h" data-k="threads cpu"><dt>CPU threads</dt>
+      <dd>Threads used for the CPU part of generation. 0 = automatic (75% of the cores). On many-core CPUs, fewer threads can be faster.</dd></div>
+    <div class="h" data-k="kv cache quantization type k v flash attention"><dt>K / V cache type, Flash attention</dt>
+      <dd>The KV cache stores the conversation state. <b>q8_0</b> halves its memory, <b>q4_0</b> quarters it, with a small quality cost. A quantized V cache needs <b>Flash attention</b> (switched on automatically).
+        <div class="ex">Long context on a small GPU: K = q8_0, V = q8_0, Flash attention on.</div></dd></div>
+    <div class="h" data-k="mmap mlock"><dt>mmap / mlock</dt>
+      <dd><b>mmap</b> maps the model file instead of copying it (fast start, low load RAM). <b>mlock</b> pins it in RAM so it is never swapped out.</dd></div>
+    <div class="h" data-k="max concurrent parallel predictions"><dt>Max concurrent predictions</dt>
+      <dd>How many requests the model generates at the same time (continuous batching). Others wait in a queue. 1 = strictly one at a time.
+        <div class="ex">4 lets several API clients share one loaded model.</div></dd></div>
+    <div class="h" data-k="ttl idle unload"><dt>Idle TTL</dt>
+      <dd>Unloads the model after this many idle minutes to free memory. 0 = keep loaded. It loads again on the next request.</dd></div>
+    <div class="h" data-k="identifier"><dt>Identifier</dt>
+      <dd>The name used for this model in the API (<code>"model": "…"</code>). Default: the file name.</dd></div>
+    <div class="h" data-k="vision mmproj"><dt>Vision (mmproj)</dt>
+      <dd>Loads the multimodal projector that sits next to a vision model so it can read images (attach with 📎, paste or drop). Costs a little extra memory.</dd></div>
+    <div class="h" data-k="gpus split tensor multi-gpu priority"><dt>GPUs, priority and split</dt>
+      <dd>Tick the GPUs to use; the order is the priority. The model stays on the first GPU if it fits and spills to the next ones otherwise.
+        Ratios override that. <b>Split mode</b>: layer (default), row, or single GPU.
+        <div class="ex">CLI: <code>load big-model --gpus 0,1 --split 3,1</code> — three quarters on GPU 0, one quarter on GPU 1.</div></dd></div>
+    <div class="h" data-k="will it fit guardrail estimate memory"><dt>"Will it fit?" and the guardrail</dt>
+      <dd>Before loading, the app adds weights + KV cache + compute buffers and compares with free memory. <b>Guardrail</b> (Settings): <i>off</i> never refuses,
+        <i>balanced</i> refuses loads that cannot fit, <i>strict</i> also refuses tight ones. "Load anyway" skips the check.
+        <div class="ex">CLI: <code>fit qwen3-30b --ctx 32768 --gpu</code> prints the estimate without loading.</div></dd></div>
+    <div class="h" data-k="defaults per model gear"><dt>Per-model defaults (⚙)</dt>
+      <dd>Saves the load settings and the inference settings (temperature, system prompt…) for one model. They apply automatically in the UI, the API and the CLI whenever that model is loaded or requested.</dd></div>
+  </dl>
+
+  <h3>Server &amp; Settings</h3>
+  <dl>
+    <div class="h" data-k="host port lan"><dt>Bind host and port</dt>
+      <dd>127.0.0.1 = only this computer. 0.0.0.0 = every device on your network. Default port 1234. Takes effect after a restart.</dd></div>
+    <div class="h" data-k="api tokens authentication permissions"><dt>API tokens</dt>
+      <dd>With "Require an API token" on, every <code>/v1</code> and <code>/api</code> request needs <code>Authorization: Bearer &lt;token&gt;</code>. Each token has permissions:
+        <b>chat</b>, <b>embeddings</b>, <b>models:read</b>, <b>models:manage</b> (load/unload/download), <b>app</b> (chats, presets, logs), <b>admin</b> (everything). The secret is shown once when created.
+        <div class="ex"><code>curl http://localhost:1234/v1/models -H "Authorization: Bearer ait_…"</code></div></dd></div>
+    <div class="h" data-k="runtime backend vulkan avx"><dt>Runtimes and backend</dt>
+      <dd>Which llama.cpp build runs the models: Vulkan (GPU) or CPU builds with AVX/AVX2/AVX-512. "Automatic" picks the best for this machine. A change applies after a restart (Ctrl+Shift+R opens this panel).</dd></div>
+    <div class="h" data-k="downloads concurrent hugging face token"><dt>Downloads</dt>
+      <dd>Downloads are queued, resumable and SHA-256 verified. "Max concurrent downloads" limits parallel transfers. A Hugging Face token is only needed for gated models.
+        <div class="ex">Paste <code>user/model:Q4_K_M</code>, a huggingface.co link or a direct .gguf URL into Discover.</div></dd></div>
+    <div class="h" data-k="mcp json servers"><dt>MCP servers (mcp.json)</dt>
+      <dd>Local servers start a process; remote ones use a URL.
+        <div class="ex"><code>{"mcpServers": {"files": {"command": "npx", "args": ["-y","@modelcontextprotocol/server-filesystem","D:/docs"]}, "web": {"url": "https://example.com/mcp", "headers": {"Authorization": "Bearer …"}}}}</code></div></dd></div>
+  </dl>
+
+  <h3>Chat features</h3>
+  <dl>
+    <div class="h" data-k="edit regenerate variants branch delete"><dt>Edit, regenerate, variants</dt>
+      <dd>Hover a message: ✎ edits it (a user message is resubmitted as a <i>new variant</i>), ↻ regenerates an answer (the old one stays as a variant), 🗑 deletes it and what follows.
+        Use ‹ 2/3 › to switch between variants.</dd></div>
+    <div class="h" data-k="documents pdf docx rag attach"><dt>Documents</dt>
+      <dd>Attach .pdf, .docx, .txt or .md with 📎. If the text fits the context it is given whole; otherwise only the passages that match your question are used and shown under "Sources" with [n] citations.
+        Loading an embedding model improves the matching.</dd></div>
+  </dl>
+
+  <h3>Using the API</h3>
+  <div class="card"><pre class="log" id="help-api"></pre></div>
+
+  <h3>Command line</h3>
+  <div class="card"><pre class="log">llmhost                                   open the app window (second launch just brings it back)
+llmhost get                               interactive search → pick a model → pick a quantization
+llmhost get user/model:Q4_K_M             download directly (also links and .gguf URLs)
+llmhost ls --json     |  ps --json        list models / loaded models
+llmhost load qwen3 --gpu max --ctx 8192 --parallel 4 --identifier my-qwen
+llmhost fit qwen3 --ctx 32768             memory estimate before loading
+llmhost chat qwen3                        terminal chat (or --server http://host:1234)
+llmhost server start | status | stop      background server (daemon); also: daemon up|down|update|install
+llmhost token create laptop --perm chat,models:read
+llmhost mcp list | tools | call demo add {"a":1,"b":2}
+llmhost runtime list | select bundled:vulkan
+llmhost log stream                        follow the server log
+Inside the shell: /help lists everything, /set temperature 0.3, /params shows the current values.</pre></div>
+  </div>
+</section>
+
+<section id="logs" class="col"><h2>Logs</h2><pre class="log" id="logbox" style="flex:1"></pre></section>
+</main>
+
+<dialog id="toolcalldlg">
+  <h2>Allow tool call?</h2>
+  <div>The model wants to call <b id="tc-name"></b> with:</div>
+  <pre class="log" id="tc-args" style="max-height:220px"></pre>
+  <div class="row" style="justify-content:flex-end;margin-top:10px">
+    <button class="b sec" id="tc-deny">Deny</button>
+    <button class="b sec" id="tc-always" title="Do not ask again for this tool during this session">Always allow this tool</button>
+    <button class="b" id="tc-allow">Allow once</button>
+  </div>
+</dialog>
+
+<dialog id="loaddlg">
+  <h2 id="loaddlg-title">Load model</h2>
+  <div><span id="loadname" class="dim"></span> <span class="tag" id="l-badge"></span></div>
+  <div class="grid2">
+    <div><label>Device</label><select id="l-device"><option value="cpu" selected>CPU only (default)</option><option value="auto">GPU: auto (fit to VRAM) - ~1 CPU core busy</option><option value="gpu">GPU: all layers - ~1 CPU core busy</option></select></div>
+    <div><label>GPU layers (blank = by device)</label><input type="number" id="l-gpulayers"></div>
+    <div><label>Context length</label><input type="number" id="l-ctx" value="4096"></div>
+    <div><label id="l-threads-label">CPU threads (0 = default: 75% of cores)</label><input type="number" id="l-threads" value="0"></div>
+    <div><label>Batch size</label><input type="number" id="l-batch" value="512"></div>
+    <div><label>Idle TTL minutes (0 = never)</label><input type="number" id="l-ttl" value="0"></div>
+    <div><label>K cache type</label><select id="l-kvk"><option>f16</option><option>q8_0</option><option>q4_0</option></select></div>
+    <div><label>V cache type</label><select id="l-kvv"><option>f16</option><option>q8_0</option><option>q4_0</option></select></div>
+    <div><label>Identifier (API name)</label><input id="l-id"></div>
+    <div><label>Main GPU index</label><input type="number" id="l-main" value="0"></div>
+    <div><label>Max concurrent predictions</label><input type="number" id="l-conc" value="4" min="1" max="16"></div>
+  </div>
+  <div class="grid2"><div><label>Flash attention</label><select id="l-flash"><option value="auto">auto (recommended)</option><option value="on">on</option><option value="off">off</option></select></div></div>
+  <label><input type="checkbox" id="l-mmap" checked style="width:auto"> Use mmap</label>
+  <label><input type="checkbox" id="l-mlock" style="width:auto"> Keep model in RAM (mlock)</label>
+  <label><input type="checkbox" id="l-emb" style="width:auto"> Embedding model</label>
+  <label><input type="checkbox" id="l-vision" checked style="width:auto"> Vision: load the multimodal projector (mmproj) if present</label>
+  <details style="margin-top:10px" id="l-gpubox"><summary class="dim">GPUs (devices, priority order, split)</summary>
+    <div class="dim" style="font-size:12px;margin:6px 0">Tick the GPUs to use. The order is the priority: the model stays on the first GPU when it fits there and spills over to the next ones. Ratios are relative shares (blank = automatic).</div>
+    <div id="l-gpus"></div>
+    <div class="grid2"><div><label>Split mode</label><select id="l-splitmode"><option value="layer">layer (default)</option><option value="row">row</option><option value="none">single GPU (first ticked)</option></select></div></div>
+  </details>
+  <div id="l-fit" class="card" style="margin-top:10px;font-size:12px"></div>
+  <details style="margin-top:10px"><summary class="dim">Inference defaults for this model</summary>
+    <div class="grid2">
+      <div><label>Temperature</label><input type="number" step="0.05" id="g-temperature"></div>
+      <div><label>Top P</label><input type="number" step="0.01" id="g-top_p"></div>
+      <div><label>Top K</label><input type="number" id="g-top_k"></div>
+      <div><label>Min P</label><input type="number" step="0.01" id="g-min_p"></div>
+      <div><label>Repeat penalty</label><input type="number" step="0.01" id="g-repeat"></div>
+      <div><label>Max tokens (-1 = no limit)</label><input type="number" id="g-max"></div>
+    </div>
+    <label>System prompt</label><textarea id="g-system" rows="3"></textarea>
+  </details>
+  <div class="row" style="margin-top:14px;justify-content:flex-end;flex-wrap:wrap">
+    <span id="l-msg" class="dim" style="flex:1"></span>
+    <button class="b sec" id="l-clear" style="display:none" title="Forget the saved defaults for this model">Reset</button>
+    <button class="b sec" id="l-save" title="Save the load and inference settings as this model's defaults">Save as default</button>
+    <button class="b sec" onclick="document.getElementById('loaddlg').close()">Close</button>
+    <button class="b red" id="l-force" style="display:none" title="Load although the memory estimate says it will not fit">Load anyway</button>
+    <button class="b" id="l-go">Load</button>
+  </div>
+</dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = b => { if (!b) return '–'; const u=['B','KB','MB','GB','TB']; let i=0; while (b>=1024&&i<4){b/=1024;i++} return b.toFixed(i>1?2:0)+' '+u[i]; };
+let apiKey = localStorage.getItem('apikey') || '';
+// the app window opens the page with a per-process token (?k=...): use it and remove it from the address
+{ const k = new URLSearchParams(location.search).get('k'); if (k) { apiKey = k; history.replaceState(null, '', location.pathname); } }
+
+async function api(path, opt = {}) {
+  const headers = Object.assign({'Content-Type':'application/json'}, opt.headers || {});
+  if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+  const r = await fetch(path, Object.assign({}, opt, {headers, body: opt.body && typeof opt.body !== 'string' ? JSON.stringify(opt.body) : opt.body}));
+  if (r.status === 401) { const k = prompt('This server requires an API key:'); if (k) { apiKey = k; localStorage.setItem('apikey', k); return api(path, opt); } }
+  if (opt.raw) return r;
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error?.message || r.statusText);
+  return j;
+}
+
+// ---------------------------------------------------------------- tabs
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('main > section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  if (b.dataset.tab === 'models') { refreshModels(); refreshDownloads(); }
+  if (b.dataset.tab === 'discover') { refreshDownloads(); renderCatalog(); }
+  if (b.dataset.tab === 'settings') { loadSettings(); loadRuntimes(); loadTokens(); loadMcp(false); }
+  if (b.dataset.tab === 'help') initHelp();
+});
+
+// ---------------------------------------------------------------- status
+let status = null;
+async function refreshStatus() {
+  try {
+    status = await api('/api/status');
+    const l = status.loaded;
+    $('status').innerHTML = `${esc(status.backend)} backend<br>${l.length} model(s) loaded`;
+    const sel = $('p-model'), cur = sel.value;
+    sel.innerHTML = '<option value="">(auto / load on demand)</option>' + l.filter(m => !m.isEmbedding).map(m => `<option>${esc(m.id)}</option>`).join('');
+    if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur; else if (l.length) sel.value = l.find(m => !m.isEmbedding)?.id ?? '';
+  } catch (e) { $('status').textContent = 'offline'; }
+}
+
+// ---------------------------------------------------------------- params
+const sliders = ['temperature','top_p','top_k','min_p','repeat_penalty','frequency_penalty','presence_penalty'];
+const defaults = {temperature:0.7, top_p:0.95, top_k:40, min_p:0.05, repeat_penalty:1.1, frequency_penalty:0, presence_penalty:0};
+sliders.forEach(n => { const el = $('p-' + n); el.value = defaults[n]; const upd = () => el.nextElementSibling.textContent = el.value; el.oninput = upd; upd(); });
+$('p-max_tokens').value = -1;
+
+function genParams() {
+  const p = {};
+  sliders.forEach(n => p[n] = Number($('p-' + n).value));
+  const mt = Number($('p-max_tokens').value); if (mt > 0) p.max_tokens = mt;
+  if ($('p-seed').value !== '') p.seed = Number($('p-seed').value);
+  p.cache_prompt = $('p-cache').checked;
+  if ($('p-reasoning').value) p.reasoning_effort = $('p-reasoning').value;
+  const stop = $('p-stop').value.split(',').map(s => s.replace(/\\n/g, '\n')).filter(Boolean); if (stop.length) p.stop = stop;
+  const schema = $('p-schema').value.trim();
+  if (schema) { try { p.response_format = {type:'json_schema', json_schema:{name:'out', schema: JSON.parse(schema)}}; } catch { alert('JSON schema is not valid JSON'); throw new Error('schema'); } }
+  else if ($('p-json').checked) p.response_format = {type:'json_object'};
+  return p;
+}
+function applyGen(g) {
+  if (!g) return;
+  const m = {temperature:'temperature', topP:'top_p', topK:'top_k', minP:'min_p', repeatPenalty:'repeat_penalty', frequencyPenalty:'frequency_penalty', presencePenalty:'presence_penalty'};
+  for (const [k, id] of Object.entries(m)) if (g[k] !== undefined) { $('p-' + id).value = g[k]; $('p-' + id).oninput(); }
+  if (g.maxTokens !== undefined) $('p-max_tokens').value = g.maxTokens;
+  $('p-seed').value = g.seed ?? '';
+  $('p-stop').value = (g.stop || []).join(',');
+  $('p-reasoning').value = g.reasoningEffort || '';
+  $('p-json').checked = !!g.jsonMode;
+  $('p-schema').value = g.jsonSchema || '';
+  if (g.systemPrompt !== undefined) $('p-system').value = g.systemPrompt || '';
+}
+function genForServer() {
+  const p = genParams();
+  return {temperature:p.temperature, topP:p.top_p, topK:p.top_k, minP:p.min_p, repeatPenalty:p.repeat_penalty,
+    frequencyPenalty:p.frequency_penalty, presencePenalty:p.presence_penalty, maxTokens:p.max_tokens ?? -1, seed:p.seed ?? null,
+    stop:p.stop || [], reasoningEffort: $('p-reasoning').value || null, systemPrompt:$('p-system').value || null, jsonMode: $('p-json').checked, jsonSchema: $('p-schema').value.trim() || null};
+}
+async function refreshPresets() {
+  const all = await api('/api/presets');
+  $('preset-sel').innerHTML = Object.keys(all).map(n => `<option>${esc(n)}</option>`).join('');
+  window._presets = all;
+}
+function loadPreset() { const n = $('preset-sel').value; if (n && window._presets[n]) applyGen(window._presets[n]); }
+async function savePreset() {
+  const n = $('preset-name').value.trim(); if (!n) return;
+  await api('/api/presets/' + encodeURIComponent(n), {method:'PUT', body: genForServer()});
+  await refreshPresets(); $('preset-sel').value = n;
+}
+
+// ---------------------------------------------------------------- chat
+let conv = newConv(), abort = null;
+function newConv() { return {id: Math.random().toString(16).slice(2, 14), title: 'New chat', messages: [], all: [], docs: []}; }
+function newChat() { conv = newConv(); editing = null; renderMsgs(); renderAttachments(); renderChatList(); }
+// ---- conversation tree: conv.all holds every message of every variant (id + parent), conv.messages is the active branch
+const rid = () => Math.random().toString(16).slice(2, 12);
+function addMsg(m) {
+  m.id = m.id || rid();
+  m.parent = conv.messages.length ? conv.messages[conv.messages.length - 1].id : null;
+  conv.messages.push(m); conv.all.push(m);
+  return m;
+}
+const childrenOf = pid => conv.all.filter(n => (n.parent ?? null) === (pid ?? null));
+function setBranchVia(node) {            // make `node` part of the active branch: its ancestors, itself, its newest descendants
+  const up = []; let p = node;
+  while (p) { up.unshift(p); p = conv.all.find(n => n.id === p.parent); }
+  const down = []; let cur = node;
+  for (;;) { const ch = childrenOf(cur.id); if (!ch.length) break; cur = ch[ch.length - 1]; down.push(cur); }
+  conv.messages = [...up, ...down];
+}
+function switchVariant(id, delta) {
+  const m = conv.all.find(n => n.id === id); if (!m || abort) return;
+  const sibs = childrenOf(m.parent); const i = sibs.indexOf(m) + delta;
+  if (i < 0 || i >= sibs.length) return;
+  setBranchVia(sibs[i]); renderMsgs(); persist();
+}
+function fromStored(list, leaf) {        // stored messages -> tree (chats saved without ids are one linear branch)
+  let prev = null;
+  const all = list.map(m => {
+    const node = {id: m.id || rid(), parent: m.id ? (m.parentId ?? null) : prev, role: m.role, content: m.content, reasoning: m.reasoning || '',
+      toolCalls: m.toolCalls || undefined, toolCallId: m.toolCallId, name: m.name, images: m.images || [],
+      meta: m.tokensPerSecond ? `${m.completionTokens} tokens · ${m.tokensPerSecond} tok/s` : ''};
+    prev = node.id; return node;
+  });
+  return {all, leaf: leaf && all.some(n => n.id === leaf) ? leaf : all.length ? all[all.length - 1].id : null};
+}
+let editing = null;
+async function regenerate(id) {
+  if (abort) return;
+  const i = conv.messages.findIndex(m => m.id === id); if (i < 0) return;
+  conv.messages = conv.messages.slice(0, i);          // the new answer becomes a sibling of the old one
+  renderMsgs(); await generateReply();
+}
+function startEdit(id) { if (abort) return; editing = id; renderMsgs(); }
+function cancelEdit() { editing = null; renderMsgs(); }
+async function saveEdit(id, resubmit) {
+  const m = conv.all.find(n => n.id === id); const text = document.getElementById('edit-' + id)?.value ?? m.content;
+  editing = null;
+  if (m.role === 'user' && resubmit) {
+    const i = conv.messages.findIndex(x => x.id === id);
+    conv.messages = conv.messages.slice(0, i);        // the edited message is a new sibling; the old branch stays reachable
+    addMsg({role: 'user', content: text, images: m.images ? [...m.images] : []});
+    renderMsgs(); await generateReply();
+  } else { m.content = text; renderMsgs(); persist(); }
+}
+function deleteMsg(id) {
+  if (abort) return;
+  const m = conv.all.find(n => n.id === id); if (!m) return;
+  const doomed = new Set([id]);
+  for (let grew = true; grew;) { grew = false; for (const n of conv.all) if (!doomed.has(n.id) && doomed.has(n.parent)) { doomed.add(n.id); grew = true; } }
+  if (!confirm(doomed.size > 1 ? `Delete this message and the ${doomed.size - 1} message(s) that follow it?` : 'Delete this message?')) return;
+  conv.all = conv.all.filter(n => !doomed.has(n.id));
+  if (conv.messages.some(x => doomed.has(x.id))) {
+    const sibs = childrenOf(m.parent);
+    if (sibs.length) setBranchVia(sibs[sibs.length - 1]);
+    else conv.messages = conv.messages.filter(x => !doomed.has(x.id));
+  }
+  renderMsgs(); persist();
+}
+function md(t) {
+  let h = esc(t);
+  h = h.replace(/&lt;think&gt;([\s\S]*?)(&lt;\/think&gt;|$)/g, (_, a) => `<div class="think">${a}</div>`);
+  h = h.replace(/```(\w*)\n([\s\S]*?)(```|$)/g, (_, l, c) => `<pre><code>${c}</code></pre>`);
+  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+  return h;
+}
+function renderMsgs() {
+  const busy = !!abort;
+  $('msgs').innerHTML = conv.messages.map((m, i) => {
+    if (m.role === 'tool') return `<div class="msg tool"><div class="who">Tool result · ${esc(m.name || '')}</div><details><summary class="dim">${esc((m.content || '').slice(0, 90))}</summary><pre>${esc(m.content)}</pre></details></div>`;
+    const calls = (m.toolCalls || []).map(c => `<div class="toolcall">🔧 <b>${esc(c.name)}</b> <code>${esc(c.arguments)}</code></div>`).join('');
+    const sibs = childrenOf(m.parent), k = sibs.indexOf(m);
+    const nav = sibs.length > 1 ? `<span class="variants"><button onclick="switchVariant('${m.id}',-1)" ${k === 0 || busy ? 'disabled' : ''}>‹</button> ${k + 1} / ${sibs.length} <button onclick="switchVariant('${m.id}',1)" ${k === sibs.length - 1 || busy ? 'disabled' : ''}>›</button></span>` : '';
+    const acts = busy ? '' : `<span class="acts">${m.role === 'assistant' ? `<button title="Regenerate (keeps this answer as a variant)" onclick="regenerate('${m.id}')">↻</button>` : ''}<button title="Edit${m.role === 'user' ? ' and resubmit' : ''}" onclick="startEdit('${m.id}')">✎</button><button title="Delete" onclick="deleteMsg('${m.id}')">🗑</button></span>`;
+    let body;
+    if (editing === m.id) {
+      body = `<textarea id="edit-${m.id}" rows="4" style="margin-top:4px">${esc(m.content)}</textarea>
+        <div class="row" style="margin-top:4px">${m.role === 'user' ? `<button class="b" onclick="saveEdit('${m.id}', true)">Save &amp; resubmit</button>` : ''}<button class="b sec" onclick="saveEdit('${m.id}', false)">Save</button><button class="b sec" onclick="cancelEdit()">Cancel</button></div>`;
+    } else body = `${m.images?.length ? `<div class="thumbs">${m.images.map(u => `<img src="${u}">`).join('')}</div>` : ''}${m.reasoning ? `<div class="think">${esc(m.reasoning)}</div>` : ''}${m.content || !calls ? `<div class="body">${md(m.content)}</div>` : ''}${calls}`;
+    const src = m.sources?.length ? `<details class="sources"><summary class="dim">Sources (${m.sources.length})</summary>${m.sources.map(s => `<div class="toolcall"><b>[${s.n}]</b> ${esc(s.doc)}${s.chunk ? ' · part ' + s.chunk : ''}<br><span class="dim">${esc(s.preview)}…</span></div>`).join('')}</details>` : '';
+    return `<div class="msg ${m.role}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} ${nav}${acts}</div>${body}${src}${m.meta ? `<div class="meta">${esc(m.meta)}</div>` : ''}</div>`;
+  }).join('');
+  $('msgs').scrollTop = $('msgs').scrollHeight;
+}
+async function renderChatList() {
+  const list = await api('/api/chats').catch(() => []);
+  $('chatlist').innerHTML = list.map(c => `<div class="it ${c.id === conv.id ? 'on' : ''}" data-id="${c.id}" title="${esc(c.title)}">${esc(c.title)}</div>`).join('');
+  $('chatlist').querySelectorAll('.it').forEach(el => el.onclick = async () => {
+    const c = await api('/api/chats/' + el.dataset.id); conv = c; editing = null; conv.docs = (c.documents || []).map(d => ({id:d.id, name:d.name, chars:d.chars}));
+    { const t = fromStored(c.messages, c.activeLeaf); conv.all = t.all; conv.messages = []; const leaf = t.all.find(n => n.id === t.leaf); if (leaf) setBranchVia(leaf); }
+    if (c.generation) applyGen(c.generation);
+    $('p-system').value = c.systemPrompt || '';
+    if (c.model && [...$('p-model').options].some(o => o.value === c.model)) $('p-model').value = c.model;
+    renderMsgs(); renderAttachments(); renderChatList();
+  });
+}
+async function persist() {
+  const body = {title: conv.title, model: $('p-model').value || null, systemPrompt: $('p-system').value || null, generation: genForServer(),
+    activeLeaf: conv.messages.length ? conv.messages[conv.messages.length - 1].id : null,
+    documents: (conv.docs || []).map(d => ({id:d.id, name:d.name, chars:d.chars})),
+    messages: conv.all.map(m => ({id:m.id, parentId:m.parent, role:m.role, content:m.content, reasoning:m.reasoning || null, images:m.images?.length ? m.images : null,
+      toolCalls:m.toolCalls?.length ? m.toolCalls : null, toolCallId:m.toolCallId || null, name:m.role === 'tool' ? m.name : null}))};
+  const saved = await api('/api/chats/' + conv.id, {method:'PUT', body});
+  conv.title = saved.title; renderChatList();
+}
+// ---------------------------------------------------------------- image attachments
+let pendingImages = [];
+function renderAttachments() {
+  const el = $('attachments');
+  const cur = status?.loaded?.find(m => m.id === $('p-model').value) || status?.loaded?.find(m => !m.isEmbedding);
+  const warn = pendingImages.length && cur && !cur.vision ? '<span class="err">The selected model has no vision support (needs an mmproj file).</span>' : '';
+  const docs = (conv.docs || []);
+  el.style.display = pendingImages.length || docs.length || uploading ? 'flex' : 'none';
+  el.innerHTML = pendingImages.map((u, i) => `<div class="att"><img src="${u}"><button onclick="removeImage(${i})" title="Remove">×</button></div>`).join('') +
+    docs.map((d, i) => `<span class="tag" style="padding:4px 8px" title="${fmt(d.chars)} characters of text">📄 ${esc(d.name)} <a href="#" onclick="removeDoc(${i});return false" style="color:var(--acc);text-decoration:none">×</a></span>`).join('') +
+    (uploading ? '<span class="dim">reading document…</span>' : '') + warn;
+}
+let uploading = false;
+function removeDoc(i) { conv.docs.splice(i, 1); renderAttachments(); persist(); }
+const DOC_EXT = /\.(pdf|docx|txt|md|markdown|csv|json|log|xml|html?|ya?ml|ini|cfg|py|cs|js|ts|java|c|cpp|h|go|rs|sql)$/i;
+async function addDocument(file) {
+  uploading = true; renderAttachments();
+  try {
+    const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+    const d = await api('/api/documents', {method:'POST', body:{name: file.name, data}});
+    (conv.docs ||= []).push({id: d.id, name: d.name, chars: d.chars});
+    persist();
+  } catch (e) { alert('Could not read ' + file.name + ': ' + e.message); }
+  uploading = false; renderAttachments();
+}
+function removeImage(i) { pendingImages.splice(i, 1); renderAttachments(); }
+function fileToDataUrl(file) {
+  // downscale large images (keeps the payload and the number of image tokens reasonable)
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = reject;
+    r.onload = () => {
+      const img = new Image();
+      img.onerror = () => resolve(r.result);
+      img.onload = () => {
+        const max = 1344, s = Math.min(1, max / Math.max(img.width, img.height));
+        if (s >= 1) return resolve(r.result);
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', 0.9));
+      };
+      img.src = r.result;
+    };
+    r.readAsDataURL(file);
+  });
+}
+async function addImageFiles(files) {
+  for (const f of files) {
+    if (!f.type.startsWith('image/')) { if (DOC_EXT.test(f.name)) await addDocument(f); continue; }
+    if (pendingImages.length >= 8) { alert('At most 8 images per message.'); break; }
+    pendingImages.push(await fileToDataUrl(f));
+  }
+  renderAttachments();
+}
+$('attach').onclick = () => $('file').click();
+$('file').onchange = async e => { await addImageFiles(e.target.files); e.target.value = ''; };
+$('input').addEventListener('paste', e => {
+  const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/') || DOC_EXT.test(f.name));
+  if (files.length) { e.preventDefault(); addImageFiles(files); }
+});
+$('conv').addEventListener('dragover', e => e.preventDefault());
+$('conv').addEventListener('drop', e => { if (e.dataTransfer?.files?.length) { e.preventDefault(); addImageFiles(e.dataTransfer.files); } });
+$('p-model').addEventListener('change', renderAttachments);
+// per-model inference defaults are applied to the parameter panel when a model is picked
+$('p-model').addEventListener('change', async () => {
+  const id = $('p-model').value; if (!id) return;
+  try { const d = await api('/api/models/defaults?id=' + encodeURIComponent(id)); if (d.hasGeneration) applyGen(d.generation); } catch {}
+});
+
+// rolling tokens/second over the last 10 s, refreshed once a second while generating
+let tokTimes = [], tpsTimer = null;
+function updateTps() {
+  const now = performance.now();
+  while (tokTimes.length && now - tokTimes[0] > 10000) tokTimes.shift();
+  const el = $('tps');
+  if (!tokTimes.length) { el.textContent = 'Last 10 s: waiting for tokens…'; return; }
+  const span = Math.min(10000, now - tokTimes[0]) / 1000;
+  el.textContent = `Last 10 s avg: ${(tokTimes.length / Math.max(span, 1)).toFixed(1)} tok/s`;
+}
+function startTps() {
+  tokTimes = []; $('tps').style.display = ''; updateTps();
+  clearInterval(tpsTimer); tpsTimer = setInterval(updateTps, 1000);
+}
+function stopTps() { clearInterval(tpsTimer); tpsTimer = null; $('tps').style.display = 'none'; }
+
+// messages as the API wants them (assistant tool calls and tool results included)
+function apiMessages(list, extraSystem) {
+  const msgs = [];
+  const sys = [$('p-system').value.trim(), extraSystem].filter(Boolean).join('\n\n');
+  if (sys) msgs.push({role:'system', content:sys});
+  for (const m of list) {
+    if (m.role === 'tool') { msgs.push({role:'tool', tool_call_id:m.toolCallId, name:m.name, content:m.content}); continue; }
+    if (m.role === 'assistant' && m.toolCalls?.length) {
+      msgs.push({role:'assistant', content:m.content || null,
+        tool_calls:m.toolCalls.map(c => ({id:c.id, type:'function', function:{name:c.name, arguments:c.arguments}}))});
+      continue;
+    }
+    msgs.push({role:m.role, content: m.images?.length
+      ? [{type:'text', text:m.content}, ...m.images.map(u => ({type:'image_url', image_url:{url:u}}))] : m.content});
+  }
+  return msgs;
+}
+
+// MCP: tools offered to the model, and the user's per-call confirmation
+let mcpAlwaysAllow = new Set();
+async function mcpTools() {
+  if (!$('p-mcp').checked) return null;
+  try {
+    const r = await api('/api/mcp/tools');
+    if (r.errors?.length) console.warn('MCP servers failed:', r.errors);
+    return r.tools?.length ? r.tools : null;
+  } catch (e) { console.warn(e); return null; }
+}
+function confirmToolCall(call) {
+  if ($('p-mcp-confirm').value === 'never' || mcpAlwaysAllow.has(call.name)) return Promise.resolve('allow');
+  return new Promise(resolve => {
+    $('tc-name').textContent = call.name;
+    let args = call.arguments; try { args = JSON.stringify(JSON.parse(call.arguments), null, 2); } catch {}
+    $('tc-args').textContent = args;
+    const done = v => { $('toolcalldlg').close(); resolve(v); };
+    $('tc-allow').onclick = () => done('allow');
+    $('tc-always').onclick = () => { mcpAlwaysAllow.add(call.name); done('allow'); };
+    $('tc-deny').onclick = () => done('deny');
+    $('toolcalldlg').oncancel = () => resolve('deny');
+    $('toolcalldlg').showModal();
+  });
+}
+
+// one streamed completion into `reply`; returns the tool calls the model made (if any)
+async function streamReply(reply, msgs, params, tools) {
+  const headers = {'Content-Type':'application/json'}; if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+  const body = Object.assign({model: $('p-model').value || undefined, messages: msgs, stream: true, stream_options:{include_usage:true}}, params);
+  if (tools) body.tools = tools;
+  const r = await fetch('/v1/chat/completions', {method:'POST', headers, signal: abort.signal, body: JSON.stringify(body)});
+  if (!r.ok) throw new Error((await r.json()).error?.message || r.statusText);
+  const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+  const calls = [];
+  while (true) {
+    const {done, value} = await reader.read(); if (done) break;
+    buf += dec.decode(value, {stream:true});
+    let i;
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+      if (!line.startsWith('data:')) continue;
+      const d = line.slice(5).trim(); if (d === '[DONE]') continue;
+      const j = JSON.parse(d);
+      const dl = j.choices?.[0]?.delta;
+      if (dl?.reasoning_content) { reply.reasoning = (reply.reasoning || '') + dl.reasoning_content; tokTimes.push(performance.now()); renderMsgs(); }
+      if (dl?.content) { reply.content += dl.content; tokTimes.push(performance.now()); renderMsgs(); }
+      for (const tc of dl?.tool_calls || []) {
+        const c = calls[tc.index] ??= {id:'', name:'', arguments:''};
+        if (tc.id) c.id = tc.id;
+        if (tc.function?.name) c.name = tc.function.name;
+        if (tc.function?.arguments) c.arguments += tc.function.arguments;
+        reply.toolCalls = calls.filter(Boolean); renderMsgs();
+      }
+      if (j.stats) reply.meta = `${j.usage?.completion_tokens ?? ''} tokens · ${j.stats.tokens_per_second} tok/s · first token ${j.stats.time_to_first_token}s` + (j.stats.cached_prompt_tokens ? ` · ${j.stats.cached_prompt_tokens} prompt tokens cached` : '');
+    }
+  }
+  return calls.filter(Boolean);
+}
+
+// generate the assistant's answer after the last message; runs MCP tools (with confirmation) until it answers
+async function generateReply() {
+  let params; try { params = genParams(); } catch { return; }
+  abort = new AbortController();
+  $('send').style.display = 'none'; $('stop').style.display = '';
+  startTps();
+  try {
+    const tools = await mcpTools();
+    for (let round = 0; round < 8; round++) {
+      const reply = {role:'assistant', content:''};
+      addMsg(reply); renderMsgs();
+      // attached documents: the whole text when it fits, otherwise the passages that match the last question
+      let docContext = '';
+      if (conv.docs?.length) {
+        try {
+          const lastUser = [...conv.messages].reverse().find(m => m.role === 'user');
+          const ctxr = await api('/api/documents/context', {method:'POST', body:{ids: conv.docs.map(d => d.id), query: lastUser?.content || '', model: $('p-model').value || null}});
+          docContext = ctxr.text || '';
+          if (ctxr.mode === 'rag') reply.sources = ctxr.citations;
+        } catch (e) { console.warn('document context failed', e); }
+      }
+      const calls = await streamReply(reply, apiMessages(conv.messages.slice(0, -1), docContext), params, tools);
+      if (!calls.length || !tools) { delete reply.toolCalls; break; }
+      reply.toolCalls = calls;
+      for (const c of calls) {
+        if (!c.id) c.id = 'call_' + Math.random().toString(16).slice(2, 12);
+        const verdict = await confirmToolCall(c);
+        let out;
+        if (verdict === 'deny') out = 'The user declined this tool call.';
+        else {
+          try {
+            const res = await api('/api/mcp/call', {method:'POST', body:{name:c.name, arguments:c.arguments}});
+            out = res.content || '(no output)';
+            if (res.isError) out = 'Tool error: ' + out;
+          } catch (e) { out = 'Tool call failed: ' + e.message; }
+        }
+        addMsg({role:'tool', toolCallId:c.id, name:c.name, content:out});
+      }
+      renderMsgs();
+    }
+  } catch (e) {
+    const last = conv.messages[conv.messages.length - 1];
+    if (e.name !== 'AbortError' && last) last.content = (last.content || '') + `\n[error: ${e.message}]`;
+  }
+  abort = null; $('send').style.display = ''; $('stop').style.display = 'none';
+  stopTps();
+  renderMsgs(); refreshStatus();
+  if (conv.messages.some(m => m.role === 'assistant' && m.content)) persist();
+}
+
+async function send() {
+  const text = $('input').value.trim(); if ((!text && !pendingImages.length) || abort) return;
+  try { genParams(); } catch { return; }
+  $('input').value = '';
+  addMsg({role:'user', content:text, images:[...pendingImages]});
+  pendingImages = []; renderAttachments();
+  await generateReply();
+}
+$('send').onclick = send;
+$('stop').onclick = () => abort && abort.abort();
+$('input').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+
+// ---------------------------------------------------------------- models
+let loadTarget = null;
+async function refreshModels() {
+  await refreshStatus();
+  $('mdir').textContent = status.modelsDirectory;
+  $('loaded').innerHTML = status.loaded.length ? `<table><tr><th>Model</th><th>Device</th><th>GPU layers</th><th>Threads</th><th>Context</th><th>Size</th><th>Requests</th><th></th></tr>` +
+    status.loaded.map(m => `<tr><td>${esc(m.id)} ${m.vision ? '<span class="tag">vision</span>' : ''}</td><td class="ok">${m.device.toUpperCase()}</td><td>${m.gpuLayers >= 999 ? 'all' : m.gpuLayers}</td><td>${m.threads}</td><td>${m.contextSize}</td><td>${fmt(m.sizeBytes)}</td><td>${m.requests}</td>
+      <td style="white-space:nowrap">${m.isEmbedding ? '' : `<button class="b sec" title="Open PowerShell with Claude Code using this model" onclick='launchClaudeCode(${JSON.stringify(m.id)})'>Claude Code</button> `}<button class="b sec" onclick="unload('${esc(m.id)}')">Eject</button></td></tr>`).join('') + '</table>' : '<span class="dim">Nothing loaded.</span>';
+  const local = await api('/api/models/local');
+  $('local').innerHTML = local.length ? `<table><tr><th>Model</th><th>Arch</th><th>Quant</th><th>Context</th><th>Size</th><th></th></tr>` +
+    local.map(m => `<tr><td>${esc(m.id)} ${m.isEmbedding ? '<span class="tag">embedding</span>' : ''}${m.supportsVision ? '<span class="tag">vision</span>' : ''}</td><td>${esc(m.architecture)}</td><td>${esc(m.quantization)}</td><td>${m.contextLength || ''}</td><td>${fmt(m.sizeBytes)}</td>
+      <td style="white-space:nowrap">${m.loadedAs ? '<span class="ok">loaded</span>' : `<button class="b" onclick='openLoad(${JSON.stringify(m.id)}, ${m.isEmbedding})'>Load</button>`}
+      <button class="b sec" title="Default load and inference settings for this model" onclick='openLoad(${JSON.stringify(m.id)}, ${m.isEmbedding}, "defaults")'>⚙</button>
+      <button class="b sec" onclick='del(${JSON.stringify(m.id)})'>Delete</button></td></tr>`).join('') + '</table>' : '<span class="dim">No models yet — head to Discover.</span>';
+}
+function fillLoad(d) {
+  $('l-device').value = d.device || 'cpu';
+  $('l-gpulayers').value = d.gpuLayers ?? '';
+  $('l-ctx').value = d.contextSize || 4096;
+  $('l-threads').value = d.threads || 0;
+  $('l-batch').value = d.batchSize || 512;
+  $('l-ttl').value = d.ttlMinutes || 0;
+  $('l-kvk').value = d.kvCacheTypeK || 'f16'; $('l-kvv').value = d.kvCacheTypeV || 'f16';
+  $('l-main').value = d.mainGpu || 0; $('l-conc').value = d.maxConcurrent || 4;
+  $('l-flash').value = d.flashAttentionMode && d.flashAttentionMode !== 'auto' ? d.flashAttentionMode : (d.flashAttention ? 'on' : 'auto'); $('l-mmap').checked = d.useMmap !== false; $('l-mlock').checked = !!d.useMlock;
+  $('l-vision').checked = d.vision !== false;
+}
+// ---- multi-GPU rows: [{index, name, on, ratio}] in priority order
+let gpuRows = [];
+function renderGpuRows() {
+  $('l-gpus').innerHTML = gpuRows.length ? gpuRows.map((g, i) => `<div class="row" style="margin:3px 0">
+      <input type="checkbox" style="width:auto" ${g.on ? 'checked' : ''} onchange="gpuRows[${i}].on=this.checked;scheduleFit()">
+      <span style="flex:1">GPU ${g.index} · ${esc(g.name)} <span class="dim">${fmt(g.freeBytes || g.vramBytes)} free${g.llamaIndex != null ? '' : ' · unmapped'}</span></span>
+      <input type="number" step="0.1" min="0" placeholder="share" style="width:80px" value="${g.ratio ?? ''}" oninput="gpuRows[${i}].ratio=this.value===''?null:Number(this.value);scheduleFit()">
+      <button class="b sec" style="padding:2px 8px" onclick="moveGpu(${i},-1)">▲</button><button class="b sec" style="padding:2px 8px" onclick="moveGpu(${i},1)">▼</button></div>`).join('')
+    : '<span class="dim">No GPU detected.</span>';
+}
+function moveGpu(i, d) { const j = i + d; if (j < 0 || j >= gpuRows.length) return; [gpuRows[i], gpuRows[j]] = [gpuRows[j], gpuRows[i]]; renderGpuRows(); scheduleFit(); }
+async function loadGpuRows(d) {
+  let hw = null; try { hw = await api('/api/hardware'); } catch {}
+  const list = (hw?.gpus || []);
+  const chosen = d.gpuDevices || [];
+  const order = [...chosen.map(i => list.find(g => g.index === i)).filter(Boolean), ...list.filter(g => !chosen.includes(g.index))];
+  gpuRows = order.map(g => ({index: g.index, name: g.name, vramBytes: g.vramBytes, freeBytes: g.freeBytes, llamaIndex: g.llamaIndex,
+    on: chosen.includes(g.index), ratio: chosen.includes(g.index) && d.tensorSplit ? d.tensorSplit[chosen.indexOf(g.index)] : null}));
+  $('l-splitmode').value = d.splitMode || 'layer';
+  renderGpuRows();
+}
+function collectLoad() {
+  const gl = $('l-gpulayers').value;
+  const on = gpuRows.filter(g => g.on);
+  const ratios = on.map(g => g.ratio);
+  return {gpuDevices: on.length ? on.map(g => g.index) : null,
+    tensorSplit: on.length > 1 && ratios.every(r => r != null && r > 0) ? ratios : null, splitMode: $('l-splitmode').value,
+    device: $('l-device').value, gpuLayers: gl === '' ? null : Number(gl), contextSize: Number($('l-ctx').value), threads: Number($('l-threads').value),
+    batchSize: Number($('l-batch').value), uBatchSize: Number($('l-batch').value), ttlMinutes: Number($('l-ttl').value), kvCacheTypeK: $('l-kvk').value, kvCacheTypeV: $('l-kvv').value,
+    identifier: $('l-id').value || null, mainGpu: Number($('l-main').value), maxConcurrent: Number($('l-conc').value) || 4, flashAttentionMode: $('l-flash').value, flashAttention: $('l-flash').value === 'on', useMmap: $('l-mmap').checked, useMlock: $('l-mlock').checked,
+    embeddings: $('l-emb').checked, vision: $('l-vision').checked};
+}
+function fillGen(g) {
+  $('g-temperature').value = g.temperature ?? 0.7; $('g-top_p').value = g.topP ?? 0.95; $('g-top_k').value = g.topK ?? 40; $('g-min_p').value = g.minP ?? 0.05;
+  $('g-repeat').value = g.repeatPenalty ?? 1.1; $('g-max').value = g.maxTokens ?? -1; $('g-system').value = g.systemPrompt || '';
+}
+function collectGen() {
+  return {temperature: Number($('g-temperature').value), topP: Number($('g-top_p').value), topK: Number($('g-top_k').value), minP: Number($('g-min_p').value),
+    repeatPenalty: Number($('g-repeat').value), maxTokens: Number($('g-max').value), systemPrompt: $('g-system').value || null};
+}
+// mode: 'load' (Load button) or 'defaults' (the gear dialog: only edits the model's saved defaults)
+async function openLoad(id, emb, mode = 'load') {
+  const lc = status?.hardware?.logicalCores;
+  if (lc) $('l-threads-label').textContent = `CPU threads (0 = default: ${Math.max(1, Math.round(lc * 0.75))} of ${lc} cores)`;
+  // start from this model's saved defaults, falling back to the global ones
+  let d = {load: {}, generation: {}};
+  try { d = await api('/api/models/defaults?id=' + encodeURIComponent(id)); } catch {}
+  fillLoad(d.load || {}); fillGen(d.generation || {});
+  loadGpuRows(d.load || {});
+  $('l-id').value = '';
+  $('loaddlg-title').textContent = mode === 'defaults' ? 'Default settings for this model' : 'Load model';
+  $('l-go').style.display = mode === 'defaults' ? 'none' : '';
+  $('l-clear').style.display = d.hasLoad || d.hasGeneration ? '' : 'none';
+  $('l-badge').textContent = d.hasLoad || d.hasGeneration ? 'saved defaults applied' : 'global defaults';
+  loadTarget = id; $('loadname').textContent = id; $('l-emb').checked = emb; $('l-msg').textContent = ''; $('l-msg').className = 'dim';
+  $('l-force').style.display = 'none'; $('l-fit').textContent = 'Estimating memory use…';
+  $('loaddlg').showModal();
+  updateFit();
+}
+$('l-save').onclick = async () => {
+  try {
+    await api('/api/models/defaults', {method:'PUT', body:{id: loadTarget, load: collectLoad(), generation: collectGen()}});
+    $('l-msg').textContent = 'Saved as the default for this model (used by the UI, the API and the CLI).'; $('l-msg').className = 'ok';
+    $('l-clear').style.display = '';
+  } catch (e) { $('l-msg').textContent = e.message; $('l-msg').className = 'err'; }
+};
+$('l-clear').onclick = async () => {
+  await api('/api/models/defaults?id=' + encodeURIComponent(loadTarget), {method:'DELETE'});
+  $('l-msg').textContent = 'Saved defaults removed; the global defaults apply.'; $('l-msg').className = 'dim'; $('l-clear').style.display = 'none';
+};
+async function doLoad(force) {
+  const options = collectLoad();
+  if (force) options.skipFitCheck = true;
+  $('l-go').disabled = true; $('l-force').style.display = 'none'; $('l-msg').className = 'dim';
+  $('l-msg').textContent = 'Loading… this can take a while for large models';
+  try {
+    const r = await api('/api/models/load', {method:'POST', body:{model: loadTarget, options}});
+    $('loaddlg').close();
+    const warn = (status?.loaded || []).find(m => m.id === r.id)?.warnings;
+    if (r.warnings?.length) alert(r.warnings.join('\n'));
+  } catch (e) {
+    $('l-msg').textContent = e.message; $('l-msg').className = 'err';
+    if (/fit in memory|will probably not fit/.test(e.message)) $('l-force').style.display = '';
+  }
+  $('l-go').disabled = false; refreshModels();
+}
+$('l-go').onclick = () => doLoad(false);
+$('l-force').onclick = () => doLoad(true);
+
+// live "will it fit?" estimate
+let fitTimer = null;
+function scheduleFit() { clearTimeout(fitTimer); fitTimer = setTimeout(updateFit, 250); }
+async function updateFit() {
+  if (!loadTarget || !$('loaddlg').open) return;
+  const o = collectLoad();
+  const q = new URLSearchParams({id: loadTarget, ctx: o.contextSize, device: o.device, kvK: o.kvCacheTypeK, kvV: o.kvCacheTypeV, flash: o.flashAttentionMode, vision: o.vision});
+  if (o.gpuLayers !== null) q.set('gpuLayers', o.gpuLayers);
+  if (o.gpuDevices) q.set('devices', o.gpuDevices.join(','));
+  if (o.tensorSplit) q.set('split', o.tensorSplit.join(','));
+  q.set('splitMode', o.splitMode);
+  try {
+    const e = await api('/api/models/estimate?' + q);
+    const col = e.verdict === 'fits' ? 'var(--ok)' : e.verdict === 'tight' ? '#d29922' : 'var(--acc)';
+    const label = {fits: 'Should fit', tight: 'Tight', 'wont-fit': 'Will not fit'}[e.verdict];
+    $('l-fit').innerHTML = `<b style="color:${col}">${label}</b> — weights ${fmt(e.weightsBytes)} + KV cache ${fmt(e.kvCacheBytes)} + compute ${fmt(e.computeBytes)}${e.projectorBytes ? ' + vision ' + fmt(e.projectorBytes) : ''}` +
+      ` · ${e.offloadedLayers}/${e.blockCount} layers on GPU${e.moe ? ' · MoE' : ''}<br>` +
+      e.devices.map(d => `${esc(d.name)}: ${fmt(d.needBytes)} / ${fmt(d.budgetBytes)}`).join(' · ') +
+      (e.maxGpuLayers >= 0 && e.verdict !== 'fits' ? `<br>At most ${e.maxGpuLayers >= 999 ? 'all' : e.maxGpuLayers} layers fit the GPU memory.` : '') +
+      (e.suggestedContext ? `<br>A context of ${e.suggestedContext} would fit.` : '') +
+      (e.warnings.length ? '<br><span class="dim">' + e.warnings.map(esc).join('<br>') + '</span>' : '');
+  } catch (err) { $('l-fit').innerHTML = `<span class="err">${esc(err.message)}</span>`; }
+}
+['l-device','l-gpulayers','l-ctx','l-kvk','l-kvv','l-flash','l-vision','l-batch'].forEach(id => { $(id).addEventListener('input', scheduleFit); $(id).addEventListener('change', scheduleFit); });
+async function unload(id) { await api('/api/models/unload', {method:'POST', body:{id}}); refreshModels(); }
+async function del(id) { if (confirm('Delete ' + id + ' from disk?')) { await api('/api/models/local?id=' + encodeURIComponent(id), {method:'DELETE'}).catch(e => alert(e.message)); refreshModels(); } }
+
+// ---------------------------------------------------------------- discover
+async function renderCatalog() {
+  const cat = await api('/api/models/catalog');
+  const card = e => `<div class="card"><b>${esc(e.name)}</b> <span class="tag">${esc(e.family)}</span><span class="tag">${esc(e.params)}</span>${e.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}
+    <div class="dim">${esc(e.repo)} ${esc(e.notes || '')}</div>
+    <div style="margin-top:6px"><button class="b" onclick='showFiles(${JSON.stringify(e.repo)})'>Choose quantization…</button>
+    <button class="b sec" onclick='dl(${JSON.stringify(e.repo)}, null, ${JSON.stringify(e.recommendedQuant)})'>Download ${esc(e.recommendedQuant)}</button></div></div>`;
+  $('catalog').innerHTML = '<h4>LLMs</h4>' + cat.filter(e => !e.isVision).map(card).join('')
+    + '<h4>Image models (vision)</h4>' + cat.filter(e => e.isVision).map(card).join('');
+}
+async function search() {
+  const q = $('q').value.trim(); if (!q) return;
+  $('results').innerHTML = '<span class="dim">Searching…</span>';
+  try {
+    const r = await api('/api/models/search?q=' + encodeURIComponent(q));
+    $('results').innerHTML = '<table><tr><th>Repository</th><th>Downloads</th><th>Likes</th><th></th></tr>' + r.map(m =>
+      `<tr><td>${esc(m.id)}</td><td>${m.downloads.toLocaleString()}</td><td>${m.likes}</td><td><button class="b sec" onclick='showFiles(${JSON.stringify(m.id)})'>Files</button></td></tr>`).join('') + '</table>';
+  } catch (e) { $('results').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+$('q').onkeydown = e => { if (e.key === 'Enter') search(); };
+async function showFiles(repo) {
+  $('results').innerHTML = '<span class="dim">Loading files…</span>';
+  try {
+    const f = await api('/api/models/files?repo=' + encodeURIComponent(repo));
+    const vram = (status?.hardware?.gpus || []).reduce((a, g) => Math.max(a, g.usableBytes ?? g.vramBytes), 0);
+    $('results').innerHTML = `<h3>${esc(repo)}</h3><table><tr><th>Quant</th><th>Size</th><th>File</th><th>Fit</th><th></th></tr>` + f.map(x =>
+      `<tr><td>${esc(x.quant)}</td><td>${fmt(x.sizeBytes)}</td><td>${esc(x.fileName)}${x.isSplit ? ' <span class="tag">split</span>' : ''}${x.vision ? ` <span class="tag">vision +${fmt(x.mmprojBytes)}</span>` : ''}</td>
+       <td>${vram && x.sizeBytes < vram * .85 ? '<span class="ok">fits GPU</span>' : '<span class="dim">RAM/partial</span>'}</td>
+       <td><button class="b" onclick='dl(${JSON.stringify(repo)}, ${JSON.stringify(x.fileName)})'>Download</button></td></tr>`).join('') + '</table>';
+  } catch (e) { $('results').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+async function dl(repo, file, quant) {
+  try { await api('/api/downloads', {method:'POST', body:{repo, file, quant}}); refreshDownloads(); }
+  catch (e) { alert(e.message); }
+}
+const eta = s => { if (!isFinite(s) || s <= 0) return ''; s = Math.round(s); const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : m ? `${m}m ${s % 60}s left` : `${s}s left`; };
+const isActive = j => j.state === 'queued' || j.state === 'downloading';
+const isOpen = j => isActive(j) || j.state === 'paused';
+let lastJobStates = {};
+function downloadCard(j) {
+  const pct = (j.progress * 100).toFixed(1);
+  const speed = j.state === 'downloading' && j.bytesPerSecond > 0 && j.totalBytes ? ` · ${fmt(j.bytesPerSecond)}/s · ${eta((j.totalBytes - j.bytesDone) / j.bytesPerSecond)}` : '';
+  const color = j.state === 'completed' ? 'var(--ok)' : (j.state === 'failed' || j.state === 'cancelled') ? 'var(--acc)' : 'var(--acc2)';
+  const btn = [];
+  if (isActive(j)) btn.push(`<button class="b sec" onclick="pauseDl('${j.id}')">Pause</button><button class="b red" onclick="cancelDl('${j.id}')">Cancel</button>`);
+  if (j.state === 'paused' || j.state === 'failed' || j.state === 'cancelled') btn.push(`<button class="b" onclick="resumeDl('${j.id}')">${j.state === 'paused' ? 'Resume' : 'Retry'}</button>`);
+  if (!isActive(j)) btn.push(`<button class="b sec" title="Remove from the list (partial data kept unless you cancel and remove)" onclick="removeDl('${j.id}')">✕</button>`);
+  return `<div class="card"><div class="row"><b style="flex:1;word-break:break-all">${esc(j.repo)} / ${esc(j.fileName)}</b>
+    <span class="${j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'err' : 'dim'}">${j.state}${isOpen(j) && j.totalBytes ? ' ' + pct + '%' : ''}</span>${btn.join('')}</div>
+    <div class="bar" style="margin:6px 0"><i style="width:${pct}%;background:${color}"></i></div>
+    <div class="dim">${fmt(j.bytesDone)} / ${j.totalBytes ? fmt(j.totalBytes) : '?'}${speed}${j.verified ? ' · <span class="ok">SHA-256 verified</span>' : ''}
+      ${j.note ? ' · ' + esc(j.note) : ''} ${j.error ? '<span class="err">' + esc(j.error) + '</span>' : ''}</div></div>`;
+}
+async function pauseDl(id) { await api('/api/downloads/' + id + '/pause', {method:'POST'}); refreshDownloads(); }
+async function resumeDl(id) { await api('/api/downloads/' + id + '/resume', {method:'POST'}); refreshDownloads(); }
+async function removeDl(id) { await api('/api/downloads/' + id + '?remove=1', {method:'DELETE'}); refreshDownloads(); }
+async function downloadInput() {
+  const input = $('dl-input').value.trim(); if (!input) return;
+  $('dl-msg').className = 'dim'; $('dl-msg').textContent = 'Looking it up…';
+  try {
+    const ref = await api('/api/models/resolve?input=' + encodeURIComponent(input));
+    if (ref.kind === 'repo' && !ref.quant) { $('dl-msg').textContent = 'Pick a file from this repository:'; await showFiles(ref.repo); return; }
+    const job = await api('/api/downloads', {method:'POST', body:{input}});
+    $('dl-msg').textContent = 'Started ' + job.fileName; $('dl-input').value = ''; refreshDownloads();
+  } catch (e) { $('dl-msg').className = 'err'; $('dl-msg').textContent = e.message; }
+}
+async function importModel() {
+  const path = $('imp-path').value.trim(); if (!path) return;
+  $('imp-msg').className = 'dim'; $('imp-msg').textContent = 'Importing…';
+  try {
+    const r = await api('/api/models/import', {method:'POST', body:{path, mode: $('imp-mode').value, publisher: $('imp-pub').value || null, name: $('imp-name').value || null}});
+    $('imp-msg').className = 'ok'; $('imp-msg').textContent = 'Imported as ' + r.id; $('imp-path').value = ''; refreshModels();
+  } catch (e) { $('imp-msg').className = 'err'; $('imp-msg').textContent = e.message; }
+}
+async function refreshDownloads() {
+  const jobs = await api('/api/downloads').catch(() => null);
+  if (!jobs) return;
+  const ordered = [...jobs.filter(isOpen), ...jobs.filter(j => !isOpen(j))];
+  const finished = jobs.length - jobs.filter(isOpen).length;
+  const html = ordered.length
+    ? ordered.map(downloadCard).join('') + (finished ? '<button class="b sec" onclick="clearDownloads()">Clear finished</button>' : '')
+    : '<span class="dim">No downloads</span>';
+  if ($('downloads').innerHTML !== html) $('downloads').innerHTML = html;
+  if ($('mydownloads').innerHTML !== html) $('mydownloads').innerHTML = html;
+
+  const active = jobs.filter(isActive).length;
+  const nav = document.querySelector('nav button[data-tab="models"]');
+  nav.textContent = active ? `My Models (${active} ↓)` : 'My Models';
+
+  // a download just finished: refresh the model list if it is visible
+  let justDone = false;
+  for (const j of jobs) { if (j.state === 'completed' && lastJobStates[j.id] && lastJobStates[j.id] !== 'completed') justDone = true; }
+  lastJobStates = Object.fromEntries(jobs.map(j => [j.id, j.state]));
+  if (justDone && $('models').classList.contains('on')) refreshModels();
+}
+async function cancelDl(id) { await api('/api/downloads/' + id, {method:'DELETE'}); refreshDownloads(); }
+async function clearDownloads() { await api('/api/downloads/clear', {method:'POST'}); refreshDownloads(); }
+
+// ---------------------------------------------------------------- settings
+async function loadSettings() {
+  await refreshStatus();
+  const hw = status.hardware;
+  let live = null; try { live = await api('/api/hardware'); } catch {}
+  const liveGpu = i => live?.gpus?.find(x => x.index === i) || {};
+  $('hw').innerHTML = `<div><b>CPU</b> ${esc(hw.cpu)} (${hw.logicalCores} threads) · <b>RAM</b> ${fmt(hw.totalRamBytes)}${live ? ' (' + fmt(live.ramAvailableBytes) + ' available)' : ''}</div>` +
+    hw.gpus.map(g => { const l = liveGpu(g.index); return `<div><b>GPU ${g.index}</b> ${esc(g.name)} <span class="tag">${esc(g.vendor)}</span>${g.integrated ? '<span class="tag">integrated</span>' : ''} VRAM ${fmt(g.vramBytes)}${g.integrated && g.sharedBytes ? ' + ' + fmt(g.sharedBytes) + ' shared' : ''}${l.freeBytes ? ' · ' + fmt(l.freeBytes) + ' free' : ''}${l.backendName ? ` <span class="tag">${esc(l.backendName)} · llama #${l.llamaIndex}</span>` : ''}</div>`; }).join('') +
+    (hw.npus || []).map(n => `<div><b>NPU</b> ${esc(n.name)} <span class="tag">${esc(n.vendor)} ${esc(n.architecture)}</span> <span class="dim">detected, not used for inference</span></div>`).join('') +
+    `<div class="dim" style="margin-top:6px">Active backend: ${esc(status.backend)} ${esc(status.systemInfo || '(initialises when the first model loads)')}</div>`;
+  const s = await api('/api/settings');
+  $('s-host').value = s.host; $('s-port').value = s.port; $('s-apikey').value = s.apiKey || ''; $('s-backend').value = s.backend;
+  $('s-modelsdir').value = s.modelsDirectory || ''; $('s-modelsdir').placeholder = status.modelsDirectory + ' (default: DownloadedModels in the working directory)'; $('s-hftoken').value = s.huggingFaceToken || '';
+  $('s-cors').checked = s.cors; $('s-anthropic').checked = s.anthropicApi; $('s-autoload').checked = s.autoLoadOnRequest;
+  $('s-maxdl').value = s.maxConcurrentDownloads || 2;
+  $('s-feed').value = s.updateFeedUrl || ''; $('s-updates').checked = !!s.checkUpdates; $("s-tray").checked = !!s.minimizeToTray; $('s-debug').checked = !!s.debugRequests; $('s-reastext').checked = s.anthropicReasoningAsText !== false;
+  $('s-guard').value = s.loadGuardrail || 'balanced'; $('s-dedicated').checked = !!s.limitToDedicatedGpuMemory;
+  window._settings = s;
+  $('s-load').innerHTML = ['contextSize','gpuLayers','threads','batchSize'].map(k => `<div><label>${k}</label><input data-k="${k}" value="${s.defaultLoad[k] ?? ''}"></div>`).join('') +
+    `<div><label>device</label><select data-k="device"><option>cpu</option><option>auto</option><option>gpu</option></select></div>`;
+  $('s-load').querySelector('select').value = s.defaultLoad.device;
+  const base = location.origin;
+  $('apiex').textContent = `Base URL: ${base}/v1\n\ncurl ${base}/v1/chat/completions -H "Content-Type: application/json" -d '{\n  "model": "${status.loaded[0]?.id || 'your-model'}",\n  "messages": [{"role":"user","content":"Hello!"}],\n  "stream": false\n}'\n\nEndpoints: GET /v1/models · POST /v1/chat/completions · POST /v1/completions · POST /v1/embeddings
+
+Anthropic Messages API (base URL ${base}):
+curl ${base}/v1/messages -H "content-type: application/json" -H "x-api-key: any" -H "anthropic-version: 2023-06-01" -d '{
+  "model": "${status.loaded[0]?.id || 'your-model'}",
+  "max_tokens": 256,
+  "messages": [{"role":"user","content":"Hello!"}]
+}'`;
+}
+// ---------------------------------------------------------------- Claude Code launcher
+async function launchClaudeCode(model) {
+  const last = localStorage.getItem('claudeDir') || '';
+  const dir = prompt('Folder to start Claude Code in (blank = your user folder):', last);
+  if (dir === null) return;
+  localStorage.setItem('claudeDir', dir);
+  try {
+    const r = await api('/api/launch/claude-code', {method:'POST', body:{model: model || null, directory: dir || null}});
+    alert('PowerShell opened with Claude Code using "' + r.model + '".');
+  } catch (e) { alert(e.message); }
+}
+
+async function configureClaudeApp(model) {
+  const last = localStorage.getItem('claudeAppDir') || '';
+  const dir = prompt('Project folder to configure for the Claude Code app / CLI.\nBlank = your user-level settings (affects every project):', last);
+  if (dir === null) return;
+  localStorage.setItem('claudeAppDir', dir);
+  try {
+    const r = await api('/api/launch/claude-code/configure', {method:'POST', body:{model: model || null, directory: dir || null}});
+    alert('Wrote the settings for "' + r.model + '" to:\n' + r.path + '\n\nOpen ' + (dir ? 'that folder' : 'a project') + ' in the Claude Code app (restart the session if it was already open).' + (r.note ? '\n\n' + r.note : ''));
+  } catch (e) { alert(e.message); }
+}
+async function unconfigureClaudeApp() {
+  const dir = prompt('Folder to restore (blank = user-level settings):', localStorage.getItem('claudeAppDir') || '');
+  if (dir === null) return;
+  try {
+    const r = await api('/api/launch/claude-code/unconfigure', {method:'POST', body:{directory: dir || null}});
+    alert(r.removed ? 'Removed the LLMHost entries from ' + r.path : 'Nothing to remove in ' + r.path);
+  } catch (e) { alert(e.message); }
+}
+
+// ---------------------------------------------------------------- help page
+function initHelp() {
+  const base = location.origin, model = status?.loaded?.find(m => !m.isEmbedding)?.id || 'your-model';
+  $('help-api').textContent =
+`# OpenAI-compatible
+curl ${base}/v1/chat/completions -H "Content-Type: application/json" -d '{
+  "model": "${model}",
+  "messages": [{"role":"user","content":"Hello!"}],
+  "temperature": 0.7,          // sampling
+  "max_completion_tokens": 200,
+  "reasoning_effort": "off",   // off | low | medium | high
+  "stop": ["###"],
+  "stream": true
+}'
+
+# Tool calling (tool_choice: "auto" | "required" | {"type":"function","function":{"name":"get_weather"}})
+  "tools": [{"type":"function","function":{"name":"get_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}]
+
+# Structured output
+  "response_format": {"type":"json_schema","json_schema":{"schema":{"type":"object","properties":{"answer":{"type":"string"}}}}}
+
+# Other endpoints
+POST ${base}/v1/responses           OpenAI Responses API (input, instructions, previous_response_id)
+POST ${base}/v1/messages            Anthropic Messages API (thinking, tool_use)
+POST ${base}/v1/embeddings
+POST ${base}/api/v1/chat            native chat: input, integrations (MCP), reasoning, previous_response_id
+POST ${base}/api/v1/models/load     {"model":"…","context_length":8192}
+GET  ${base}/api/v1/models          downloaded models and loaded instances`;
+}
+$('help-filter').addEventListener('input', () => {
+  const q = $('help-filter').value.trim().toLowerCase();
+  document.querySelectorAll('#help-body .h').forEach(el => {
+    el.style.display = !q || (el.dataset.k + ' ' + el.textContent).toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+
+// ---------------------------------------------------------------- MCP servers
+async function loadMcp(connect) {
+  $('mcp-msg').textContent = connect ? 'Connecting…' : '';
+  let r; try { r = await api('/api/mcp' + (connect ? '?connect=1' : '')); } catch (e) { $('mcp-msg').textContent = e.message; return; }
+  if (!connect || !$('mcp-config').value) $('mcp-config').value = r.config;
+  $('mcp-servers').innerHTML = r.servers.length ? r.servers.map(s => `<div class="card"><b>${esc(s.name)}</b> <span class="tag">${s.transport}</span>
+    <span class="${s.state === 'ready' ? 'ok' : s.state === 'failed' ? 'err' : 'dim'}">${s.state}</span> ${s.error ? `<span class="err">${esc(s.error)}</span>` : ''}
+    <div class="dim">${s.tools.length ? s.tools.map(t => `<span class="tag" title="${esc(t.description)}">${esc(t.name)}</span>`).join('') : 'no tools loaded yet'}</div></div>`).join('')
+    : '<span class="dim">No servers configured.</span>';
+  $('mcp-msg').textContent = connect ? 'Done.' : '';
+}
+async function saveMcp() {
+  try { await api('/api/mcp', {method:'PUT', body:{config: $('mcp-config').value}}); $('mcp-msg').textContent = 'Saved.'; await loadMcp(true); }
+  catch (e) { $('mcp-msg').textContent = e.message; $('mcp-msg').className = 'err'; }
+}
+
+// ---------------------------------------------------------------- API tokens
+async function loadTokens() {
+  let r; try { r = await api('/api/tokens'); } catch (e) { $('tokens').innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+  $('s-auth').checked = r.requireAuth;
+  if (!$('tk-perms').children.length)
+    $('tk-perms').innerHTML = r.permissions.map(p => `<label style="margin:0 10px 0 0"><input type="checkbox" class="tkp" value="${p}" style="width:auto" ${['chat','embeddings','models:read'].includes(p) ? 'checked' : ''}> ${p}</label>`).join('');
+  $('tokens').innerHTML = (r.legacyKey ? '<div class="dim">A single legacy API key is also set (full access).</div>' : '') +
+    (r.tokens.length ? '<table><tr><th>Name</th><th>Token</th><th>Permissions</th><th>Last used</th><th></th></tr>' + r.tokens.map(t =>
+      `<tr><td>${esc(t.name)}${t.disabled ? ' <span class="tag">disabled</span>' : ''}</td><td><code>${esc(t.prefix)}…</code></td><td>${t.permissions.map(p => `<span class="tag">${esc(p)}</span>`).join('')}</td>
+      <td class="dim">${t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : 'never'}</td>
+      <td style="white-space:nowrap"><button class="b sec" onclick="toggleToken('${t.id}', ${!t.disabled})">${t.disabled ? 'Enable' : 'Disable'}</button> <button class="b red" onclick="revokeToken('${t.id}')">Revoke</button></td></tr>`).join('') + '</table>'
+      : '<span class="dim">No tokens yet.</span>');
+}
+async function createToken() {
+  const name = $('tk-name').value.trim(); if (!name) return;
+  const permissions = [...document.querySelectorAll('.tkp:checked')].map(x => x.value);
+  try {
+    const r = await api('/api/tokens', {method:'POST', body:{name, permissions}});
+    $('tk-secret').style.display = ''; $('tk-secret').textContent = 'Token "' + name + '" — copy it now, it is not shown again:\n\n' + r.secret;
+    $('tk-name').value = ''; loadTokens();
+  } catch (e) { alert(e.message); }
+}
+async function revokeToken(id) { if (confirm('Revoke this token? Clients using it stop working.')) { await api('/api/tokens/' + id, {method:'DELETE'}); loadTokens(); } }
+async function toggleToken(id, disabled) { await api('/api/tokens/' + id, {method:'PUT', body:{disabled}}); loadTokens(); }
+
+// ---------------------------------------------------------------- runtimes
+async function loadRuntimes() {
+  let r; try { r = await api('/api/runtimes'); } catch (e) { $('runtimes').innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+  const s = r.survey;
+  $('runtimes').innerHTML =
+    `<div class="dim" style="margin-bottom:6px">This machine: AVX ${s.avx ? '✓' : '✗'} · AVX2 ${s.avx2 ? '✓' : '✗'} · AVX-512 ${s.avx512 ? '✓' : '✗'} · Vulkan loader ${s.vulkan ? '✓' : '✗'} · ${s.gpus} GPU(s)</div>` +
+    '<table><tr><th></th><th>Runtime</th><th>Source</th><th>Version</th><th>Size</th><th>Status</th><th></th></tr>' +
+    r.runtimes.map(x => `<tr><td>${x.active ? '<span class="ok">● active</span>' : x.selected ? '<span class="tag">selected</span>' : ''}</td>
+      <td>${esc(x.name)} <span class="dim">${esc(x.id)}</span></td><td>${x.source}</td><td>${esc(x.version || '')}</td><td>${fmt(x.sizeBytes)}</td>
+      <td>${x.compatible ? (x.recommended ? '<span class="ok">recommended</span>' : 'ok') : `<span class="err">${esc(x.reason || 'incompatible')}</span>`}</td>
+      <td style="white-space:nowrap">${x.compatible && !x.selected ? `<button class="b sec" onclick="selectRuntime('${esc(x.id)}')">Use</button>` : ''}
+        ${x.source === 'user' && !x.active ? `<button class="b sec" onclick="removeRuntime('${esc(x.id)}')">Remove</button>` : ''}</td></tr>`).join('') + '</table>' +
+    `<div class="row" style="margin-top:8px"><button class="b sec" onclick="selectRuntime('auto')">Automatic${r.selected === 'auto' ? ' ✓' : ''}</button>
+      <input id="rt-src" placeholder="Install a runtime: .zip URL, .zip file or folder with llama.dll + ggml*.dll"><button class="b" onclick="installRuntime()">Install</button>
+      <button class="b sec" onclick="updateRuntimes()">Check for updates</button></div>
+    <div class="dim" id="rt-msg" style="margin-top:6px">${r.restartRequired ? 'The selected runtime is applied after restarting the app.' : 'Runtimes are process wide: a change applies after a restart.'}</div>`;
+}
+async function selectRuntime(id) { try { await api('/api/runtimes/select', {method:'POST', body:{id}}); } catch (e) { alert(e.message); } loadRuntimes(); }
+async function removeRuntime(id) { try { await api('/api/runtimes?id=' + encodeURIComponent(id), {method:'DELETE'}); } catch (e) { alert(e.message); } loadRuntimes(); }
+async function installRuntime() {
+  const source = $('rt-src').value.trim(); if (!source) return;
+  $('rt-msg').textContent = 'Installing…';
+  try { await api('/api/runtimes/install', {method:'POST', body:{source}}); $('rt-src').value = ''; await loadRuntimes(); }
+  catch (e) { $('rt-msg').textContent = e.message; $('rt-msg').className = 'err'; }
+}
+async function updateRuntimes() {
+  $('rt-msg').textContent = 'Checking…';
+  try { const u = await api('/api/runtimes/update', {method:'POST'}); await loadRuntimes(); $('rt-msg').textContent = u.updated.length ? 'Updated: ' + u.updated.join(', ') : 'All installed runtimes are up to date.'; }
+  catch (e) { $('rt-msg').textContent = e.message; }
+}
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'r') {
+    e.preventDefault();
+    document.querySelector('nav button[data-tab="settings"]').click();
+    setTimeout(() => $('runtimes-h').scrollIntoView(), 150);
+  }
+});
+
+async function saveSettings() {
+  const s = window._settings;
+  s.host = $('s-host').value; s.port = Number($('s-port').value); s.apiKey = $('s-apikey').value || null; s.backend = $('s-backend').value;
+  s.modelsDirectory = $('s-modelsdir').value.trim() || null; s.huggingFaceToken = $('s-hftoken').value || null;
+  s.cors = $('s-cors').checked; s.anthropicApi = $('s-anthropic').checked; s.autoLoadOnRequest = $('s-autoload').checked;
+  s.maxConcurrentDownloads = Number($('s-maxdl').value) || 2; s.requireAuth = $('s-auth').checked;
+  s.updateFeedUrl = $('s-feed').value.trim() || null; s.checkUpdates = $('s-updates').checked; s.minimizeToTray = $('s-tray').checked; s.debugRequests = $('s-debug').checked; s.anthropicReasoningAsText = $('s-reastext').checked;
+  s.loadGuardrail = $('s-guard').value; s.limitToDedicatedGpuMemory = $('s-dedicated').checked;
+  $('s-load').querySelectorAll('[data-k]').forEach(el => { const k = el.dataset.k; s.defaultLoad[k] = el.tagName === 'SELECT' ? el.value : (el.value === '' ? null : (isNaN(el.value) ? el.value : Number(el.value))); });
+  if (s.apiKey) { apiKey = s.apiKey; localStorage.setItem('apikey', apiKey); }
+  await api('/api/settings', {method:'PUT', body: s});
+  $('s-msg').textContent = 'Saved.';
+}
+
+// ---------------------------------------------------------------- logs
+async function pollLogs() {
+  if (!$('logs').classList.contains('on')) return;
+  const l = await api('/api/logs?n=300').catch(() => []);
+  const box = $('logbox'); const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
+  box.textContent = l.join('\n'); if (atEnd) box.scrollTop = box.scrollHeight;
+}
+setInterval(pollLogs, 1500);
+setInterval(() => { if (!document.hidden) refreshDownloads(); }, 1000);
+setInterval(() => { if (!document.hidden) refreshStatus(); }, 8000);
+
+// ---------------------------------------------------------------- "?" hot spots with tooltips
+const TIPS = {
+  'p-model': {t:'The loaded model that answers. "(auto / load on demand)" lets the server pick one or load the model named in the request.', r:'any loaded model', e:'Pick a different model to compare answers on the same prompt.'},
+  'p-system': {t:'Standing instructions for the whole conversation: role, tone, rules, output format.', r:'free text', e:'"You are a concise assistant. Answer in at most three sentences."'},
+  'p-temperature': {t:'How adventurous the next-word choice is. Low = focused and repeatable, high = varied and creative.', r:'0 – 2 (default 0.7)', e:'0.0–0.3 code / facts · 0.7 chat · 1.0+ stories and brainstorming'},
+  'p-top_p': {t:'Only the most likely words whose probabilities add up to this value are considered. Change this or Temperature, not both.', r:'0 – 1 (default 0.95)', e:'0.95 normal · 0.5 very conservative · 1.0 off'},
+  'p-top_k': {t:'Consider only the K most likely words at each step.', r:'0 – 200 (0 = off, default 40)', e:'40 normal · 1 = always the single best word (deterministic)'},
+  'p-min_p': {t:'Drops words less likely than this fraction of the best word. A gentler alternative to Top K / Top P.', r:'0 – 1 (default 0.05)', e:'0.05 normal · 0.1 tighter output at high temperature'},
+  'p-repeat_penalty': {t:'Discourages words that appeared recently. 1.0 means no penalty.', r:'1.0 – 2.0 (default 1.1)', e:'1.15 if a small model starts looping ("the the the …")'},
+  'p-frequency_penalty': {t:'Penalty that grows with every repetition of a word. Negative values encourage repetition.', r:'−2 – 2 (default 0)', e:'0.3 to reduce repeated phrases'},
+  'p-presence_penalty': {t:'Flat penalty for any word that has already been used, pushing the model towards new topics.', r:'−2 – 2 (default 0)', e:'0.5 for more varied vocabulary'},
+  'p-max_tokens': {t:'Upper limit on the answer length. One token is about ¾ of an English word.', r:'−1 (no limit) or 1 – context length', e:'200 short answers · 2000 essays'},
+  'p-seed': {t:'Fixes the random choices so the same prompt gives the same answer (same model and settings). Blank = random.', r:'blank or any whole number ≥ 0', e:'42 → reproducible results'},
+  'p-stop': {t:'Generation ends as soon as one of these strings appears (it is not included). Comma separated; \\n is a line break.', r:'any text, comma separated', e:'###, \\n\\n  → stop at "###" or at the first blank line'},
+  'p-reasoning': {t:'For thinking models: off skips thinking, low / medium cap it (≈500 / ≈2000 tokens), high / on let it think freely.', r:'model default · off · low · medium · high · on', e:'off for quick facts · high for maths and planning'},
+  'p-mcp': {t:'Offers the tools of your MCP servers (Settings → MCP servers) to the model.', r:'on / off', e:'Ask "What files are in my project folder?" with a filesystem server connected.'},
+  'p-mcp-confirm': {t:'Whether you approve every tool call before it runs.', r:'ask · run without asking', e:'Keep "ask" for tools that can change files or send data.'},
+  'p-json': {t:'Forces the output to be valid JSON (enforced while generating).', r:'on / off', e:'Prompt: "List three colours as a JSON array."'},
+  'p-cache': {t:'Keeps the already-processed start of the conversation in memory so follow-ups only process the new text.', r:'on / off (default on)', e:'Turn off only to measure raw prompt-processing speed.'},
+  'p-schema': {t:'A JSON Schema the answer must match exactly (overrides JSON mode).', r:'JSON Schema text', e:'{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}'},
+  // load dialog
+  'l-device': {t:'Where the model runs: CPU only, GPU with every layer, or GPU with as many layers as fit.', r:'cpu · auto · gpu', e:'gpu for speed when the model fits in VRAM; auto for big models'},
+  'l-gpulayers': {t:'Exact number of layers placed on the GPU. Blank = decided by Device.', r:'blank or 0 – layer count (999 = all)', e:'20 → 20 layers on the GPU, the rest on the CPU'},
+  'l-ctx': {t:'How many tokens (prompt + conversation + answer) the model can keep in view. Bigger costs more memory (KV cache).', r:'512 – the model\'s maximum', e:'4096 chat · 16384+ long documents'},
+  'l-threads': {t:'CPU threads used for the CPU part of generation. 0 = automatic (75% of the cores).', r:'0 or 1 – logical cores', e:'On a 192-thread CPU, 16–32 is often faster than all of them.'},
+  'l-batch': {t:'Prompt tokens processed at once. Larger = faster prompt processing, slightly more memory.', r:'32 – 4096 (default 512)', e:'1024 for long prompts on a fast GPU'},
+  'l-ttl': {t:'Unload the model after this many idle minutes to free memory. It reloads on the next request.', r:'0 (never) – any number of minutes', e:'30 → unload after half an hour unused'},
+  'l-kvk': {t:'Precision of the K half of the KV cache. q8_0 halves its memory, q4_0 quarters it, with a small quality cost.', r:'f16 · q8_0 · q4_0', e:'q8_0 for long contexts on small GPUs'},
+  'l-kvv': {t:'Precision of the V half of the KV cache. A quantized V cache needs Flash attention (enabled automatically).', r:'f16 · q8_0 · q4_0', e:'q8_0 together with Flash attention'},
+  'l-id': {t:'The name of this model in the API ("model": "…"). Default: the file name.', r:'free text', e:'my-qwen'},
+  'l-main': {t:'GPU used for small tensors / the whole model in single-GPU mode.', r:'0 – number of GPUs − 1', e:'1 → use the second graphics card'},
+  'l-conc': {t:'Requests generated at the same time (continuous batching). Further requests wait in a queue.', r:'1 – 16 (default 4)', e:'4 lets several API clients share one loaded model'},
+  'l-flash': {t:'Memory-efficient, much faster attention for long prompts (a 24k-token prompt was 12x faster). Also required for a quantized V cache. Auto lets the engine switch it on when the device supports it.', r:'auto (default) · on · off', e:'Leave on auto. Turn off only to work around a driver problem.'},
+  'l-mmap': {t:'Map the model file instead of copying it into memory: fast start, low load-time RAM.', r:'on / off (default on)', e:'Turn off if loading from a slow network drive.'},
+  'l-mlock': {t:'Pin the model in RAM so it is never swapped out to disk.', r:'on / off (default off)', e:'On for servers with plenty of RAM.'},
+  'l-emb': {t:'Load as an embedding model (vectors for search), not a chat model.', r:'on / off', e:'nomic-embed, bge … models'},
+  'l-vision': {t:'Load the multimodal projector (mmproj) next to a vision model so it can read images.', r:'on / off (default on)', e:'Needs an mmproj file; costs a little extra memory.'},
+  'l-splitmode': {t:'How a model is spread over several GPUs: by layers (default), by rows, or only on the first ticked GPU.', r:'layer · row · single GPU', e:'layer is the safest default'},
+};
+// the per-model defaults dialog edits the same sampling parameters
+Object.assign(TIPS, {
+  'g-temperature': TIPS['p-temperature'], 'g-top_p': TIPS['p-top_p'], 'g-top_k': TIPS['p-top_k'], 'g-min_p': TIPS['p-min_p'],
+  'g-repeat': TIPS['p-repeat_penalty'], 'g-max': TIPS['p-max_tokens'], 'g-system': TIPS['p-system'],
+});
+
+(function initTips() {
+  const tip = document.createElement('div');
+  tip.id = 'tip'; document.body.appendChild(tip);
+  const show = (qm, d) => {
+    tip.innerHTML = `<div>${esc(d.t)}</div><div class="tr"><b>Range:</b> ${esc(d.r)}</div><div class="te"><b>Example:</b> ${esc(d.e)}</div>`;
+    tip.style.display = 'block';
+    const r = qm.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = r.left - w - 8; if (x < 8) x = Math.min(window.innerWidth - w - 8, r.right + 8);
+    let y = Math.min(window.innerHeight - h - 8, Math.max(8, r.top - 6));
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  };
+  const hide = () => { tip.style.display = 'none'; };
+  for (const [id, d] of Object.entries(TIPS)) {
+    const el = document.getElementById(id); if (!el) continue;
+    let label = el.closest('label');
+    if (!label) {
+      let n = el.previousElementSibling;
+      if (!n && el.parentElement) n = el.parentElement.previousElementSibling;
+      if (n?.tagName === 'LABEL') label = n;
+    }
+    if (!label || label.querySelector('.qm')) continue;
+    const qm = document.createElement('span');
+    qm.className = 'qm'; qm.tabIndex = 0; qm.textContent = '?'; qm.setAttribute('role', 'note');
+    qm.addEventListener('mouseenter', () => show(qm, d));
+    qm.addEventListener('focus', () => show(qm, d));
+    qm.addEventListener('mouseleave', hide);
+    qm.addEventListener('blur', hide);
+    qm.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
+    label.appendChild(qm);
+  }
+})();
+
+refreshStatus(); refreshPresets(); renderChatList(); renderMsgs();
+</script>
+</body>
+</html>

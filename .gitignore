@@ -1,0 +1,17 @@
+# Build output
+bin/
+obj/
+.vs/
+*.user
+
+# Downloaded model files (default models folder: ./DownloadedModels in the working directory)
+DownloadedModels/
+*.gguf
+*.gguf.part
+*.ggml
+*.safetensors
+
+# Local app data if LLMHOST_HOME is pointed inside the repo
+.llmhost/
+
+logs/

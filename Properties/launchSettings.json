@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "LLMHostProject": {
+      "commandName": "Project",
+      "workingDirectory": "$(ProjectDir)"
+    }
+  }
+}
