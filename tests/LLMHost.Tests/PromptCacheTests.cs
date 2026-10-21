@@ -92,6 +92,7 @@ public class PromptCacheStoreTests
 }
 
 [Trait("Category", "Integration")]
+[Collection("Models")]
 public class PromptCacheIntegrationTests
 {
     private static async Task<ModelRuntime> Load(int parallel = 1, int cacheSlots = 3)
@@ -174,6 +175,7 @@ public class PromptCacheIntegrationTests
 
 /// <summary>Speculative decoding must change speed, never the answer.</summary>
 [Trait("Category", "Integration")]
+[Collection("Models")]
 public class SpeculativeDecodingTests
 {
     private static string VlmPath => Environment.GetEnvironmentVariable("LLMHOST_TEST_VLM")!;

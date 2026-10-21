@@ -167,6 +167,7 @@ public class PromptTemplateApiTests : IClassFixture<ServerFixture>
 /// The built-in Jinja engine against llama.cpp's own renderer, on the templates of real models. Both must give the same prompt.
 /// </summary>
 [Trait("Category", "Integration")]
+[Collection("Models")]
 public class TemplateParityTests
 {
     private static readonly (string Role, string Content)[][] Conversations =
@@ -177,7 +178,7 @@ public class TemplateParityTests
         new[] { ("system", "Be brief."), ("user", "Hi"), ("assistant", "Hey."), ("user", "Why is the sky blue?"), ("assistant", "Rayleigh scattering."), ("user", "Thanks") },
     };
 
-    private static async Task Compare(string path)
+    private static async Task Compare(string path, bool withSystem = true)
     {
         var model = new ModelLibrary().Find(path)!;
         var options = new LoadOptions { Device = "cpu", ContextSize = 2048, MaxConcurrent = 1, Threads = 8, SkipFitCheck = true, Vision = false };
@@ -189,7 +190,7 @@ public class TemplateParityTests
         using var ours = await ModelRuntime.LoadAsync(model, overridden, "tpl-jinja", null, CancellationToken.None);
         Assert.DoesNotContain(ours.LoadWarnings, w => w.StartsWith("Prompt template"));
 
-        foreach (var conv in Conversations)
+        foreach (var conv in Conversations.Where(c => withSystem || c.All(m => m.Role != "system")))
         {
             var msgs = conv.Select(m => new ChatMessage(m.Role, m.Content)).ToList();
             string expected = native.ApplyChatTemplate(msgs, true);
@@ -202,7 +203,10 @@ public class TemplateParityTests
     public Task Qwen3TemplateMatchesLlamaCpp() => Compare(Environment.GetEnvironmentVariable("LLMHOST_TEST_MODEL")!);
 
     [VlmFact]
-    public Task SmolVlmTemplateMatchesLlamaCpp() => Compare(Environment.GetEnvironmentVariable("LLMHOST_TEST_VLM")!);
+    public Task SmolVlmTemplateMatchesLlamaCpp() =>
+        // llama.cpp's built-in shim for this format folds a system message into the first user turn, which the model's Jinja template
+        // does not do; the Jinja engine follows the template, so only conversations without a system message are compared
+        Compare(Environment.GetEnvironmentVariable("LLMHOST_TEST_VLM")!, withSystem: false);
 
     [VlmFact]
     public async Task ManualTemplateReplacesTheModelFormatAndAddsItsStopStrings()

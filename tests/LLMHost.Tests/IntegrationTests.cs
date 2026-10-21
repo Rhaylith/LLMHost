@@ -20,6 +20,7 @@ public sealed class ModelFactAttribute : FactAttribute
 }
 
 [Trait("Category", "Integration")]
+[Collection("Models")]
 public class ModelIntegrationTests
 {
     private static string ModelPath => Environment.GetEnvironmentVariable("LLMHOST_TEST_MODEL")!;

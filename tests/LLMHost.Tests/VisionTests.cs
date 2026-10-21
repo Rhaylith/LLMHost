@@ -220,6 +220,7 @@ public sealed class VlmFactAttribute : FactAttribute
 }
 
 [Trait("Category", "Integration")]
+[Collection("Models")]
 public class VisionIntegrationTests
 {
     private static async Task<LLMHostProject.Inference.ModelRuntime> Load(int slots = 3)
@@ -372,6 +373,7 @@ public class AudioInputTests
 }
 
 [Trait("Category", "Integration")]
+[Collection("Models")]
 public class AudioIntegrationTests
 {
     [VlmFact]

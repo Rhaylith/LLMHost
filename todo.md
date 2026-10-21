@@ -42,7 +42,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** Native, template-aware tool calling (model-specific tool-call formats, `tool_choice` incl. `required`/named, parallel calls, streaming tool-call arguments) instead of the generic JSON prompt
 - [x] **P1** Reasoning support: `<think>` parsing → separate `reasoning` output item / `reasoning_content` / Anthropic `thinking` blocks, and a `reasoning` effort control (`off|low|medium|high|on`) mapped to each model's template
 - [x] **P2** Speculative decoding with a draft model (shared vocabulary, suggested pairings and size limit). MTP-style speculation is only detected, not usable with the bundled llama.cpp; speed-up not yet measured with a real small draft
-- [x] **P2** Prompt-template override per model: auto-detect from GGUF metadata, edit as **Jinja** or as **manual** role prefix/suffix, "always show template" toggle (implemented; its tests have not been run yet, see the implementation plan)
+- [x] **P2** Prompt-template override per model: auto-detect from GGUF metadata, edit as **Jinja** or as **manual** role prefix/suffix, "always show template" toggle 
 - [x] **P2** Additional samplers: Mirostat v1/v2, DRY, XTC, top-n-sigma (TFS no longer exists in llama.cpp), configurable sampler order
 - [ ] **P2** Context-overflow policies (truncate middle, rolling window, stop at limit) per chat/request; today only "drop oldest turns"
 - [ ] **P2** MoE controls (number of experts, force expert weights onto CPU / tensor buffer overrides)

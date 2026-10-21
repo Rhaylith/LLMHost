@@ -67,13 +67,47 @@ public static class PromptTemplates
         return sb.ToString();
     }
 
+    /// <summary>Message content as a list of parts, the form multimodal templates iterate over.</summary>
+    private static List<object?> TypedContent(string text) =>
+        new() { new Dictionary<string, object?> { ["type"] = "text", ["text"] = text } };
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<JinjaTemplate, object> TypedCache = new();
+
+    /// <summary>
+    /// Some templates (SmolVLM / Idefics, Llama 3.2 Vision, Gemma 3) only work when a message's content is a list of
+    /// <c>{type, text}</c> parts. Like llama.cpp, find out by rendering a probe: if the plain-string form does not print the text
+    /// but the list form does, the template needs typed content.
+    /// </summary>
+    public static bool RequiresTypedContent(JinjaTemplate template)
+    {
+        if (TypedCache.TryGetValue(template, out var cached)) return (bool)cached;
+        const string probe = "PROBE_5f3a";
+        bool Prints(bool typed)
+        {
+            try
+            {
+                var vars = new Dictionary<string, object?>
+                {
+                    ["messages"] = new List<object?> { new Dictionary<string, object?> { ["role"] = "user", ["content"] = typed ? TypedContent(probe) : probe } },
+                    ["add_generation_prompt"] = true, ["bos_token"] = "", ["eos_token"] = "",
+                };
+                return template.Render(vars).Contains(probe);
+            }
+            catch (JinjaException) { return false; }
+        }
+        bool needs = !Prints(false) && Prints(true);
+        TypedCache.AddOrUpdate(template, needs);
+        return needs;
+    }
+
     /// <summary>Renders a Jinja chat template the way Hugging Face does (<c>messages</c>, <c>add_generation_prompt</c>, <c>bos_token</c>, <c>eos_token</c>).</summary>
     public static string RenderJinja(JinjaTemplate template, IReadOnlyList<(string Role, string Content)> messages, bool addAssistant,
         string bos, string eos, IDictionary<string, object?>? extra = null)
     {
+        bool typed = RequiresTypedContent(template);
         var vars = new Dictionary<string, object?>
         {
-            ["messages"] = messages.Select(m => (object?)new Dictionary<string, object?> { ["role"] = m.Role, ["content"] = m.Content }).ToList(),
+            ["messages"] = messages.Select(m => (object?)new Dictionary<string, object?> { ["role"] = m.Role, ["content"] = typed ? TypedContent(m.Content) : m.Content }).ToList(),
             ["add_generation_prompt"] = addAssistant,
             ["bos_token"] = bos,
             ["eos_token"] = eos,

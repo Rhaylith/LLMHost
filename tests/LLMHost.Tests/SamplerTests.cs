@@ -69,6 +69,7 @@ public class SamplerTests
 }
 
 [Trait("Category", "Integration")]
+[Collection("Models")]
 public class SamplerIntegrationTests
 {
     private static async Task<ModelRuntime> Load()

@@ -523,7 +523,7 @@ public sealed class JinjaTemplate
                     while (_p < _t.Count && _t[_p].Kind == "str") sb.Append(_t[_p++].Text);
                     return new Lit(sb.ToString());
                 }
-                case "num": return new Lit(text.Contains('.') ? double.Parse(text, CultureInfo.InvariantCulture) : long.Parse(text, CultureInfo.InvariantCulture));
+                case "num": return new Lit(text.Contains('.') ? (object)double.Parse(text, CultureInfo.InvariantCulture) : (object)long.Parse(text, CultureInfo.InvariantCulture));
                 case "name":
                     switch (text)
                     {
@@ -931,13 +931,13 @@ public sealed class JinjaTemplate
             double x = ToDouble(a), y = ToDouble(b);
             switch (op)
             {
-                case "+": return ints ? (long)x + (long)y : x + y;
-                case "-": return ints ? (long)x - (long)y : x - y;
-                case "*": return ints ? (long)x * (long)y : x * y;
+                case "+": return ints ? (object)((long)x + (long)y) : x + y;
+                case "-": return ints ? (object)((long)x - (long)y) : x - y;
+                case "*": return ints ? (object)((long)x * (long)y) : x * y;
                 case "/": return x / y;
-                case "//": return ints ? (long)Math.Floor(x / y) : Math.Floor(x / y);
-                case "%": return ints ? (((long)x % (long)y) + (long)y) % (long)y : x - Math.Floor(x / y) * y;
-                case "**": return ints && y >= 0 ? (long)Math.Pow(x, y) : Math.Pow(x, y);
+                case "//": return ints ? (object)(long)Math.Floor(x / y) : Math.Floor(x / y);
+                case "%": return ints ? (object)((((long)x % (long)y) + (long)y) % (long)y) : x - Math.Floor(x / y) * y;
+                case "**": return ints && y >= 0 ? (object)(long)Math.Pow(x, y) : Math.Pow(x, y);
             }
             throw new JinjaException($"Unsupported operator '{op}'.");
         }
@@ -1118,7 +1118,7 @@ public sealed class JinjaTemplate
                 case "string": return Values.Str(v);
                 case "int": return v switch { long l => l, double d => (long)d, bool b => b ? 1L : 0L, string s when long.TryParse(s.Trim(), out var n) => n, _ => Arg(0, "default", 0L) };
                 case "float": return v switch { long l => (double)l, double d => d, string s when double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) => n, _ => Arg(0, "default", 0.0) };
-                case "abs": return v switch { long l => Math.Abs(l), double d => Math.Abs(d), _ => throw new JinjaException("abs() needs a number.") };
+                case "abs": return v switch { long l => (object)Math.Abs(l), double d => Math.Abs(d), _ => throw new JinjaException("abs() needs a number.") };
                 case "round": return Math.Round(Values.ToDouble(v), a.Count > 0 ? (int)Values.ToDouble(a[0]) : 0, MidpointRounding.ToEven);
                 case "list": return Values.Iterate(v).ToList();
                 case "first": return Values.Iterate(v).FirstOrDefault() ?? (v is JinjaUndefined ? v : null);
