@@ -33,6 +33,8 @@ public class ConversationDocument
 
 public class Conversation
 {
+    /// <summary>Format version of the chat file (see <see cref="Migrations"/>).</summary>
+    public int SchemaVersion { get; set; } = Migrations.CurrentVersion(Migrations.Chat);
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..12];
     public string Title { get; set; } = "New chat";
     public string? Model { get; set; }
@@ -95,6 +97,7 @@ public class ChatStore
     {
         AppPaths.EnsureCreated();
         c.UpdatedAt = DateTime.UtcNow;
+        c.SchemaVersion = Migrations.CurrentVersion(Migrations.Chat);
         if (c.Title is "New chat" or "" && c.Messages.FirstOrDefault(m => m.Role == "user") is { } first)
             c.Title = first.Content.Length > 60 ? first.Content[..60] + "…" : first.Content;
         File.WriteAllText(PathFor(c.Id), JsonSerializer.Serialize(c, Json.Options));
@@ -127,6 +130,7 @@ public class AppHost : IDisposable
     public AppHost()
     {
         AppPaths.EnsureCreated();
+        Migrations.RunAll();
         Directory.CreateDirectory(Settings.ResolvedModelsDirectory);
         Models = new ModelManager(Library, ModelDefaults);
         Downloads = new DownloadManager { MaxConcurrent = Settings.MaxConcurrentDownloads };

@@ -149,6 +149,9 @@ public class GenerationOptions
 
 public class AppSettings
 {
+    /// <summary>Format version of settings.json (see <see cref="Migrations"/>).</summary>
+    public int SchemaVersion { get; set; } = Migrations.CurrentVersion(Migrations.Settings);
+
     /// <summary>
     /// Where models are stored. Null/empty (the default) means a "DownloadedModels" folder in the working directory.
     /// A relative path is resolved against the working directory.
@@ -224,16 +227,40 @@ public class AppSettings
     private static AppSettings Load()
     {
         AppPaths.EnsureCreated();
+        Migrations.RunAll();
         try
         {
             if (File.Exists(AppPaths.SettingsFile))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile), Json.Options) ?? new();
+            {
+                string text = File.ReadAllText(AppPaths.SettingsFile);
+                var s = JsonSerializer.Deserialize<AppSettings>(text, Json.Options) ?? new();
+                KeepUnknownKeys(text);
+                foreach (var err in SettingsValidator.Validate(s))
+                    LogBuffer.Add("settings", $"Invalid value in settings.json - {err.Field}: {err.Message}");
+                return s;
+            }
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"warning: could not read settings: {ex.Message}");
+            try { File.Copy(AppPaths.SettingsFile, AppPaths.SettingsFile + ".invalid", overwrite: true); } catch { }
         }
         return new AppSettings();
+    }
+
+    /// <summary>Keys the app does not know (typos, newer versions) are dropped on save; keep them in settings.json.invalid.</summary>
+    private static void KeepUnknownKeys(string json)
+    {
+        try
+        {
+            var unknown = Migrations.FindUnknownKeys(System.Text.Json.Nodes.JsonNode.Parse(json), typeof(AppSettings));
+            if (unknown.Count == 0) return;
+            var o = new System.Text.Json.Nodes.JsonObject();
+            foreach (var (k, v) in unknown) o[k] = v;
+            File.WriteAllText(AppPaths.SettingsFile + ".invalid", o.ToJsonString(Json.Options));
+            LogBuffer.Add("settings", $"Ignoring unknown settings: {string.Join(", ", unknown.Keys)} (kept in settings.json.invalid).");
+        }
+        catch { }
     }
 
     public void Save()
@@ -241,7 +268,8 @@ public class AppSettings
         lock (Gate)
         {
             AppPaths.EnsureCreated();
-            File.WriteAllText(AppPaths.SettingsFile, JsonSerializer.Serialize(this, Json.Options));
+            SchemaVersion = Migrations.CurrentVersion(Migrations.Settings);
+            Migrations.WriteAtomic(AppPaths.SettingsFile, JsonSerializer.Serialize(this, Json.Options));
         }
     }
 
@@ -269,17 +297,7 @@ public class PresetStore
 
     public Dictionary<string, GenerationOptions> All()
     {
-        lock (_gate)
-        {
-            try
-            {
-                if (File.Exists(AppPaths.PresetsFile))
-                    return JsonSerializer.Deserialize<Dictionary<string, GenerationOptions>>(
-                        File.ReadAllText(AppPaths.PresetsFile), Json.Options) ?? new();
-            }
-            catch { }
-            return new();
-        }
+        lock (_gate) return Migrations.ReadItems<GenerationOptions>(AppPaths.PresetsFile, Migrations.Presets);
     }
 
     public void Save(string name, GenerationOptions opts)
@@ -288,8 +306,7 @@ public class PresetStore
         {
             var all = All();
             all[name] = opts;
-            AppPaths.EnsureCreated();
-            File.WriteAllText(AppPaths.PresetsFile, JsonSerializer.Serialize(all, Json.Options));
+            Migrations.WriteItems(AppPaths.PresetsFile, Migrations.Presets, all);
         }
     }
 
@@ -299,7 +316,7 @@ public class PresetStore
         {
             var all = All();
             if (!all.Remove(name)) return false;
-            File.WriteAllText(AppPaths.PresetsFile, JsonSerializer.Serialize(all, Json.Options));
+            Migrations.WriteItems(AppPaths.PresetsFile, Migrations.Presets, all);
             return true;
         }
     }

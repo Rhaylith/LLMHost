@@ -828,6 +828,16 @@ public partial class ApiServer
         {
             var body = await ReadBody(ctx);
             var s = body.Deserialize<AppSettings>(Json.Options) ?? throw new ArgumentException("Invalid settings");
+            var errors = SettingsValidator.Validate(s);
+            if (errors.Count > 0)
+            {
+                await WriteJson(ctx, new
+                {
+                    error = new { message = "Invalid settings: " + SettingsValidator.Summary(errors), type = "validation_error", code = 400 },
+                    errors,
+                }, 400);
+                return;
+            }
             _host.Settings.Replace(s);
             _host.Downloads.MaxConcurrent = _host.Settings.MaxConcurrentDownloads;
             await WriteJson(ctx, _host.Settings);

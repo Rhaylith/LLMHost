@@ -73,6 +73,7 @@ pre.log{background:#0d0f12;padding:10px;border-radius:6px;overflow:auto;font:12p
 .help code{font-family:Consolas,monospace;font-size:12px;color:#9cc4ff}.help h3{margin-top:20px}
 dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:18px;width:460px}
 dialog::backdrop{background:#0008}
+.bad { outline: 2px solid #e5484d; }
 </style>
 </head>
 <body>
@@ -424,7 +425,7 @@ async function api(path, opt = {}) {
   if (r.status === 401) { const k = prompt('This server requires an API key:'); if (k) { apiKey = k; localStorage.setItem('apikey', k); return api(path, opt); } }
   if (opt.raw) return r;
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error?.message || r.statusText);
+  if (!r.ok) { const e = new Error(j.error?.message || r.statusText); e.errors = j.errors; throw e; }
   return j;
 }
 
@@ -1267,7 +1268,18 @@ async function saveSettings() {
   s.loadGuardrail = $('s-guard').value; s.limitToDedicatedGpuMemory = $('s-dedicated').checked;
   $('s-load').querySelectorAll('[data-k]').forEach(el => { const k = el.dataset.k; s.defaultLoad[k] = el.tagName === 'SELECT' ? el.value : (el.value === '' ? null : (isNaN(el.value) ? el.value : Number(el.value))); });
   if (s.apiKey) { apiKey = s.apiKey; localStorage.setItem('apikey', apiKey); }
-  await api('/api/settings', {method:'PUT', body: s});
+  document.querySelectorAll('#settings .bad').forEach(el => { el.classList.remove('bad'); el.title = ''; });
+  try { await api('/api/settings', {method:'PUT', body: s}); }
+  catch (e) {
+    if (!e.errors) { $('s-msg').textContent = e.message; return; }
+    const ids = {host:'s-host', port:'s-port', backend:'s-backend', apiKey:'s-apikey', modelsDirectory:'s-modelsdir', maxConcurrentDownloads:'s-maxdl', updateFeedUrl:'s-feed', loadGuardrail:'s-guard'};
+    for (const er of e.errors) {
+      const el = $(ids[er.field]) || document.querySelector(`#s-load [data-k="${er.field.split('.').pop()}"]`);
+      if (el) { el.classList.add('bad'); el.title = er.message; }
+    }
+    $('s-msg').textContent = 'Not saved: ' + e.errors.map(x => x.message).join(' ');
+    return;
+  }
   $('s-msg').textContent = 'Saved.';
 }
 

@@ -24,21 +24,11 @@ public class ModelDefaultsStore
 
     private Dictionary<string, ModelConfig> Data()
     {
-        if (_cache != null) return _cache;
-        try
-        {
-            if (File.Exists(AppPaths.ModelDefaultsFile))
-                _cache = JsonSerializer.Deserialize<Dictionary<string, ModelConfig>>(File.ReadAllText(AppPaths.ModelDefaultsFile), Json.Options);
-        }
-        catch { /* corrupt file: start empty */ }
-        return _cache ??= new Dictionary<string, ModelConfig>();
+        _cache ??= Migrations.ReadItems<ModelConfig>(AppPaths.ModelDefaultsFile, Migrations.ModelDefaults);
+        return _cache;
     }
 
-    private void Persist()
-    {
-        AppPaths.EnsureCreated();
-        File.WriteAllText(AppPaths.ModelDefaultsFile, JsonSerializer.Serialize(_cache, Json.Options));
-    }
+    private void Persist() => Migrations.WriteItems(AppPaths.ModelDefaultsFile, Migrations.ModelDefaults, _cache ?? new());
 
     public ModelConfig? Get(string modelId)
     {
