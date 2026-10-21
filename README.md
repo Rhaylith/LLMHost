@@ -46,6 +46,11 @@ Settings, presets and chats live in `%USERPROFILE%\.llmhost` (override with `LLM
 `DownloadedModels` folder in the **working directory** the app is started from (`config modelsdir <path>` to change,
 `config modelsdir default` to reset).
 
+## Contributing
+
+Adding a load or generation option follows a fixed checklist (declare → clone → validate → use → API → UI → tests):
+see [docs/adding-options.md](docs/adding-options.md). Saved data is versioned (`schemaVersion`) and upgraded on start-up.
+
 ## Notes / limits
 
 * GGUF models only (llama.cpp). Vision models need their `mmproj` file next to the model (downloaded automatically with `get`); audio input is not supported yet.

@@ -143,6 +143,7 @@ public class GenerationOptions
     {
         var c = (GenerationOptions)MemberwiseClone();
         c.Stop = new List<string>(Stop);
+        c.LogitBias = LogitBias != null ? new Dictionary<int, float>(LogitBias) : null;
         return c;
     }
 }
