@@ -98,6 +98,30 @@ public static class ImageInput
         catch { return data; }
     }
 
+    // ------------------------------------------------------------------ audio (travels in the same media list as images)
+
+    /// <summary>True for WAV, MP3 and FLAC data (the formats the multimodal loader can decode).</summary>
+    public static bool IsAudio(byte[] b)
+    {
+        if (b.Length < 12) return false;
+        bool wav = b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[9] == 'A' && b[10] == 'V' && b[11] == 'E';
+        bool flac = b[0] == 'f' && b[1] == 'L' && b[2] == 'a' && b[3] == 'C';
+        bool mp3 = (b[0] == 'I' && b[1] == 'D' && b[2] == '3') || (b[0] == 0xFF && (b[1] & 0xE0) == 0xE0);
+        return wav || flac || mp3;
+    }
+
+    /// <summary>
+    /// An OpenAI <c>input_audio</c> part ({data: base64, format: "wav"|"mp3"|"flac"}). Rejects data that is not one of those formats,
+    /// so a model never receives bytes it cannot decode.
+    /// </summary>
+    public static byte[] FromAudio(string base64, string? format)
+    {
+        var bytes = FromBase64(base64);
+        if (!IsAudio(bytes))
+            throw new ArgumentException($"Audio must be WAV, MP3 or FLAC data{(string.IsNullOrEmpty(format) ? "" : $" (got '{format}')")}.");
+        return bytes;
+    }
+
     private static byte[] Download(Uri uri)
     {
         // basic SSRF protection: never fetch loopback / private / link-local addresses on behalf of a request

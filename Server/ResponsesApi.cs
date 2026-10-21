@@ -48,6 +48,10 @@ public partial class ApiServer
                     case "input_text": case "output_text": case "text":
                         sb.Append(o["text"]?.GetValue<string>());
                         break;
+                    case "input_audio":
+                        if (o["input_audio"]?["data"]?.GetValue<string>() is { Length: > 0 } ad)
+                            images.Add(ImageInput.FromAudio(ad, o["input_audio"]?["format"]?.GetValue<string>()));
+                        break;
                     case "input_image": case "image_url":
                         {
                             var iu = o["image_url"];

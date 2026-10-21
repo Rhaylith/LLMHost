@@ -53,7 +53,7 @@ see [docs/adding-options.md](docs/adding-options.md). Saved data is versioned (`
 
 ## Notes / limits
 
-* GGUF models only (llama.cpp). Vision models need their `mmproj` file next to the model (downloaded automatically with `get`); audio input is not supported yet.
+* GGUF models only (llama.cpp). Vision models need their `mmproj` file next to the model (downloaded automatically with `get`); WAV/MP3/FLAC audio input works with audio-capable projectors (not tested with a real audio model).
 * Follow-up turns of a conversation with images are served from the prompt cache (pictures count as stand-in tokens; an image is reused whole or not at all). Models with M-RoPE vision (Qwen2-VL family) still re-evaluate the prompt.
 * CPU-vs-GPU backend choice (`config backend auto|vulkan|cpu`) is process wide; per-model CPU/GPU placement is
   controlled with `--cpu`, `--gpu`, `--gpu-layers`.

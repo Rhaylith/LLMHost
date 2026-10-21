@@ -155,6 +155,11 @@ public static class OpenAiMapping
                     case "text": case "input_text":
                         sb.Append(po["text"]?.GetValue<string>());
                         break;
+                    case "input_audio":
+                        // {"type":"input_audio","input_audio":{"data":"<base64>","format":"wav"}}
+                        if (po["input_audio"]?["data"]?.GetValue<string>() is { Length: > 0 } ad && images != null)
+                            images.Add(ImageInput.FromAudio(ad, po["input_audio"]?["format"]?.GetValue<string>()));
+                        break;
                     case "image_url": case "input_image":
                         // {"type":"image_url","image_url":{"url":"data:..."}} or {"image_url":"data:..."}
                         var iu = po["image_url"];

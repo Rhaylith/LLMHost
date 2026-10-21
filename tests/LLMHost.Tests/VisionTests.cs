@@ -321,3 +321,73 @@ public class VisionIntegrationTests
         Assert.False(string.IsNullOrWhiteSpace(text));
     }
 }
+
+[Trait("Category", "Unit")]
+public class AudioInputTests
+{
+    private static byte[] Wav()
+    {
+        var b = new byte[44];
+        System.Text.Encoding.ASCII.GetBytes("RIFF").CopyTo(b, 0);
+        System.Text.Encoding.ASCII.GetBytes("WAVEfmt ").CopyTo(b, 8);
+        return b;
+    }
+
+    [Fact]
+    public void FormatsAreRecognisedByTheirHeader()
+    {
+        Assert.True(ImageInput.IsAudio(Wav()));
+        Assert.True(ImageInput.IsAudio(System.Text.Encoding.ASCII.GetBytes("fLaC").Concat(new byte[20]).ToArray()));
+        Assert.True(ImageInput.IsAudio(System.Text.Encoding.ASCII.GetBytes("ID3").Concat(new byte[20]).ToArray()));
+        Assert.False(ImageInput.IsAudio(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0, 0, 0, 0, 0, 0 }));   // PNG
+        Assert.False(ImageInput.IsAudio(new byte[5]));
+    }
+
+    [Fact]
+    public void NonAudioDataIsRejected() =>
+        Assert.Throws<ArgumentException>(() => ImageInput.FromAudio(Convert.ToBase64String(new byte[64]), "ogg"));
+
+    [Fact]
+    public void ChatInputAudioPartBecomesMedia()
+    {
+        string b64 = Convert.ToBase64String(Wav());
+        var body = JsonNode.Parse("""
+            {"messages":[{"role":"user","content":[{"type":"text","text":"transcribe"},{"type":"input_audio","input_audio":{"data":"@@A@@","format":"wav"}}]}]}
+            """.Replace("@@A@@", b64))!;
+        var m = OpenAiMapping.ReadMessages(body).Single();
+        Assert.Single(m.Images!);
+        Assert.True(ImageInput.IsAudio(m.Images![0]));
+    }
+
+    [Fact]
+    public void ResponsesInputAudioPartBecomesMedia()
+    {
+        string b64 = Convert.ToBase64String(Wav());
+        var items = JsonNode.Parse("""
+            [{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"},{"type":"input_audio","input_audio":{"data":"@@A@@","format":"wav"}}]}]
+            """.Replace("@@A@@", b64))!.AsArray().Select(x => x!);
+        var m = ApiServer.ResponsesMessages(items, null, LLMHostProject.Inference.ToolFormat.Generic).Single();
+        Assert.Single(m.Images!);
+    }
+}
+
+[Trait("Category", "Integration")]
+public class AudioIntegrationTests
+{
+    [VlmFact]
+    public async Task AVisionOnlyModelRefusesAudioWithAClearMessage()
+    {
+        var model = new LLMHostProject.Models.ModelLibrary().Find(Environment.GetEnvironmentVariable("LLMHOST_TEST_VLM")!)!;
+        using var rt = await LLMHostProject.Inference.ModelRuntime.LoadAsync(model,
+            new LoadOptions { Device = "cpu", ContextSize = 2048, MaxConcurrent = 1, Threads = 8, SkipFitCheck = true }, "vlm-audio", null, CancellationToken.None);
+        Assert.True(rt.SupportsVision);
+        Assert.False(rt.SupportsAudio);
+        Assert.False(rt.Capabilities.Audio);
+        var wav = new byte[44];
+        System.Text.Encoding.ASCII.GetBytes("RIFF").CopyTo(wav, 0);
+        System.Text.Encoding.ASCII.GetBytes("WAVEfmt ").CopyTo(wav, 8);
+        var msgs = new List<LLMHostProject.Inference.ChatMessage> { new("user", "What is said?", new[] { wav }) };
+        var ex = Assert.Throws<InvalidOperationException>(() => rt.BuildFittingPrompt(msgs, 32, out _, out _, "off"));
+        Assert.Contains("audio", ex.Message);
+    }
+}

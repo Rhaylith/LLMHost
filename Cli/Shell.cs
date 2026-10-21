@@ -177,6 +177,7 @@ public class Shell
             case "cache": return await CacheAsync(a);
             case "image": case "img": return AttachImage(a);
             case "video": return await AttachVideoAsync(a);
+            case "audio": return AttachAudio(a);
             case "chat": return await ChatCommandAsync(a);
             default:
                 Ui.Error($"unknown command '{cmd}'. Type /help.");
@@ -218,6 +219,7 @@ public class Shell
               /system <prompt>          set the system prompt
               /image <file> [...]       attach image(s) to the next message (vision models)
               /video <file> [--fps 1] [--frames 8]   attach frames of a video (needs ffmpeg) to the next message
+              /audio <file> [...]       attach WAV / MP3 / FLAC audio to the next message (audio-capable models)
               /clear  /history  /undo  /regen  /save  /chats  /resume <id>  /export <file>
               /cache [on|off|clear]     prompt/KV cache: reuse the evaluated prompt prefix between turns
               /complete <text>          raw (non-chat) completion
@@ -1284,6 +1286,23 @@ public class Shell
         }
         catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException or ArgumentException or FormatException)
         { Ui.Error(ex.Message); return false; }
+    }
+
+    private bool AttachAudio(Args a)
+    {
+        if (a.Positional.Count == 0) { Ui.Info("Usage: /audio <file.wav|mp3|flac> [more files]"); return true; }
+        foreach (var path in a.Positional)
+        {
+            if (!File.Exists(path)) { Ui.Error($"file not found: {path}"); return false; }
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length > ImageInput.MaxBytes) { Ui.Error($"{path} is larger than {ImageInput.MaxBytes / (1024 * 1024)} MB"); return false; }
+            if (!ImageInput.IsAudio(bytes)) { Ui.Error($"{path} is not WAV, MP3 or FLAC audio"); return false; }
+            _pendingImages.Add(bytes);
+        }
+        var rt = _activeModel != null ? _host.Models.Get(_activeModel) : null;
+        Ui.Info($"{_pendingImages.Count} attachment(s) will be sent with your next message." +
+                (rt != null && !rt.SupportsAudio ? Ui.Yellow(" Warning: the active model cannot listen to audio.") : ""));
+        return true;
     }
 
     private bool AttachImage(Args a)

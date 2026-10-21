@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups (2 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups (3 of ~50).
 
 ---
 
@@ -85,7 +85,7 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
   a mismatched file is rejected.
 * Risks: unified-KV fragmentation → run `llama_kv_cache_defrag` when `cached/ctx > 0.8`.
 
-#### §1.2 Vision follow-ups — **L** (split into independently shippable pieces)
+#### ✅ §1.2 Vision follow-ups — **L** (`35b1cf0`, `f1467c8`, `68d3505`, `b49c817`, audio: see below)
 1. ✅ **Per-image options (S).** `detail: low|high|auto` on `image_url` → max edge (e.g. 512 / 1344) resized in `ImageInput`
    As built: `System.Drawing` (the app is Windows-only); `vision.maxImageEdge` (0 = off) and `vision.lowDetailEdge` (512) in settings; `detail` read from OpenAI chat, Responses and native `image` parts; the CLI `/image` applies the general limit.
 2. ✅ **Encoded-image cache (M).** Hash image bytes (xxhash) → cache the `mtmd` encoded chunk/embeddings per runtime (LRU, N MB);
@@ -96,9 +96,10 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
    `function_call_output`, Anthropic `tool_result` blocks; map to a synthetic user message carrying the image after the tool
    message when the template cannot embed images in tool turns. Add MCP tool results that return `image` content.
    As built: always the synthetic user turn (`ToolImagesMessage`), never inside the tool turn; MCP results keep `image` content (`McpToolResult.Images`) and the native tool loop feeds it back; `POST /api/mcp/call` returns `images` as data URLs. The web UI's own MCP loop still sends text only.
-4. **Audio input (L).** Check `mtmd` audio support in the LLamaSharp 0.27 native build (`mtmd_support_audio`); add
+4. ✅ **Audio input (L).** Check `mtmd` audio support in the LLamaSharp 0.27 native build (`mtmd_support_audio`); add
    `input_audio` parts (OpenAI) → decode WAV/MP3 (NAudio) to 16 kHz mono PCM → `mtmd_bitmap_init_from_audio`. Capability flag
    `audio` from X3. UI: attach audio file. Blocked if the pinned native lib lacks audio — then gate behind runtime update.
+   As built: no NAudio decoding step — the multimodal loader decodes WAV, MP3 and FLAC itself, so audio travels in the same media list as images (`ImageInput.IsAudio` / `FromAudio`, `input_audio` parts in OpenAI chat and Responses, CLI `/audio`); `ModelRuntime.SupportsAudio` follows the projector and drives the `audio` capability; a vision-only model answers with a clear error. **Not verified with a real audio model** (none available locally; needs a multi-GB Omni/Voxtral-class model): only the mapping, format checks and the refusal path are tested. The web UI has no audio attach button yet.
 5. ✅ **Video frames (S).** Client-side/CLI: `/video file.mp4 --fps 1 --max-frames 8` extracts frames (ffmpeg if found, else
    Media Foundation) and sends them as ordered images. No new engine work.
    As built: CLI `/video <file> [--fps 1] [--frames 8]` via ffmpeg only (next to the app, on PATH, or `vision.ffmpegPath`); Media Foundation was not implemented. Not exercised against a real video here (no ffmpeg on this machine): only argument building and error paths are tested.

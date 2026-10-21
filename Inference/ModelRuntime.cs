@@ -69,11 +69,13 @@ public sealed class ModelRuntime : IDisposable
 
     /// <summary>True when a multimodal projector is loaded and the model accepts image input.</summary>
     public bool SupportsVision => _mtmd != null;
+    /// <summary>True when the loaded projector also has an audio encoder (WAV / MP3 / FLAC input).</summary>
+    public bool SupportsAudio => _mtmd is { SupportsAudio: true };
     /// <summary>What this loaded instance can do: the model's capabilities, with media input only when the projector really loaded.</summary>
     public ModelCapabilities Capabilities => Model.Capabilities with
     {
         Vision = SupportsVision,
-        Audio = SupportsVision && Model.Capabilities.Audio,
+        Audio = SupportsAudio,
     };
     public string? MmprojFile { get; }
 
@@ -404,6 +406,7 @@ public sealed class ModelRuntime : IDisposable
             var prompt = Reasoning.ApplyToPrompt(ApplyChatTemplate(work), ReasoningStyle, reasoningEffort);
             var imgs = work.Where(m => m.Images != null).SelectMany(m => m.Images!).ToList();
             images = imgs;
+            RequireAudioSupport(imgs);
             if (imgs.Count > 0 && _mtmd == null)
                 throw new InvalidOperationException(
                     $"Model '{Identifier}' cannot read images: no multimodal projector (mmproj) is loaded. " +
@@ -415,6 +418,14 @@ public sealed class ModelRuntime : IDisposable
             work.RemoveAt(idx);
             droppedMessages++;
         }
+    }
+
+    /// <summary>Fails with a clear message when the prompt carries audio but the loaded projector cannot hear.</summary>
+    private void RequireAudioSupport(IReadOnlyList<byte[]>? media)
+    {
+        if (media is { Count: > 0 } && !SupportsAudio && media.Any(LLMHostProject.Server.ImageInput.IsAudio))
+            throw new InvalidOperationException(
+                $"Model '{Identifier}' cannot listen to audio: its multimodal projector has no audio encoder. Use an audio-capable model (e.g. Qwen2.5-Omni, Voxtral, Ultravox) with its mmproj file.");
     }
 
     private string WithMarkers(ChatMessage m)
@@ -575,6 +586,7 @@ public sealed class ModelRuntime : IDisposable
             if (prompt.StartsWith(bos, StringComparison.Ordinal)) { prompt = prompt[bos.Length..]; break; }
 
         bool multimodal = images is { Count: > 0 };
+        RequireAudioSupport(images);
         if (multimodal && _mtmd == null)
             throw new InvalidOperationException(
                 $"Model '{Identifier}' cannot read images: no multimodal projector (mmproj) is loaded.");

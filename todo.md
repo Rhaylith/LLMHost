@@ -38,7 +38,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 
 - [x] **P1** Parallel requests with continuous batching per model, configurable **max concurrent predictions** (BlahLLMWrapper default 4) — today one request per model at a time
 - [x] **P2** Prompt cache follow-ups: several cache slots (`cacheSlots`, default parallel requests + 2) and save/restore to disk (`/api/models/cache/save|restore`, optional auto-save on unload). The llama-server engine cache is not applicable (no such engine) and moves to §2 worker processes
-- [ ] **P2** Vision follow-ups: images inside tool results, audio input (mtmd supports it), per-image detail/resize options, video frames, vision for the llama-server engine, caching of encoded images between turns
+- [x] **P2** Vision follow-ups: images inside tool results, audio input (WAV/MP3/FLAC; untested with a real audio model), per-image detail/resize options, video frames (ffmpeg), reuse of the prompt cache across image turns. Vision for the llama-server engine does not apply (no such engine; see §2 worker processes)
 - [x] **P1** Native, template-aware tool calling (model-specific tool-call formats, `tool_choice` incl. `required`/named, parallel calls, streaming tool-call arguments) instead of the generic JSON prompt
 - [x] **P1** Reasoning support: `<think>` parsing → separate `reasoning` output item / `reasoning_content` / Anthropic `thinking` blocks, and a `reasoning` effort control (`off|low|medium|high|on`) mapped to each model's template
 - [ ] **P2** Speculative decoding with a draft model (must share vocabulary; show suggested pairings and size limits) and MTP-style speculation for models that support it
