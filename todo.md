@@ -37,7 +37,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 ## 1. Inference engine
 
 - [x] **P1** Parallel requests with continuous batching per model, configurable **max concurrent predictions** (BlahLLMWrapper default 4) — today one request per model at a time
-- [ ] **P2** Prompt cache follow-ups: several cache slots (so alternating chats don't evict each other; today one slot per loaded model), save/restore the cache to disk, cache for the llama-server engine
+- [x] **P2** Prompt cache follow-ups: several cache slots (`cacheSlots`, default parallel requests + 2) and save/restore to disk (`/api/models/cache/save|restore`, optional auto-save on unload). The llama-server engine cache is not applicable (no such engine) and moves to §2 worker processes
 - [ ] **P2** Vision follow-ups: images inside tool results, audio input (mtmd supports it), per-image detail/resize options, video frames, vision for the llama-server engine, caching of encoded images between turns
 - [x] **P1** Native, template-aware tool calling (model-specific tool-call formats, `tool_choice` incl. `required`/named, parallel calls, streaming tool-call arguments) instead of the generic JSON prompt
 - [x] **P1** Reasoning support: `<think>` parsing → separate `reasoning` output item / `reasoning_content` / Anthropic `thinking` blocks, and a `reasoning` effort control (`off|low|medium|high|on`) mapped to each model's template
@@ -155,7 +155,6 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 ## Known limitations of the current implementation (to fix as part of the above)
 
 - Native backend (CPU vs Vulkan vs custom) is chosen once per process; per-model CPU placement works via `gpu_layers = 0`.
-- The prompt/KV cache has a single slot per loaded model: switching between two conversations re-evaluates the prompt.
 - Only one request per loaded model runs at a time.
 - Tool calling is prompt-based and model-quality dependent; no reasoning-content field.
 - Requests with images always re-evaluate the prompt (the KV cache is not shared with image content).

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LLMHostProject.Inference;
 
 namespace LLMHostProject.Core;
 
@@ -59,6 +60,14 @@ public class LoadOptions
     public uint ContextSize { get; set; } = 4096;
     /// <summary>Requests generated at the same time (continuous batching); the rest wait in a queue. 1 = one at a time.</summary>
     public int MaxConcurrent { get; set; } = 4;
+    /// <summary>
+    /// Conversations whose evaluated prompt is kept in memory so they resume without re-processing (prompt cache slots).
+    /// 0 = automatic (parallel requests + 2). Never fewer than <see cref="MaxConcurrent"/>. The slots share the context
+    /// window, so idle ones are recycled (least recently used first) when a request needs the room.
+    /// </summary>
+    public int CacheSlots { get; set; }
+    [JsonIgnore]
+    public int SlotCount => Math.Min(16, Math.Max(Math.Clamp(MaxConcurrent, 1, 16), CacheSlots > 0 ? CacheSlots : MaxConcurrent + 2));
     public uint BatchSize { get; set; } = 512;
     public uint UBatchSize { get; set; } = 512;
     /// <summary>CPU threads for generation. 0 = default (75% of the logical cores).</summary>
@@ -215,6 +224,7 @@ public class AppSettings
     public int MaxConcurrentDownloads { get; set; } = 2;
     public bool VerboseNativeLog { get; set; }
     public LoggingSettings Logging { get; set; } = new();
+    public PromptCacheSettings PromptCache { get; set; } = new();
     /// <summary>Write the last /v1/messages request to ~/.llmhost/debug/anthropic-last.json (to see what a client such as Claude Code really sends). Contains your prompts.</summary>
     public bool DebugRequests { get; set; }
     /// <summary>Send reasoning to Anthropic-API clients as ordinary text (inside a think tag) so it streams visibly; off = separate thinking blocks.</summary>
@@ -316,7 +326,7 @@ public class AppSettings
         MinimizeToTray = other.MinimizeToTray; CheckUpdates = other.CheckUpdates; DebugRequests = other.DebugRequests; AnthropicReasoningAsText = other.AnthropicReasoningAsText;
         UpdateFeedUrl = string.IsNullOrWhiteSpace(other.UpdateFeedUrl) ? null : other.UpdateFeedUrl.Trim();
         LoadGuardrail = other.LoadGuardrail is "off" or "strict" ? other.LoadGuardrail : "balanced";
-        VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
+        VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); PromptCache = other.PromptCache ?? new(); DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
         Save();
     }
 }

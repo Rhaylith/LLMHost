@@ -48,6 +48,8 @@ public static class SettingsValidator
             Range("logging.retainDays", s.Logging.RetainDays, 0, 3650, "Log retention (days)");
             Range("logging.maxFileMb", s.Logging.MaxFileMb, 1, 1024, "Log file size (MB)");
         }
+        if (s.PromptCache == null) e.Add(new("promptCache", "Missing."));
+        else Range("promptCache.maxDiskMb", s.PromptCache.MaxDiskMb, 0, 10_000_000, "Prompt cache disk limit (MB)");
         ValidateLoad(s.DefaultLoad, "defaultLoad", e, Range, OneOf);
         ValidateGeneration(s.DefaultGeneration, "defaultGeneration", e, Range, OneOf);
         return e;

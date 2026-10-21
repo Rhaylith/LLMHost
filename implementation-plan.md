@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers (1 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups (2 of ~50).
 
 ---
 
@@ -65,8 +65,10 @@ Order inside a phase is free; dependencies are listed per item.
 
 ### §1 Inference engine
 
-#### §1.1 Prompt-cache follow-ups — **L**
+#### ✅ §1.1 Prompt-cache follow-ups — **L**
 Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
+
+**As built:** `LoadOptions.CacheSlots` (0 = parallel requests + 2) sets the number of sequences; only `MaxConcurrent` may generate at once. `PickSlot` reuses the longest shared prefix (≥ 32 tokens, or the whole short prompt), else an empty slot, else the least recently used. Saved caches: `Inference/PromptCacheStore.cs`, `POST /api/models/cache/save|restore`, `GET /api/models/cache/saved`, `DELETE /api/models/cache/saved`; `promptCache.autoSave` writes idle caches as `auto-N` on unload and restores them on load; `promptCache.maxDiskMb` caps the folder. Deviations: auto-save is per model, not per chat id; no `modelSha` header (the folder key is library id + file size); the llama-server part stays deferred to §2.5. Found while testing: unloading used to wipe caches before they could be saved.
 * **Several slots.** Today `Slot.Cache` is the only per-sequence history, and slots are bounded by `MaxConcurrent`. Decouple
   *cache entries* from *active slots*: `PromptCachePool` per runtime holding up to `CacheSlots` (new `LoadOptions.CacheSlots`,
   default = `MaxConcurrent`+2) entries `{Tokens, SeqId, LastUsed, ImageKey}`. On admission pick the entry with the longest common

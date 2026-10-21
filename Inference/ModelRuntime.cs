@@ -164,7 +164,7 @@ public sealed class ModelRuntime : IDisposable
             OpOffload = gpuLayers > 0,
         };
         // parallel requests: one sequence per slot, all sharing the same KV pool (so the context length is not divided)
-        int seqs = embeddings ? 1 : Math.Clamp(o.MaxConcurrent, 1, 16);
+        int seqs = embeddings ? 1 : o.SlotCount;
         p.SeqMax = (uint)seqs;
         if (seqs > 1) p.KVUnified = true;
         // default: 75% of the logical cores
@@ -309,6 +309,7 @@ public sealed class ModelRuntime : IDisposable
         rt.LoadWarnings.AddRange(warnings);
         rt.Estimate = estimate;
         rt.Plan = plan;
+        await rt.RestoreAutoAsync();
         return rt;
     }
 
@@ -520,6 +521,14 @@ public sealed class ModelRuntime : IDisposable
     /// <summary>Number of requests that can be generated at the same time.</summary>
     public int MaxConcurrent => Math.Max(1, Math.Clamp(Options.MaxConcurrent, 1, 16));
 
+    /// <summary>One prompt-cache slot: how many tokens it holds and whether a request is running in it.</summary>
+    public record CacheSlotInfo(int Id, int Tokens, bool Active, long LastUsed);
+
+    public IReadOnlyList<CacheSlotInfo> CacheSlots
+    {
+        get { lock (_qLock) return _slots.Select(s => new CacheSlotInfo(s.Id, s.Cache.Count, s.Req != null, s.LastUsed)).ToList(); }
+    }
+
     /// <summary>Largest number of cached prompt tokens held by any slot.</summary>
     public int CachedTokenCount { get { lock (_qLock) return _slots.Count == 0 ? 0 : _slots.Max(s => s.Cache.Count); } }
 
@@ -528,7 +537,7 @@ public sealed class ModelRuntime : IDisposable
         lock (_qLock)
         {
             if (_slots.Count > 0) return;
-            for (int i = 0; i < MaxConcurrent; i++) _slots.Add(new Slot { Id = i });
+            for (int i = 0; i < Options.SlotCount; i++) _slots.Add(new Slot { Id = i });
         }
     }
 
@@ -672,6 +681,29 @@ public sealed class ModelRuntime : IDisposable
         return n;
     }
 
+    /// <summary>A reuse of fewer cached tokens than this is not worth overwriting another conversation's cache.</summary>
+    internal const int MinReuseTokens = 32;
+
+    /// <summary>
+    /// Chooses the idle slot for a request: the one sharing the longest prompt prefix (at least <see cref="MinReuseTokens"/>);
+    /// otherwise an empty slot, otherwise the least recently used one, so other conversations keep their cache.
+    /// </summary>
+    private Slot? PickSlot(GenRequest req)
+    {
+        Slot? best = null; int bestCommon = 0;
+        int need = Math.Min(MinReuseTokens, Math.Max(1, req.Tokens.Length - 1));
+        if (!req.Multimodal && req.G.CachePrompt)
+            foreach (var s in _slots.Where(s => s.Req == null))
+            {
+                int common = CommonPrefix(s.Cache, req.Tokens);
+                if (common >= need && (common > bestCommon || common == bestCommon && best != null && s.LastUsed < best.LastUsed))
+                { best = s; bestCommon = common; }
+            }
+        if (best != null) return best;
+        var idle = _slots.Where(s => s.Req == null).ToList();
+        return idle.FirstOrDefault(s => s.Cache.Count == 0) ?? idle.OrderBy(s => s.LastUsed).FirstOrDefault();
+    }
+
     private async Task IterateAsync()
     {
         var ctx = Context;
@@ -699,13 +731,10 @@ public sealed class ModelRuntime : IDisposable
                 continue;
             }
 
-            // best free slot: longest reusable prefix, otherwise the one used longest ago
-            Slot? slot = null; int best = -1;
-            foreach (var s in _slots.Where(s => s.Req == null))
-            {
-                int common = !req.Multimodal && req.G.CachePrompt ? CommonPrefix(s.Cache, req.Tokens) : 0;
-                if (common > best || common == best && slot != null && s.LastUsed < slot.LastUsed) { best = common; slot = s; }
-            }
+            // more cache slots than concurrent requests: only MaxConcurrent of them may generate at once
+            if (_slots.Count(s => s.Req != null) >= MaxConcurrent) break;
+
+            var slot = PickSlot(req);
             if (slot == null) break;
 
             // space in the pool: active requests reserve prompt + max tokens, idle slots hold their cache
@@ -985,6 +1014,127 @@ public sealed class ModelRuntime : IDisposable
         return (content.ToString(), reasoning.ToString());
     }
 
+    // ------------------------------------------------------------------ saved prompt caches
+
+    /// <summary>Slot whose cache is worth saving: idle, non-empty, the longest (or the given slot).</summary>
+    private Slot? SlotToSave(int? slotId) =>
+        _slots.Where(s => s.Req == null && s.Cache.Count > 0 && (slotId == null || s.Id == slotId))
+              .OrderByDescending(s => s.Cache.Count).FirstOrDefault();
+
+    private unsafe SavedCache SaveSlot(Slot s, string name)
+    {
+        string kv = PromptCacheStore.KvPath(Model, name);
+        Directory.CreateDirectory(Path.GetDirectoryName(kv)!);
+        var tokens = s.Cache.ToArray();
+        nuint written;
+        fixed (LLamaToken* p = tokens)
+            written = NativeApi.llama_state_seq_save_file(Context.NativeHandle, kv, (LLamaSeqId)s.Id, p, (UIntPtr)tokens.Length);
+        if (written == 0) { try { File.Delete(kv); } catch { } throw new InvalidOperationException("The prompt cache could not be written."); }
+        var meta = new SavedCache(name, tokens.Length, (long)written, DateTime.UtcNow, Model.Id, Options.KvCacheTypeK, Options.KvCacheTypeV);
+        PromptCacheStore.WriteMeta(kv, meta);
+        PromptCacheStore.EnforceLimit(Math.Max(0, AppSettings.Current.PromptCache.MaxDiskMb) * 1024L * 1024L);
+        return meta;
+    }
+
+    /// <summary>Writes the longest idle prompt cache (or the one in <paramref name="slotId"/>) to disk under <paramref name="name"/>.</summary>
+    public async Task<SavedCache> SaveCacheAsync(string name, int? slotId = null)
+    {
+        EnsureSlots();
+        PromptCacheStore.KvPath(Model, name);          // validates the name
+        await _ctxGate.WaitAsync();
+        try
+        {
+            var slot = SlotToSave(slotId) ?? throw new InvalidOperationException("There is no idle prompt cache to save yet.");
+            return SaveSlot(slot, name);
+        }
+        finally { _ctxGate.Release(); }
+    }
+
+    private unsafe int RestoreInto(Slot s, string name)
+    {
+        string kv = PromptCacheStore.KvPath(Model, name);
+        var meta = PromptCacheStore.ReadMeta(kv);
+        if (!File.Exists(kv) || meta == null) throw new FileNotFoundException($"No saved prompt cache called '{name}' for this model.");
+        if (!string.Equals(meta.KvTypeK, Options.KvCacheTypeK, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(meta.KvTypeV, Options.KvCacheTypeV, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"The saved cache was made with a {meta.KvTypeK}/{meta.KvTypeV} KV cache; this model uses {Options.KvCacheTypeK}/{Options.KvCacheTypeV}.");
+        if (meta.Tokens >= ContextSize)
+            throw new InvalidOperationException($"The saved cache holds {meta.Tokens} tokens but the context window is only {ContextSize}.");
+
+        // make room in the shared pool: other idle caches are recycled, oldest first
+        while (_slots.Where(o => o != s).Sum(o => o.Req != null ? o.Req.PromptTokens + o.Req.MaxTokens : o.Cache.Count) + meta.Tokens > ContextSize)
+        {
+            var victim = _slots.Where(o => o != s && o.Req == null && o.Cache.Count > 0).OrderBy(o => o.LastUsed).FirstOrDefault();
+            if (victim == null) throw new InvalidOperationException("Not enough free context to restore this cache while other requests are running.");
+            ClearSlot(victim);
+        }
+        ClearSlot(s);
+        var tokens = new LLamaToken[Math.Max(meta.Tokens, 1)];
+        nuint count, read;
+        fixed (LLamaToken* p = tokens)
+            read = NativeApi.llama_state_seq_load_file(Context.NativeHandle, kv, (LLamaSeqId)s.Id, p, (UIntPtr)tokens.Length, out count);
+        if (read == 0 || (int)count != meta.Tokens) { ClearSlot(s); throw new InvalidOperationException("The saved prompt cache could not be loaded (different model or damaged file)."); }
+        s.Cache.AddRange(tokens.Take((int)count));
+        s.LastUsed = ++_tick;
+        File.SetLastWriteTimeUtc(kv, DateTime.UtcNow);
+        return (int)count;
+    }
+
+    /// <summary>Loads a saved cache into an idle slot (an empty one if there is, else the least recently used). Returns its token count.</summary>
+    public async Task<int> RestoreCacheAsync(string name)
+    {
+        EnsureSlots();
+        PromptCacheStore.KvPath(Model, name);
+        await _ctxGate.WaitAsync();
+        try
+        {
+            var idle = _slots.Where(s => s.Req == null).ToList();
+            var slot = idle.FirstOrDefault(s => s.Cache.Count == 0) ?? idle.OrderBy(s => s.LastUsed).FirstOrDefault()
+                       ?? throw new InvalidOperationException("All cache slots are busy; try again in a moment.");
+            return RestoreInto(slot, name);
+        }
+        finally { _ctxGate.Release(); }
+    }
+
+    private const string AutoPrefix = "auto-";
+
+    /// <summary>On unload: keeps the idle caches (most recently used first) as auto-N files so the next load starts warm.</summary>
+    private void AutoSave()
+    {
+        try
+        {
+            if (!AppSettings.Current.PromptCache.AutoSave || Options.Embeddings || Model.IsEmbedding) return;
+            var dir = PromptCacheStore.DirFor(Model);
+            if (Directory.Exists(dir)) foreach (var old in Directory.EnumerateFiles(dir, AutoPrefix + "*")) try { File.Delete(old); } catch { }
+            int n = 0;
+            foreach (var s in _slots.Where(s => s.Req == null && s.Cache.Count >= MinReuseTokens).OrderByDescending(s => s.LastUsed))
+                SaveSlot(s, AutoPrefix + n++);
+            if (n > 0) LogBuffer.Add("cache", $"{Identifier}: saved {n} prompt cache(s) to disk.");
+        }
+        catch (Exception ex) { LogBuffer.Add("cache", $"{Identifier}: could not save the prompt cache: {ex.Message}"); }
+    }
+
+    /// <summary>After load: brings back the caches written by <see cref="AutoSave"/>.</summary>
+    internal async Task RestoreAutoAsync()
+    {
+        try
+        {
+            if (!AppSettings.Current.PromptCache.AutoSave || Options.Embeddings || Model.IsEmbedding) return;
+            var dir = PromptCacheStore.DirFor(Model);
+            if (!Directory.Exists(dir)) return;
+            int restored = 0;
+            foreach (var kv in Directory.EnumerateFiles(dir, AutoPrefix + "*.kv").OrderBy(f => f, StringComparer.Ordinal))
+            {
+                try { await RestoreCacheAsync(Path.GetFileNameWithoutExtension(kv)); restored++; }
+                catch (Exception ex) { LogBuffer.Add("cache", $"{Identifier}: skipped {Path.GetFileName(kv)}: {ex.Message}"); }
+            }
+            if (restored > 0) LogBuffer.Add("cache", $"{Identifier}: restored {restored} prompt cache(s) from disk.");
+        }
+        catch { }
+    }
+
+    public IReadOnlyList<SavedCache> SavedCaches() => PromptCacheStore.List(Model);
+
     // ------------------------------------------------------------------ embeddings
 
     public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
@@ -1012,6 +1162,9 @@ public sealed class ModelRuntime : IDisposable
         _stop.Cancel();
         _wake.Release();
         try { _loop?.Wait(TimeSpan.FromSeconds(10)); } catch { }
+        // idle prompt caches are written before FailAll wipes them
+        _ctxGate.Wait();
+        try { AutoSave(); } finally { _ctxGate.Release(); }
         FailAll(new ObjectDisposedException(Identifier));
         _ctxGate.Wait();
         try

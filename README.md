@@ -57,7 +57,7 @@ see [docs/adding-options.md](docs/adding-options.md). Saved data is versioned (`
 * Requests that contain images re-evaluate the whole prompt (the KV cache is not shared with image content).
 * CPU-vs-GPU backend choice (`config backend auto|vulkan|cpu`) is process wide; per-model CPU/GPU placement is
   controlled with `--cpu`, `--gpu`, `--gpu-layers`.
-* The prompt/KV cache has one slot per loaded model: alternating between two conversations re-evaluates the prompt (continuing one conversation is served from the cache).
+* The prompt/KV cache keeps several conversations per loaded model (`cacheSlots`, default parallel requests + 2): alternating between chats reuses each one's evaluated prompt, and caches can be saved to disk (`POST /api/models/cache/save`, `promptCache.autoSave`). Idle caches share the context window and are recycled oldest first.
 * Tool calling is implemented by prompting + JSON parsing, so quality depends on the model.
 
 ## Anthropic-compatible server

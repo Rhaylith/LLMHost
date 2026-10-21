@@ -649,7 +649,7 @@ public partial class ApiServer
                 loaded = _host.Models.Loaded.Select(r => new
                 {
                     id = r.Identifier, file = r.Model.FileName, r.GpuLayers,
-                    device = r.GpuLayers > 0 ? "gpu" : "cpu", vision = r.SupportsVision, capabilities = r.Capabilities.ToApi(), threads = r.Threads, contextSize = r.ContextSize, cachedTokens = r.CachedTokenCount,
+                    device = r.GpuLayers > 0 ? "gpu" : "cpu", vision = r.SupportsVision, capabilities = r.Capabilities.ToApi(), threads = r.Threads, contextSize = r.ContextSize, cachedTokens = r.CachedTokenCount, cacheSlots = r.CacheSlots.Select(s => new { s.Id, s.Tokens, s.Active }),
                     sizeBytes = r.Model.SizeBytes, r.Requests, r.Busy, lastUsed = r.LastUsed,
                     reasoning = r.ReasoningStyle.ToString().ToLowerInvariant(), supportsReasoning = r.SupportsReasoning,
                     maxConcurrent = r.MaxConcurrent, active = r.ActiveRequests, queued = r.QueuedRequests, toolFormat = r.ToolFormat.ToString().ToLowerInvariant(),
@@ -669,6 +669,32 @@ public partial class ApiServer
             if (id != null && targets.Count == 0) { await WriteError(ctx, 404, $"'{id}' is not loaded", "not_found"); return; }
             foreach (var r in targets) await r.ClearCacheAsync();
             await WriteJson(ctx, new { cleared = targets.Count });
+        });
+
+        // ---- saved prompt caches (disk)
+        ModelRuntime LoadedOrThrow(string? id) =>
+            _host.Models.Loaded.FirstOrDefault(r => r.Identifier == id)
+            ?? throw new FileNotFoundException($"'{id}' is not loaded");
+        app.MapGet("/api/models/cache/saved", async ctx =>
+            await WriteJson(ctx, LoadedOrThrow(Q(ctx, "id")).SavedCaches()));
+        app.MapPost("/api/models/cache/save", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var r = LoadedOrThrow(body["id"]?.GetValue<string>());
+            await WriteJson(ctx, await r.SaveCacheAsync(body["name"]?.GetValue<string>() ?? throw new ArgumentException("'name' is required"),
+                body["slot"] is JsonValue sv && sv.TryGetValue<int>(out var slot) ? slot : null));
+        });
+        app.MapPost("/api/models/cache/restore", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var r = LoadedOrThrow(body["id"]?.GetValue<string>());
+            int tokens = await r.RestoreCacheAsync(body["name"]?.GetValue<string>() ?? throw new ArgumentException("'name' is required"));
+            await WriteJson(ctx, new { restored = true, tokens });
+        });
+        app.MapDelete("/api/models/cache/saved", async ctx =>
+        {
+            var r = LoadedOrThrow(Q(ctx, "id"));
+            await WriteJson(ctx, new { deleted = PromptCacheStore.Delete(r.Model, Q(ctx, "name")) });
         });
 
         app.MapGet("/api/models/local", async ctx =>
