@@ -649,7 +649,7 @@ public partial class ApiServer
                 loaded = _host.Models.Loaded.Select(r => new
                 {
                     id = r.Identifier, file = r.Model.FileName, r.GpuLayers,
-                    device = r.GpuLayers > 0 ? "gpu" : "cpu", vision = r.SupportsVision, capabilities = r.Capabilities.ToApi(), threads = r.Threads, contextSize = r.ContextSize, cachedTokens = r.CachedTokenCount, cacheSlots = r.CacheSlots.Select(s => new { s.Id, s.Tokens, s.Active }),
+                    device = r.GpuLayers > 0 ? "gpu" : "cpu", vision = r.SupportsVision, capabilities = r.Capabilities.ToApi(), threads = r.Threads, contextSize = r.ContextSize, cachedTokens = r.CachedTokenCount, cacheSlots = r.CacheSlots.Select(s => new { s.Id, s.Tokens, s.Active }), draftModel = r.DraftModelId, draftProposed = r.DraftProposedTotal, draftAccepted = r.DraftAcceptedTotal,
                     sizeBytes = r.Model.SizeBytes, r.Requests, r.Busy, lastUsed = r.LastUsed,
                     reasoning = r.ReasoningStyle.ToString().ToLowerInvariant(), supportsReasoning = r.SupportsReasoning,
                     maxConcurrent = r.MaxConcurrent, active = r.ActiveRequests, queued = r.QueuedRequests, toolFormat = r.ToolFormat.ToString().ToLowerInvariant(),
@@ -658,6 +658,17 @@ public partial class ApiServer
                     isEmbedding = r.Model.IsEmbedding || r.Options.Embeddings,
                 }),
                 modelsDirectory = _host.Settings.ResolvedModelsDirectory,
+            });
+        });
+
+        // draft models for speculative decoding: downloaded candidates (same vocabulary, much smaller) and well-known downloads
+        app.MapGet("/api/models/drafts", async ctx =>
+        {
+            var target = _host.Library.Find(Q(ctx, "model")) ?? throw new FileNotFoundException($"No local model matches '{Q(ctx, "model")}'");
+            await WriteJson(ctx, new
+            {
+                candidates = DraftPairing.LocalCandidates(target, _host.Library.List()).Select(m => new { m.Id, m.SizeBytes }),
+                suggestions = DraftPairing.Suggestions(target),
             });
         });
 

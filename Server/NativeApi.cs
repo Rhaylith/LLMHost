@@ -222,6 +222,8 @@ public partial class ApiServer
             input_tokens = stats.PromptTokens, total_output_tokens = stats.CompletionTokens, reasoning_output_tokens = reasoningTokens,
             tokens_per_second = Math.Round(stats.TokensPerSecond, 2), time_to_first_token_seconds = Math.Round(stats.TimeToFirstTokenMs / 1000.0, 3),
             model_load_time_seconds = jit ? Math.Round(loadSeconds, 3) : (double?)null,
+            draft_tokens_proposed = stats.DraftTokens > 0 ? stats.DraftTokens : (int?)null,
+            draft_tokens_accepted = stats.DraftTokens > 0 ? stats.DraftAccepted : (int?)null,
         };
 
         // ---- integrations: MCP tools the model may call; the server runs them and continues until it answers

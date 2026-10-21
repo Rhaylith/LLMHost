@@ -91,3 +91,49 @@ public class CapabilityTests
         Assert.Contains("\"names\"", json);
     }
 }
+
+[Trait("Category", "Unit")]
+public class DraftPairingTests
+{
+    private static LocalModel Make(string file, string arch, int vocab, long size, bool embedding = false)
+    {
+        string path = GgufBuilder.WriteFile("drafts/" + file, GgufBuilder.Build(arch: arch, vocab: vocab));
+        return new LocalModel { Id = "pub/repo/" + file, Path = path, FileName = file, Architecture = arch, SizeBytes = size, IsEmbedding = embedding, Name = file };
+    }
+
+    [Fact]
+    public void OnlySmallModelsOfTheSameFamilyAndVocabularyQualify()
+    {
+        var target = Make("big.gguf", "qwen3", 1000, 9_000_000_000);
+        var good = Make("small.gguf", "qwen3", 1000, 600_000_000);
+        var slightlyDifferentVocab = Make("pad.gguf", "qwen3", 1100, 600_000_000);      // within 128 tokens: padding differences
+        var wrongVocab = Make("vocab.gguf", "qwen3", 5000, 600_000_000);
+        var wrongArch = Make("arch.gguf", "llama", 1000, 600_000_000);
+        var tooBig = Make("mid.gguf", "qwen3", 1000, 4_000_000_000);
+        var embed = Make("emb.gguf", "qwen3", 1000, 100_000_000, embedding: true);
+
+        var found = DraftPairing.LocalCandidates(target, new[] { target, good, slightlyDifferentVocab, wrongVocab, wrongArch, tooBig, embed })
+            .Select(m => m.FileName).ToList();
+
+        Assert.Equal(new[] { "pad.gguf", "small.gguf" }.OrderBy(x => x), found.OrderBy(x => x));       // the padded vocabulary is still compatible
+    }
+
+    [Fact]
+    public void SuggestionsFollowTheArchitecture()
+    {
+        Assert.Contains(DraftPairing.Suggestions(new LocalModel { Architecture = "qwen3", Name = "Qwen3 14B" }), s => s.Repo.Contains("Qwen3-0.6B"));
+        Assert.Contains(DraftPairing.Suggestions(new LocalModel { Architecture = "llama", Name = "Llama-3.1-8B-Instruct", Id = "x/Llama-3.1-8B" }), s => s.Repo.Contains("Llama-3.2-1B"));
+        Assert.Empty(DraftPairing.Suggestions(new LocalModel { Architecture = "llama", Name = "Vicuna", Id = "x/vicuna" }));
+        Assert.Empty(DraftPairing.Suggestions(new LocalModel { Architecture = "mamba", Name = "m" }));
+    }
+
+    [Fact]
+    public void DraftOptionsAreValidated()
+    {
+        var s = new AppSettings();
+        s.DefaultLoad.DraftTokens = 500; s.DefaultLoad.DraftMinP = 3;
+        var f = SettingsValidator.Validate(s).Select(e => e.Field).ToList();
+        Assert.Contains("defaultLoad.draftTokens", f);
+        Assert.Contains("defaultLoad.draftMinP", f);
+    }
+}

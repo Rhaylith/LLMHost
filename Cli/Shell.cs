@@ -203,7 +203,7 @@ public class Shell
               rm <model>                 delete a downloaded model
             Running
               load <model> [--cpu|--gpu max|auto|off|0.5] [--gpu-layers N] [--identifier name] [--context-length N] [--ctx N] [--threads N (default 75% of cores)] [--batch N]
-                           [--flash] [--no-mmap] [--mlock] [--kv-k q8_0] [--kv-v q8_0] [--no-vision] [--mmproj <file>]
+                           [--flash] [--no-mmap] [--mlock] [--kv-k q8_0] [--kv-v q8_0] [--no-vision] [--mmproj <file>] [--draft <small model>] [--draft-tokens 6]
                            [--id name] [--ttl minutes] [--embeddings]
                            [--gpus 0,1] [--split 3,1] [--split-mode layer|row|none]   multi-GPU: devices (priority order), shares, mode
                            [--parallel N]   requests generated at the same time (continuous batching, default 4)
@@ -756,6 +756,8 @@ public class Shell
         if (a.Value("kv-v") is { } kv) o.KvCacheTypeV = kv;
         if (a.Value("id", "identifier") is { } id) o.Identifier = id;
         if (a.Value("ttl") is { } ttl) o.TtlMinutes = int.Parse(ttl);
+        if (a.Value("draft") is { } dm) o.DraftModel = dm;
+        if (a.Value("draft-tokens") is { } dt) o.DraftTokens = int.Parse(dt);
         if (a.Value("rope-base") is { } rb) o.RopeFrequencyBase = float.Parse(rb, System.Globalization.CultureInfo.InvariantCulture);
 
         var query = string.Join(' ', a.Positional);

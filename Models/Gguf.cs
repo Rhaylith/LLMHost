@@ -38,6 +38,8 @@ public class GgufInfo
     public bool IsEmbeddingModel { get; set; }
     /// <summary>llama.cpp pooling type (0 none, 1 mean, 2 cls, 3 last, 4 rank = reranker); -1 when the model does not say.</summary>
     public long PoolingType { get; set; } = -1;
+    /// <summary>Built-in multi-token-prediction heads (GGUF <c>nextn_predict_layers</c>); 0 when the model has none. Detected only: the pinned engine cannot use them yet.</summary>
+    public long MtpLayers { get; set; }
     /// <summary>Multimodal projector (mmproj) files: which encoders they carry.</summary>
     public bool HasVisionEncoder { get; set; }
     public bool HasAudioEncoder { get; set; }
@@ -120,6 +122,7 @@ public class GgufInfo
                                 case "attention.sliding_window": info.SlidingWindow = ToLong(v); break;
                                 case "expert_count": info.ExpertCount = ToLong(v); break;
                                 case "expert_used_count": info.ExpertUsedCount = ToLong(v); break;
+                                case "nextn_predict_layers": info.MtpLayers = ToLong(v); break;
                                 case "pooling_type": info.IsEmbeddingModel = true; info.PoolingType = ToLong(v); break;
                             }
                         }

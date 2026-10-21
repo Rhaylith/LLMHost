@@ -33,6 +33,9 @@ public class GenerationStats
     /// <summary>Prompt tokens served from the KV cache instead of being evaluated again.</summary>
     public int CachedTokens { get; set; }
     public int CompletionTokens { get; set; }
+    /// <summary>Speculative decoding: tokens the draft model proposed for this request and how many the main model accepted.</summary>
+    public int DraftTokens { get; set; }
+    public int DraftAccepted { get; set; }
     public string FinishReason { get; set; } = "stop";
     /// <summary>The stop string that ended generation, if any.</summary>
     public string? StopSequence { get; set; }
@@ -54,6 +57,11 @@ public sealed class ModelRuntime : IDisposable
     private readonly string _mediaMarker = "<__media__>";
     private readonly LLamaBatch _batch = new();
     private LLamaEmbedder? _embedder;
+    private DraftModel? _draft;
+    private long _draftProposed, _draftAccepted;
+    private volatile bool _draftOff;
+    /// <summary>Test hook: may change the draft model's proposals (to exercise rejected drafts).</summary>
+    internal static Func<List<LLamaToken>, List<LLamaToken>>? DraftMutator;
 
     public string Identifier { get; }
     public LocalModel Model { get; }
@@ -78,6 +86,10 @@ public sealed class ModelRuntime : IDisposable
         Audio = SupportsAudio,
     };
     public string? MmprojFile { get; }
+    /// <summary>Library id of the draft model used for speculative decoding (null = off).</summary>
+    public string? DraftModelId => _draft?.Model.Id;
+    public long DraftProposedTotal => Interlocked.Read(ref _draftProposed);
+    public long DraftAcceptedTotal => Interlocked.Read(ref _draftAccepted);
 
     private ModelRuntime(string id, LocalModel model, LoadOptions options, int gpuLayers, LLamaWeights weights, ModelParams p,
         MtmdWeights? mtmd, string? mmproj, string marker)
@@ -307,12 +319,45 @@ public sealed class ModelRuntime : IDisposable
                 mtmd = null;
             }
         }
+        DraftModel? draft = null;
+        if (!string.IsNullOrWhiteSpace(options.DraftModel) && !isEmbedding)
+            draft = await LoadDraftAsync(options, weights!, layers, warnings, ct);
         var rt = new ModelRuntime(identifier, model, options, layers, weights!, p, mtmd, mmproj, marker) { _ctx = context };
+        rt._draft = draft;
         rt.LoadWarnings.AddRange(warnings);
         rt.Estimate = estimate;
         rt.Plan = plan;
         await rt.RestoreAutoAsync();
         return rt;
+    }
+
+    /// <summary>Loads the draft model for speculative decoding. A draft that cannot be used is reported and skipped; the main model still loads.</summary>
+    private static async Task<DraftModel?> LoadDraftAsync(LoadOptions options, LLamaWeights target, int layers, List<string> warnings, CancellationToken ct)
+    {
+        DraftModel? draft = null;
+        try
+        {
+            var dm = new ModelLibrary().Find(options.DraftModel!)
+                     ?? throw new FileNotFoundException($"no local model matches '{options.DraftModel}'");
+            if (dm.IsEmbedding) throw new InvalidOperationException("an embedding model cannot be a draft model");
+            draft = await DraftModel.LoadAsync(dm, layers > 0 ? 999 : 0, options.ContextSize, Hardware.EffectiveThreads(options.Threads), ct);
+            string? why = DraftModel.CheckVocabulary(target, draft.Weights);
+            if (why != null)
+            {
+                draft.Dispose();
+                warnings.Add($"Draft model '{dm.Id}' ignored: {why}. Pick a smaller model of the same family.");
+                return null;
+            }
+            LogBuffer.Add("load", $"Speculative decoding with {dm.Id} ({Hardware.FormatBytes(dm.SizeBytes)} extra memory, {(options.DraftTokens > 0 ? options.DraftTokens : 6)} tokens per step)");
+            return draft;
+        }
+        catch (OperationCanceledException) { draft?.Dispose(); throw; }
+        catch (Exception ex)
+        {
+            draft?.Dispose();
+            warnings.Add($"Draft model could not be used: {ex.Message}. Continuing without speculative decoding.");
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ prompts
@@ -499,6 +544,9 @@ public sealed class ModelRuntime : IDisposable
         public bool Multimodal;
         /// <summary>The prompt has a token signature (images as stand-in tokens), so its KV cache can be reused and kept.</summary>
         public bool ImageReuse;
+        /// <summary>Speculative decoding: tokens proposed for this step (they sit behind the real token in the batch).</summary>
+        public List<LLamaToken>? Drafts;
+        public int SpecFirstIdx, DraftProposed, DraftAccepted;
         public GenerationOptions G = null!;
         public GenerationStats Stats = null!;
         public CancellationToken Ct;
@@ -780,14 +828,18 @@ public sealed class ModelRuntime : IDisposable
         _batch.Clear();
         int budget = (int)Math.Max(1, Options.BatchSize);
         var sample = new List<(Slot Slot, int Index)>();
+        // speculation pays off for a lone request: batching already keeps the device busy when several run together
+        bool lone = _draft != null && !_draftOff && _slots.Count(x => x.Req != null) == 1;
         foreach (var s in _slots)
         {
             var r = s.Req;
             if (r == null || r.State != SlotState.Generating || r.Feed.Count == 0) continue;
             r.InFlight = r.Feed; r.Feed = new List<LLamaToken>();
+            if (lone && CanSpeculate(r)) TryDraft(s, r);
             int idx = -1;
             for (int i = 0; i < r.InFlight.Count; i++)
-                idx = _batch.Add(r.InFlight[i], r.NextPos + i, (LLamaSeqId)s.Id, i == r.InFlight.Count - 1);
+                idx = _batch.Add(r.InFlight[i], r.NextPos + i, (LLamaSeqId)s.Id, r.Drafts != null || i == r.InFlight.Count - 1);
+            r.SpecFirstIdx = idx - (r.Drafts?.Count ?? 0);
             budget -= r.InFlight.Count;
             sample.Add((s, idx));
         }
@@ -832,6 +884,7 @@ public sealed class ModelRuntime : IDisposable
         {
             var r = s.Req;
             if (r == null || r.InFlight.Count == 0) continue;
+            if (r.Drafts != null) continue;                    // settled in VerifyDrafts, once we know which drafts were right
             if (!r.Multimodal || r.ImageReuse) s.Cache.AddRange(r.InFlight);
             r.NextPos += r.InFlight.Count;
             if (r.State == SlotState.Prefill) r.PromptIndex += r.InFlight.Count;
@@ -843,8 +896,91 @@ public sealed class ModelRuntime : IDisposable
         {
             if (s.Req == null) continue;
             if (s.Req.State == SlotState.Prefill) s.Req.State = SlotState.Generating;
-            try { SampleAndHandle(s, idx, ctx); }
+            try
+            {
+                if (s.Req.Drafts != null) VerifyDrafts(s, ctx);
+                else SampleAndHandle(s, idx, ctx);
+            }
             catch (Exception ex) { Fail(s, ex); }
+        }
+    }
+
+    // ------------------------------------------------------------------ speculative decoding
+    //
+    // The draft model proposes k tokens. They go into the batch right behind the token the main model was going to evaluate
+    // anyway, with logits for every position. Then the tokens are sampled one by one with the request's own sampler: while the
+    // sample equals the proposal the next position is already computed; the first sample that differs is the real token and
+    // the remaining proposals are discarded (their KV entries are removed). The result is exactly what ordinary decoding gives.
+
+    private bool CanSpeculate(GenRequest r) =>
+        !r.Multimodal && r.ThinkBudget <= 0 && r.InFlight.Count == 1 && !r.Ct.IsCancellationRequested;
+
+    private void TryDraft(Slot s, GenRequest r)
+    {
+        int k = Options.DraftTokens > 0 ? Options.DraftTokens : 6;
+        k = Math.Min(k, r.MaxTokens - r.Generated - 1);                         // never past the token limit
+        k = Math.Min(k, (int)ContextSize - r.NextPos - 2);                      // nor past the end of the window
+        if (k <= 0) return;
+        try
+        {
+            var prefix = new List<LLamaToken>(s.Cache.Count + 1);
+            prefix.AddRange(s.Cache);
+            prefix.AddRange(r.InFlight);
+            var drafts = _draft!.Propose(prefix, k, Options.DraftMinP);
+            if (DraftMutator != null) drafts = DraftMutator(drafts);
+            if (drafts.Count == 0) return;
+            r.Drafts = drafts;
+            r.InFlight.AddRange(drafts);
+        }
+        catch (Exception ex)
+        {
+            LogBuffer.Add("gen", $"Speculative decoding stopped: {ex.Message}");
+            _draft?.Dispose(); _draft = null;
+            r.Drafts = null;
+        }
+    }
+
+    /// <summary>Samples the positions of a speculative batch in order, keeps the proposals that were right, rolls the rest back.</summary>
+    private void VerifyDrafts(Slot slot, LLamaContext ctx)
+    {
+        var r = slot.Req!;
+        var drafts = r.Drafts!;
+        r.Drafts = null;
+        int k = drafts.Count, accepted = 0;
+        int startPos = r.NextPos;
+        var batchTokens = r.InFlight;                                      // [real token, drafts...]
+
+        for (int i = 0; i <= k; i++)
+        {
+            int idx = r.SpecFirstIdx + i;
+            var token = r.Sampler.Sample(ctx.NativeHandle, idx);
+            if (r.G.Logprobs && !token.IsEndOfGeneration(_weights.Vocab)) RecordLogprob(r, ctx, idx, token);
+            bool match = i < k && (int)token == (int)drafts[i];
+            // a confirmed proposal is already in the batch: only the last token of the step has to be fed again
+            HandleToken(slot, token, ctx, addToFeed: !match);
+            if (match) accepted++;
+            if (!match || slot.Req == null) break;
+        }
+
+        r.DraftProposed += k; r.DraftAccepted += accepted;
+        Interlocked.Add(ref _draftProposed, k); Interlocked.Add(ref _draftAccepted, accepted);
+
+        // the real token and every confirmed proposal are part of the sequence now
+        int valid = 1 + accepted;
+        if (!r.Multimodal || r.ImageReuse) slot.Cache.AddRange(batchTokens.Take(valid));
+        r.NextPos += valid;
+        r.InFlight = new List<LLamaToken>();
+        if (valid < batchTokens.Count)
+        {
+            ctx.NativeHandle.MemorySequenceRemove((LLamaSeqId)slot.Id, startPos + valid, -1);
+            if ((int)ctx.NativeHandle.MemorySequenceMaxPosition((LLamaSeqId)slot.Id) != startPos + valid - 1)
+            {
+                // the architecture cannot drop a tail (recurrent / sliding-window models): speculation cannot be used with it
+                _draftOff = true;
+                LogBuffer.Add("gen", $"{Identifier}: this model cannot roll back its cache; speculative decoding is switched off.");
+                if (slot.Req != null) throw new InvalidOperationException("This model cannot roll back its cache, so speculative decoding was switched off. Please retry the request.");
+                ClearSlot(slot);
+            }
         }
     }
 
@@ -1052,7 +1188,7 @@ public sealed class ModelRuntime : IDisposable
         try { var d = new StreamingTokenDecoder(ctx); d.Add(t); return d.Read(); } catch { return ""; }
     }
 
-    private void HandleToken(Slot slot, LLamaToken token, LLamaContext ctx)
+    private void HandleToken(Slot slot, LLamaToken token, LLamaContext ctx, bool addToFeed = true)
     {
         var r = slot.Req!;
         if (token.IsEndOfGeneration(_weights.Vocab)) { r.Eos = true; Finish(slot); return; }
@@ -1070,7 +1206,7 @@ public sealed class ModelRuntime : IDisposable
         if (r.Generated >= r.MaxTokens) { Finish(slot); return; }
 
         // the sampled token goes into the next batch so the following one can be predicted (and stays cached)
-        r.Feed.Add(token);
+        if (addToFeed) r.Feed.Add(token);
 
         // reasoning effort: after the budget the think block is closed on the model's behalf
         if (r.Scanner.InThink)
@@ -1090,6 +1226,8 @@ public sealed class ModelRuntime : IDisposable
         var r = slot.Req!;
         foreach (var seg in r.Scanner.Flush()) r.Out.Writer.TryWrite(seg);
         r.Stats.CompletionTokens = r.Generated;
+        r.Stats.DraftTokens = r.DraftProposed;
+        r.Stats.DraftAccepted = r.DraftAccepted;
         r.Stats.TotalMs = r.Sw.Elapsed.TotalMilliseconds;
         r.Stats.StopSequence = r.Scanner.MatchedStop;
         r.Stats.FinishReason = !r.HitStop && !r.Eos && r.Generated >= r.MaxTokens ? "length" : "stop";
@@ -1299,6 +1437,7 @@ public sealed class ModelRuntime : IDisposable
         try
         {
             _embedder?.Dispose();
+            _draft?.Dispose();
             _ctx?.Dispose();
             _mtmd?.Dispose();
             _weights.Dispose();

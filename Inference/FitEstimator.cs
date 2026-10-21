@@ -18,6 +18,8 @@ public class FitEstimate
     public long KvCacheBytes { get; set; }
     public long ComputeBytes { get; set; }
     public long ProjectorBytes { get; set; }
+    /// <summary>Speculative-decoding draft model (weights + its own cache), when one is configured.</summary>
+    public long DraftBytes { get; set; }
     /// <summary>Sum of everything that lands on GPUs / in system memory.</summary>
     public long GpuBytes { get; set; }
     public long CpuBytes { get; set; }
@@ -43,6 +45,7 @@ public class FitEstimate
         string f(long b) => Hardware.FormatBytes(b);
         var parts = new List<string> { $"weights {f(WeightsBytes)}", $"KV cache {f(KvCacheBytes)}", $"compute {f(ComputeBytes)}" };
         if (ProjectorBytes > 0) parts.Add($"vision projector {f(ProjectorBytes)}");
+        if (DraftBytes > 0) parts.Add($"draft model {f(DraftBytes)}");
         string where = string.Join("; ", Devices.Select(d => $"{d.Name}: {f(d.NeedBytes)} of {f(d.BudgetBytes)}"));
         return string.Join(" + ", parts) + (where.Length > 0 ? " → " + where : "");
     }
@@ -174,7 +177,15 @@ public static class FitEstimator
         if (o.Vision && !(o.Embeddings || model.IsEmbedding) && mmproj != null && File.Exists(mmproj))
             proj = (long)(new FileInfo(mmproj).Length * 1.15);
         est.ProjectorBytes = proj;
-
+        // a draft model is loaded next to the main one (same device placement); count it like the projector
+        long draftBytes = 0;
+        if (!string.IsNullOrWhiteSpace(o.DraftModel) && !(o.Embeddings || model.IsEmbedding))
+        {
+            var dm = new ModelLibrary().Find(o.DraftModel);
+            if (dm != null) draftBytes = (long)(dm.SizeBytes * 1.15) + 64L * 1024 * 1024;
+        }
+        est.DraftBytes = draftBytes;
+        proj += draftBytes;
         // ---- KV cache per layer
         long kvHeads = info.HeadCountKv > 0 ? info.HeadCountKv : Math.Max(1, info.HeadCount);
         long kDim = info.KeyLength > 0 ? info.KeyLength : info.HeadCount > 0 ? info.EmbeddingLength / info.HeadCount : 0;

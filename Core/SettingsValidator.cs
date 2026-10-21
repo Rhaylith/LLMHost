@@ -72,6 +72,8 @@ public static class SettingsValidator
         oneOf($"{p}.kvCacheTypeV", o.KvCacheTypeV, KvTypes, "V cache type");
         if (o.ContextSize != 0) range($"{p}.contextSize", o.ContextSize, 128, 4_000_000, "Context length");
         range($"{p}.maxConcurrent", o.MaxConcurrent, 1, 16, "Parallel requests");
+        range($"{p}.draftTokens", o.DraftTokens, 0, 64, "Draft tokens");
+        range($"{p}.draftMinP", o.DraftMinP, 0, 1, "Draft confidence");
         range($"{p}.batchSize", o.BatchSize, 1, 65536, "Batch size");
         range($"{p}.uBatchSize", o.UBatchSize, 1, 65536, "Micro-batch size");
         range($"{p}.threads", o.Threads, 0, 1024, "Threads");

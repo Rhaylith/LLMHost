@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups (3 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding (4 of ~50).
 
 ---
 
@@ -105,7 +105,7 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
    As built: CLI `/video <file> [--fps 1] [--frames 8]` via ffmpeg only (next to the app, on PATH, or `vision.ffmpegPath`); Media Foundation was not implemented. Not exercised against a real video here (no ffmpeg on this machine): only argument building and error paths are tested.
 * llama-server vision: out of scope until §2.5.
 
-#### §1.2b Speculative decoding (todo §1.5) — **L**
+#### ✅ §1.2b Speculative decoding (todo §1.5) — **L**
 * **Draft model (L).** Add `LoadOptions.DraftModel`, `DraftTokens` (default 8), `DraftMinP`. Load a second `LLamaWeights` +
   context; vocab compatibility check (compare token count + first/last 512 tokens' text; refuse otherwise with a clear message).
   Algorithm in the scheduler: for a *single generating slot* draft k tokens greedily, evaluate them in one target batch, accept
@@ -120,6 +120,10 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
   gated on the runtime version in `RuntimeManager`.
 * Stats: report `draft_accepted/draft_total` in `GenerationStats`, shown in UI and `/api/status`.
 * **Acceptance:** ≥ 1.3× tok/s on a repeating-text benchmark with Qwen 0.5B → 7B; output identical with temperature 0.
+
+**As built:** `Inference/DraftModel.cs` (second model + context, greedy proposals, follows the main model's accepted text) and the scheduler changes in `ModelRuntime` (`TryDraft`, `VerifyDrafts`): proposals ride in the same batch behind the real token, are sampled in order with the request's own sampler (so grammar, penalties and seeds behave exactly as without speculation) and the rejected tail is removed from the KV cache. Used only while one request is generating, not for image prompts and not with a reasoning-token budget. Options `LoadOptions.DraftModel` / `DraftTokens` (default 6) / `DraftMinP` (default 0.5); CLI `load --draft <model> --draft-tokens n`; load dialog picker fed by `GET /api/models/drafts?model=` (`Models/DraftPairing.cs`: same architecture, vocabulary within 128 tokens, ≤ 1/6 of the size, plus suggested downloads per family); the memory estimate counts the draft. Stats: `GenerationStats.DraftTokens/DraftAccepted`, `/api/status` (`draftModel`, `draftProposed`, `draftAccepted`), native API `stats.draft_tokens_*`.
+Deviations: an unusable draft (vocabulary mismatch, missing file) produces a load **warning** and the model loads without it, instead of refusing the load; pairings live in `DraftPairing` rather than `Catalog.cs`; no Discover "draft" badge. A model that cannot drop a cache tail (recurrent / sliding-window) switches speculation off with a message. **MTP:** only detected (`GgufInfo.MtpLayers` from `nextn_predict_layers`); the pinned llama.cpp build in LLamaSharp 0.27 has no use for it, so nothing is gated or enabled.
+Verified (SmolVLM-256M as its own draft): identical text at temperature 0 and with a fixed seed, every proposal accepted when the draft equals the model, a corrupted draft (test hook) is rolled back without changing the output and leaves a consistent cache, limits and finish reasons unchanged, incompatible draft ignored with a warning. **Speed-up not measured:** the ≥ 1.3× target needs a real small draft (e.g. Qwen3-0.6B for Qwen3-14B), which is not downloaded here.
 
 #### §1.3 Prompt-template override — **M**
 * Today `ApplyChatTemplate` uses the GGUF template. Add `LoadOptions.PromptTemplate { Mode: auto|jinja|manual, Jinja, Manual }`

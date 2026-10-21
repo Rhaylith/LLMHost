@@ -171,3 +171,106 @@ public class PromptCacheIntegrationTests
         finally { pc.AutoSave = before; }
     }
 }
+
+/// <summary>Speculative decoding must change speed, never the answer.</summary>
+[Trait("Category", "Integration")]
+public class SpeculativeDecodingTests
+{
+    private static string VlmPath => Environment.GetEnvironmentVariable("LLMHOST_TEST_VLM")!;
+
+    private static async Task<ModelRuntime> Load(bool draft, int tokens = 5)
+    {
+        var model = new ModelLibrary().Find(VlmPath)!;
+        var o = new LoadOptions
+        {
+            Device = "cpu", ContextSize = 2048, MaxConcurrent = 1, Threads = 8, SkipFitCheck = true, Vision = false,
+            DraftModel = draft ? VlmPath : null, DraftTokens = tokens, DraftMinP = 0f,
+        };
+        return await ModelRuntime.LoadAsync(model, o, "spec-test", null, CancellationToken.None);
+    }
+
+    private static async Task<(string Text, GenerationStats Stats)> Run(ModelRuntime rt, GenerationOptions g)
+    {
+        var prompt = rt.BuildFittingPrompt(new() { new ChatMessage("user", "Count from one to twenty in words, separated by commas.") }, 64, out _, out _, "off");
+        var stats = new GenerationStats();
+        return (await rt.CompleteAsync(prompt, g, stats), stats);
+    }
+
+    private static GenerationOptions Greedy(int max = 48) => new() { Temperature = 0, MaxTokens = max, ReasoningEffort = "off" };
+
+    [VlmFact]
+    public async Task GreedyOutputIsIdenticalAndEveryDraftIsAccepted()
+    {
+        string plain;
+        using (var rt = await Load(draft: false)) plain = (await Run(rt, Greedy())).Text;
+
+        using var spec = await Load(draft: true);
+        Assert.NotNull(spec.DraftModelId);
+        var (text, stats) = await Run(spec, Greedy());
+
+        Assert.Equal(plain, text);
+        Assert.True(stats.DraftTokens > 0, "no tokens were drafted");
+        Assert.Equal(stats.DraftTokens, stats.DraftAccepted);       // the draft is the model itself: always right at temperature 0
+    }
+
+    [VlmFact]
+    public async Task WrongDraftsAreRolledBackWithoutChangingTheOutput()
+    {
+        string plain;
+        using (var rt = await Load(draft: false)) plain = (await Run(rt, Greedy())).Text;
+
+        // damage every second proposal: the main model must reject it and carry on from the right token
+        ModelRuntime.DraftMutator = drafts =>
+        {
+            var copy = new List<LLama.Native.LLamaToken>(drafts);
+            for (int i = 1; i < copy.Count; i += 2) copy[i] = (LLama.Native.LLamaToken)(((int)copy[i] + 7) % 1000 + 3);
+            return copy;
+        };
+        try
+        {
+            using var spec = await Load(draft: true, tokens: 6);
+            var (text, stats) = await Run(spec, Greedy());
+            Assert.Equal(plain, text);
+            Assert.True(stats.DraftAccepted < stats.DraftTokens, "some drafts should have been rejected");
+            Assert.True(stats.DraftAccepted > 0, "some drafts should have been accepted");
+
+            // the cache must be consistent after the rollbacks: a follow-up turn gives the same answer as without speculation
+            var (again, s2) = await Run(spec, Greedy());
+            Assert.Equal(plain, again);
+            Assert.True(s2.CachedTokens > 0);
+        }
+        finally { ModelRuntime.DraftMutator = null; }
+    }
+
+    [VlmFact]
+    public async Task SampledOutputWithTheSameSeedMatchesToo()
+    {
+        var g = () => new GenerationOptions { Temperature = 0.8f, Seed = 11, MaxTokens = 40, ReasoningEffort = "off" };
+        string plain;
+        using (var rt = await Load(draft: false)) plain = (await Run(rt, g())).Text;
+        using var spec = await Load(draft: true);
+        Assert.Equal(plain, (await Run(spec, g())).Text);
+    }
+
+    [VlmFact]
+    public async Task StopStringsAndTokenLimitsStillApply()
+    {
+        using var spec = await Load(draft: true);
+        var (text, stats) = await Run(spec, new GenerationOptions { Temperature = 0, MaxTokens = 7, ReasoningEffort = "off" });
+        Assert.Equal(7, stats.CompletionTokens);
+        Assert.Equal("length", stats.FinishReason);
+    }
+
+    [VlmFact]
+    public async Task AnIncompatibleDraftIsIgnoredWithAWarning()
+    {
+        // Qwen3 and SmolVLM use different tokenizers
+        string? other = Environment.GetEnvironmentVariable("LLMHOST_TEST_MODEL");
+        if (string.IsNullOrEmpty(other)) return;
+        var model = new ModelLibrary().Find(VlmPath)!;
+        var o = new LoadOptions { Device = "cpu", ContextSize = 1024, MaxConcurrent = 1, Threads = 8, SkipFitCheck = true, Vision = false, DraftModel = other };
+        using var rt = await ModelRuntime.LoadAsync(model, o, "spec-bad", null, CancellationToken.None);
+        Assert.Null(rt.DraftModelId);
+        Assert.Contains(rt.LoadWarnings, w => w.Contains("Draft model"));
+    }
+}

@@ -66,6 +66,15 @@ public class LoadOptions
     /// window, so idle ones are recycled (least recently used first) when a request needs the room.
     /// </summary>
     public int CacheSlots { get; set; }
+    /// <summary>
+    /// Speculative decoding: library id (or path) of a small model with the same vocabulary that guesses tokens the main model then
+    /// verifies in one pass. null = off. Output is identical, only faster; it applies while a single request is generating.
+    /// </summary>
+    public string? DraftModel { get; set; }
+    /// <summary>Tokens the draft model proposes per step (0 = default 6).</summary>
+    public int DraftTokens { get; set; }
+    /// <summary>The draft stops proposing when it is less sure than this about its next token.</summary>
+    public float DraftMinP { get; set; } = 0.5f;
     [JsonIgnore]
     public int SlotCount => Math.Min(16, Math.Max(Math.Clamp(MaxConcurrent, 1, 16), CacheSlots > 0 ? CacheSlots : MaxConcurrent + 2));
     public uint BatchSize { get; set; } = 512;
