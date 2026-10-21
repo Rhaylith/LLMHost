@@ -159,3 +159,51 @@ public class ToolResultImageTests
         AssertToolThenImage(msgs, "tool");
     }
 }
+
+[Trait("Category", "Unit")]
+public class VideoFrameTests
+{
+    [Fact]
+    public void ArgumentsRequestFpsFrameLimitAndScale()
+    {
+        var a = VideoFrames.BuildArguments("in.mp4", "out/f%03d.jpg", 0.5, 6, 768);
+        Assert.Equal("in.mp4", a[a.ToList().IndexOf("-i") + 1]);
+        string vf = a[a.ToList().IndexOf("-vf") + 1];
+        Assert.StartsWith("fps=0.5", vf);
+        Assert.Contains("768", vf);
+        Assert.Equal("6", a[a.ToList().IndexOf("-frames:v") + 1]);
+        Assert.Equal("out/f%03d.jpg", a[^1]);
+    }
+
+    [Fact]
+    public void NoScaleFilterWhenNoEdgeIsGiven() =>
+        Assert.DoesNotContain("scale", string.Join(" ", VideoFrames.BuildArguments("in.mp4", "o.jpg", 1, 4, 0)));
+
+    [Fact]
+    public async Task MissingFileAndBadFpsAreRejectedBeforeRunningAnything()
+    {
+        await Assert.ThrowsAsync<FileNotFoundException>(() => VideoFrames.ExtractAsync(Path.Combine(TestEnvironment.Home, "nope.mp4")));
+        string f = GgufBuilder.WriteFile("video/fake.mp4", new byte[] { 1, 2, 3 });
+        await Assert.ThrowsAsync<ArgumentException>(() => VideoFrames.ExtractAsync(f, fps: 0));
+    }
+
+    [Fact]
+    public async Task WithoutFfmpegTheErrorSaysHowToGetIt()
+    {
+        if (VideoFrames.FindFfmpeg() != null) return;                // ffmpeg is installed here: nothing to assert
+        string f = GgufBuilder.WriteFile("video/fake2.mp4", new byte[] { 1, 2, 3 });
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => VideoFrames.ExtractAsync(f));
+        Assert.Contains("ffmpeg", ex.Message);
+        Assert.Contains("vision.ffmpegPath", ex.Message);
+    }
+
+    [Fact]
+    public void ConfiguredFfmpegPathWins()
+    {
+        string fake = GgufBuilder.WriteFile("video/ffmpeg-fake.exe", new byte[] { 0 });
+        var v = AppSettings.Current.Vision;
+        string? before = v.FfmpegPath;
+        try { v.FfmpegPath = fake; Assert.Equal(fake, VideoFrames.FindFfmpeg()); }
+        finally { v.FfmpegPath = before; }
+    }
+}

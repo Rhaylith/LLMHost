@@ -371,4 +371,6 @@ public class VisionSettings
     public int MaxImageEdge { get; set; }
     /// <summary>Longest edge used for images sent with <c>detail: "low"</c>.</summary>
     public int LowDetailEdge { get; set; } = 512;
+    /// <summary>Path of ffmpeg.exe for video input (blank = next to the app, then the PATH).</summary>
+    public string? FfmpegPath { get; set; }
 }

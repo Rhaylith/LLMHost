@@ -98,8 +98,9 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
 4. **Audio input (L).** Check `mtmd` audio support in the LLamaSharp 0.27 native build (`mtmd_support_audio`); add
    `input_audio` parts (OpenAI) → decode WAV/MP3 (NAudio) to 16 kHz mono PCM → `mtmd_bitmap_init_from_audio`. Capability flag
    `audio` from X3. UI: attach audio file. Blocked if the pinned native lib lacks audio — then gate behind runtime update.
-5. **Video frames (S).** Client-side/CLI: `/video file.mp4 --fps 1 --max-frames 8` extracts frames (ffmpeg if found, else
+5. ✅ **Video frames (S).** Client-side/CLI: `/video file.mp4 --fps 1 --max-frames 8` extracts frames (ffmpeg if found, else
    Media Foundation) and sends them as ordered images. No new engine work.
+   As built: CLI `/video <file> [--fps 1] [--frames 8]` via ffmpeg only (next to the app, on PATH, or `vision.ffmpegPath`); Media Foundation was not implemented. Not exercised against a real video here (no ffmpeg on this machine): only argument building and error paths are tested.
 * llama-server vision: out of scope until §2.5.
 
 #### §1.2b Speculative decoding (todo §1.5) — **L**

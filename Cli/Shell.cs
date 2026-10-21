@@ -176,6 +176,7 @@ public class Shell
             case "tokens": return await TokensAsync(a);
             case "cache": return await CacheAsync(a);
             case "image": case "img": return AttachImage(a);
+            case "video": return await AttachVideoAsync(a);
             case "chat": return await ChatCommandAsync(a);
             default:
                 Ui.Error($"unknown command '{cmd}'. Type /help.");
@@ -216,6 +217,7 @@ public class Shell
               <text>                    send a message to the active model (end a line with \ to continue)
               /system <prompt>          set the system prompt
               /image <file> [...]       attach image(s) to the next message (vision models)
+              /video <file> [--fps 1] [--frames 8]   attach frames of a video (needs ffmpeg) to the next message
               /clear  /history  /undo  /regen  /save  /chats  /resume <id>  /export <file>
               /cache [on|off|clear]     prompt/KV cache: reuse the evaluated prompt prefix between turns
               /complete <text>          raw (non-chat) completion
@@ -1266,6 +1268,22 @@ public class Shell
         var v = await rt.EmbedAsync(string.Join(' ', a.Positional));
         Ui.Info($"{v.Length} dimensions: [{string.Join(", ", v.Take(8).Select(x => x.ToString("0.0000")))}, ...]");
         return true;
+    }
+
+    private async Task<bool> AttachVideoAsync(Args a)
+    {
+        if (a.Positional.Count == 0) { Ui.Info("Usage: /video <file> [--fps 1] [--frames 8]   (frames are sent as images; needs ffmpeg)"); return true; }
+        double fps = a.Value("fps") is { } f ? double.Parse(f, System.Globalization.CultureInfo.InvariantCulture) : 1;
+        int frames = a.Value("frames") is { } n ? int.Parse(n) : VideoFrames.DefaultMaxFrames;
+        try
+        {
+            var imgs = await VideoFrames.ExtractAsync(a.Positional[0], fps, frames, ImageInput.EdgeFor(null) is > 0 and var e ? e : 1024);
+            _pendingImages.AddRange(imgs);
+            Ui.Info($"{imgs.Count} frame(s) from {Path.GetFileName(a.Positional[0])} queued ({_pendingImages.Count} image(s) in total).");
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException or ArgumentException or FormatException)
+        { Ui.Error(ex.Message); return false; }
     }
 
     private bool AttachImage(Args a)
