@@ -19,6 +19,8 @@ public class LocalModel
     /// <summary>Multimodal projector found next to the model (null for text-only models).</summary>
     public string? MmprojPath { get; set; }
     public bool SupportsVision => MmprojPath != null;
+    /// <summary>Vision / audio / tools / reasoning / embedding / MoE / rerank, derived from the GGUF headers.</summary>
+    public ModelCapabilities Capabilities { get; set; } = ModelCapabilities.None;
 }
 
 /// <summary>Scans the models directory (publisher/repo/file.gguf layout, same as BlahLLMWrapper).</summary>
@@ -54,6 +56,7 @@ public class ModelLibrary
             }
             var rel = System.IO.Path.GetRelativePath(dir, file).Replace('\\', '/');
             var info = c.Info;
+            string? mmproj = FindMmproj(file);
             result.Add(new LocalModel
             {
                 Id = rel,
@@ -68,10 +71,24 @@ public class ModelLibrary
                 IsEmbedding = info?.IsEmbeddingModel ?? false,
                 HasChatTemplate = info?.HasChatTemplate ?? false,
                 Split = shard,
-                MmprojPath = FindMmproj(file),
+                MmprojPath = mmproj,
+                Capabilities = ModelCapabilities.From(info, MmprojInfo(mmproj), name),
             });
         }
         return result.OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>Header of a projector file (cached like the models). An unreadable projector still counts as vision.</summary>
+    private GgufInfo? MmprojInfo(string? path)
+    {
+        if (path == null) return null;
+        var stamp = new FileInfo(path).LastWriteTimeUtc;
+        if (!_cache.TryGetValue(path, out var c) || c.Stamp != stamp)
+        {
+            c = (stamp, GgufInfo.TryRead(path));
+            _cache[path] = c;
+        }
+        return c.Info ?? new GgufInfo { HasVisionEncoder = true };
     }
 
     /// <summary>

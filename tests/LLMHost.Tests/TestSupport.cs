@@ -26,7 +26,8 @@ internal static class TestEnvironment
 internal static class GgufBuilder
 {
     public static byte[] Build(string arch = "llama", int blocks = 4, int embd = 64, int heads = 4, int kvHeads = 2, int ctx = 2048,
-        int vocab = 5, string? chatTemplate = null, int dataBytesPerTensor = 256, bool truncate = false, int? experts = null)
+        int vocab = 5, string? chatTemplate = null, int dataBytesPerTensor = 256, bool truncate = false, int? experts = null,
+        string name = "Test Model", int? poolingType = null, bool? clipVision = null, bool? clipAudio = null)
     {
         var ms = new MemoryStream();
         var w = new BinaryWriter(ms, Encoding.UTF8);
@@ -40,7 +41,7 @@ internal static class GgufBuilder
         var kvs = new List<Action>
         {
             () => KvStr("general.architecture", arch),
-            () => KvStr("general.name", "Test Model"),
+            () => KvStr("general.name", name),
             () => KvU32("general.file_type", 2),
             () => KvU32($"{arch}.context_length", (uint)ctx),
             () => KvU32($"{arch}.embedding_length", (uint)embd),
@@ -49,6 +50,10 @@ internal static class GgufBuilder
             () => KvU32($"{arch}.attention.head_count_kv", (uint)kvHeads),
         };
         if (experts.HasValue) kvs.Add(() => KvU32($"{arch}.expert_count", (uint)experts.Value));
+        if (poolingType.HasValue) kvs.Add(() => KvU32($"{arch}.pooling_type", (uint)poolingType.Value));
+        void KvBool(string k, bool v) { Str(k); w.Write(7u); w.Write((byte)(v ? 1 : 0)); }
+        if (clipVision.HasValue) kvs.Add(() => KvBool("clip.has_vision_encoder", clipVision.Value));
+        if (clipAudio.HasValue) kvs.Add(() => KvBool("clip.has_audio_encoder", clipAudio.Value));
         if (chatTemplate != null) kvs.Add(() => KvStr("tokenizer.chat_template", chatTemplate));
         kvs.Add(() =>
         {

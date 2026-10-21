@@ -169,7 +169,7 @@ public partial class ApiServer
         owned_by = "llmhost",
         state = "loaded",
         context_length = r.ContextSize,
-        capabilities = new { vision = r.SupportsVision },
+        capabilities = r.Capabilities.ToApi(),
         warnings = r.LoadWarnings,
     };
 
@@ -183,7 +183,7 @@ public partial class ApiServer
             {
                 string id = Path.GetFileNameWithoutExtension(m.FileName);
                 if (loaded.Any(l => l.Identifier == id)) continue;
-                data.Add(new { id, @object = "model", created = 0, owned_by = "local", state = "not-loaded", size = m.SizeBytes, capabilities = new { vision = m.SupportsVision } });
+                data.Add(new { id, @object = "model", created = 0, owned_by = "local", state = "not-loaded", size = m.SizeBytes, capabilities = m.Capabilities.ToApi() });
             }
             await WriteJson(ctx, new { @object = "list", data });
         });
@@ -534,7 +534,7 @@ public partial class ApiServer
     {
         m.Id, m.FileName, m.SizeBytes, m.Architecture, m.Name, m.Quantization, m.SizeLabel,
         m.ContextLength, m.IsEmbedding, m.HasChatTemplate,
-        supportsVision = m.SupportsVision, mmproj = m.MmprojPath == null ? null : Path.GetFileName(m.MmprojPath),
+        supportsVision = m.SupportsVision, capabilities = m.Capabilities.ToApi(), mmproj = m.MmprojPath == null ? null : Path.GetFileName(m.MmprojPath),
         loadedAs = loaded.FirstOrDefault(l => l.Model.Path == m.Path)?.Identifier,
     };
 
@@ -649,7 +649,7 @@ public partial class ApiServer
                 loaded = _host.Models.Loaded.Select(r => new
                 {
                     id = r.Identifier, file = r.Model.FileName, r.GpuLayers,
-                    device = r.GpuLayers > 0 ? "gpu" : "cpu", vision = r.SupportsVision, threads = r.Threads, contextSize = r.ContextSize, cachedTokens = r.CachedTokenCount,
+                    device = r.GpuLayers > 0 ? "gpu" : "cpu", vision = r.SupportsVision, capabilities = r.Capabilities.ToApi(), threads = r.Threads, contextSize = r.ContextSize, cachedTokens = r.CachedTokenCount,
                     sizeBytes = r.Model.SizeBytes, r.Requests, r.Busy, lastUsed = r.LastUsed,
                     reasoning = r.ReasoningStyle.ToString().ToLowerInvariant(), supportsReasoning = r.SupportsReasoning,
                     maxConcurrent = r.MaxConcurrent, active = r.ActiveRequests, queued = r.QueuedRequests, toolFormat = r.ToolFormat.ToString().ToLowerInvariant(),

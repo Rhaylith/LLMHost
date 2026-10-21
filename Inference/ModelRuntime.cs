@@ -69,6 +69,12 @@ public sealed class ModelRuntime : IDisposable
 
     /// <summary>True when a multimodal projector is loaded and the model accepts image input.</summary>
     public bool SupportsVision => _mtmd != null;
+    /// <summary>What this loaded instance can do: the model's capabilities, with media input only when the projector really loaded.</summary>
+    public ModelCapabilities Capabilities => Model.Capabilities with
+    {
+        Vision = SupportsVision,
+        Audio = SupportsVision && Model.Capabilities.Audio,
+    };
     public string? MmprojFile { get; }
 
     private ModelRuntime(string id, LocalModel model, LoadOptions options, int gpuLayers, LLamaWeights weights, ModelParams p,

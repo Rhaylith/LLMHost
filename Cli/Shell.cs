@@ -270,7 +270,7 @@ public class Shell
             Ui.Info(JsonSerializer.Serialize(_host.Library.List().Select(m => new
             {
                 m.Id, m.FileName, m.SizeBytes, m.Architecture, m.Quantization, m.ContextLength, m.IsEmbedding,
-                vision = m.SupportsVision, loaded = loadedJson.Any(l => l.Model.Path == m.Path),
+                vision = m.SupportsVision, capabilities = m.Capabilities.Names(), loaded = loadedJson.Any(l => l.Model.Path == m.Path),
             }), Json.Options));
             return true;
         }
@@ -278,7 +278,7 @@ public class Shell
         var rows = _host.Library.List().Select(m => new[]
         {
             m.Id, Ui.Bytes(m.SizeBytes), m.Architecture, m.Quantization ?? "", m.ContextLength > 0 ? m.ContextLength.ToString() : "",
-            m.IsEmbedding ? "embedding" : m.SupportsVision ? "vision" : "", loaded.Any(l => l.Model.Path == m.Path) ? Ui.Green("loaded") : "",
+            string.Join(",", m.Capabilities.Names()), loaded.Any(l => l.Model.Path == m.Path) ? Ui.Green("loaded") : "",
         }).ToList();
         if (rows.Count == 0) { Ui.Info($"No models in {_host.Settings.ResolvedModelsDirectory}. Use 'catalog' and 'get'."); return true; }
         Ui.Table(rows, "MODEL", "SIZE", "ARCH", "QUANT", "CTX", "TYPE", "STATE");

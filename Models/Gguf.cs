@@ -36,6 +36,11 @@ public class GgufInfo
     public bool HasChatTemplate { get; set; }
     public string? ChatTemplate { get; set; }
     public bool IsEmbeddingModel { get; set; }
+    /// <summary>llama.cpp pooling type (0 none, 1 mean, 2 cls, 3 last, 4 rank = reranker); -1 when the model does not say.</summary>
+    public long PoolingType { get; set; } = -1;
+    /// <summary>Multimodal projector (mmproj) files: which encoders they carry.</summary>
+    public bool HasVisionEncoder { get; set; }
+    public bool HasAudioEncoder { get; set; }
     public bool IsMoe => ExpertCount > 1;
     /// <summary>Number of bytes of the header (metadata + tensor table), i.e. where the tensor data starts, before alignment.</summary>
     public long DataOffset { get; set; }
@@ -96,6 +101,8 @@ public class GgufInfo
                     case "general.file_type": fileType = Convert.ToInt64(v); break;
                     case "general.alignment": info.Alignment = Math.Max(1, ToLong(v)); break;
                     case "tokenizer.chat_template": info.HasChatTemplate = true; info.ChatTemplate = v as string; break;
+                    case "clip.has_vision_encoder": info.HasVisionEncoder = v is true; break;
+                    case "clip.has_audio_encoder": info.HasAudioEncoder = v is true; break;
                     case "tokenizer.ggml.tokens": info.VocabSize = v is SkippedArray sa ? sa.Count : 0; break;
                     default:
                         if (info.Architecture.Length > 0 && key.StartsWith(info.Architecture + "."))
@@ -113,7 +120,7 @@ public class GgufInfo
                                 case "attention.sliding_window": info.SlidingWindow = ToLong(v); break;
                                 case "expert_count": info.ExpertCount = ToLong(v); break;
                                 case "expert_used_count": info.ExpertUsedCount = ToLong(v); break;
-                                case "pooling_type": info.IsEmbeddingModel = true; break;
+                                case "pooling_type": info.IsEmbeddingModel = true; info.PoolingType = ToLong(v); break;
                             }
                         }
                         break;
