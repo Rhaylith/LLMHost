@@ -31,6 +31,7 @@ public static class OpenAiMapping
             if (stop is JsonValue sv && sv.TryGetValue<string>(out var s1)) g.Stop.Add(s1);
             else if (stop is JsonArray arr) foreach (var x in arr) if (x?.GetValue<string>() is { } s) g.Stop.Add(s);
         }
+        ReadSamplers(body, g);
         ReadReasoning(body, g);
         if (body["grammar"]?.GetValue<string>() is { Length: > 0 } gr) g.Grammar = gr;
         if (body["cache_prompt"] is JsonValue cp && cp.TryGetValue<bool>(out var cache)) g.CachePrompt = cache;
@@ -67,6 +68,28 @@ public static class OpenAiMapping
             }
         }
         return g;
+    }
+
+    /// <summary>
+    /// Advanced samplers, using llama-server's field names: mirostat, mirostat_tau, mirostat_eta, dry_multiplier, dry_base,
+    /// dry_allowed_length, dry_penalty_last_n, dry_sequence_breakers, xtc_probability, xtc_threshold, top_n_sigma, samplers.
+    /// </summary>
+    public static void ReadSamplers(JsonNode body, GenerationOptions g)
+    {
+        if (Num(body, "mirostat") is { } mi) g.Mirostat = (int)mi;
+        if (Num(body, "mirostat_tau") is { } mt) g.MirostatTau = (float)mt;
+        if (Num(body, "mirostat_eta") is { } me) g.MirostatEta = (float)me;
+        if (Num(body, "dry_multiplier") is { } dm) g.DryMultiplier = (float)dm;
+        if (Num(body, "dry_base") is { } db) g.DryBase = (float)db;
+        if (Num(body, "dry_allowed_length") is { } dl) g.DryAllowedLength = (int)dl;
+        if (Num(body, "dry_penalty_last_n") is { } dn) g.DryPenaltyLastN = (int)dn;
+        if (Num(body, "xtc_probability") is { } xp) g.XtcProbability = (float)xp;
+        if (Num(body, "xtc_threshold") is { } xt) g.XtcThreshold = (float)xt;
+        if (Num(body, "top_n_sigma") is { } ns) g.TopNSigma = (float)ns;
+        if (body["dry_sequence_breakers"] is JsonArray br)
+            g.DrySequenceBreakers = br.Select(x => x?.GetValue<string>()).OfType<string>().ToList();
+        if (body["samplers"] is JsonArray so)
+            g.SamplerOrder = so.Select(x => x?.GetValue<string>()).OfType<string>().ToList();
     }
 
     /// <summary>

@@ -43,7 +43,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** Reasoning support: `<think>` parsing → separate `reasoning` output item / `reasoning_content` / Anthropic `thinking` blocks, and a `reasoning` effort control (`off|low|medium|high|on`) mapped to each model's template
 - [ ] **P2** Speculative decoding with a draft model (must share vocabulary; show suggested pairings and size limits) and MTP-style speculation for models that support it
 - [ ] **P2** Prompt-template override per model: auto-detect from GGUF metadata, edit as **Jinja** or as **manual** role prefix/suffix, "always show template" toggle
-- [ ] **P2** Additional samplers: Mirostat v1/v2, DRY, XTC, TFS, top-n-sigma, configurable sampler order
+- [x] **P2** Additional samplers: Mirostat v1/v2, DRY, XTC, top-n-sigma (TFS no longer exists in llama.cpp), configurable sampler order
 - [ ] **P2** Context-overflow policies (truncate middle, rolling window, stop at limit) per chat/request; today only "drop oldest turns"
 - [ ] **P2** MoE controls (number of experts, force expert weights onto CPU / tensor buffer overrides)
 - [ ] **P2** LoRA adapter loading

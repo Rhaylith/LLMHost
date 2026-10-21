@@ -450,30 +450,12 @@ public sealed class ModelRuntime : IDisposable
 
     // ------------------------------------------------------------------ generation
 
-    private static DefaultSamplingPipeline BuildSampler(GenerationOptions g)
+    private static BaseSamplingPipeline BuildSampler(GenerationOptions g)
     {
         string? gbnf = g.Grammar;
         if (string.IsNullOrWhiteSpace(gbnf) && !string.IsNullOrWhiteSpace(g.JsonSchema)) gbnf = SchemaGrammar.FromSchema(g.JsonSchema);
         if (string.IsNullOrWhiteSpace(gbnf) && g.JsonMode) gbnf = SchemaGrammar.JsonObjectGrammar;
-        Dictionary<LLamaToken, float>? bias = null;
-        if (g.LogitBias is { Count: > 0 })
-            bias = g.LogitBias.ToDictionary(kv => (LLamaToken)kv.Key, kv => kv.Value);
-
-        return new DefaultSamplingPipeline
-        {
-            Temperature = g.Temperature,
-            TopK = g.TopK,
-            TopP = g.TopP,
-            MinP = g.MinP,
-            TypicalP = g.TypicalP,
-            RepeatPenalty = g.RepeatPenalty,
-            PenaltyCount = g.RepeatLastN,
-            FrequencyPenalty = g.FrequencyPenalty,
-            PresencePenalty = g.PresencePenalty,
-            Seed = g.Seed ?? (uint)Random.Shared.Next(),
-            Grammar = string.IsNullOrWhiteSpace(gbnf) ? null : new Grammar(gbnf, "root"),
-            LogitBias = bias ?? new Dictionary<LLamaToken, float>(),
-        };
+        return new ConfigurableSamplingPipeline(g, gbnf, g.Seed ?? (uint)Random.Shared.Next());
     }
 
     // ------------------------------------------------------------------ slots & continuous batching
@@ -508,7 +490,7 @@ public sealed class ModelRuntime : IDisposable
         public CancellationToken Ct;
         public readonly System.Threading.Channels.Channel<TextSegment> Out =
             System.Threading.Channels.Channel.CreateUnbounded<TextSegment>(new System.Threading.Channels.UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
-        public DefaultSamplingPipeline Sampler = null!;
+        public BaseSamplingPipeline Sampler = null!;
         public TextScanner Scanner = null!;
         public StreamingTokenDecoder? Decoder;
         public int PromptTokens, MaxTokens, Generated, ThinkTokens, ThinkBudget;

@@ -173,6 +173,7 @@ public partial class ApiServer
         if (OpenAiMapping.Num(body, "repeat_penalty") is { } rp) g.RepeatPenalty = (float)rp;
         if (OpenAiMapping.Num(body, "max_output_tokens") is { } mo) g.MaxTokens = (int)mo;
         if (OpenAiMapping.Num(body, "seed") is { } sd && sd >= 0) g.Seed = (uint)sd;
+        OpenAiMapping.ReadSamplers(body, g);
         if (body["reasoning"] is JsonValue rv && rv.TryGetValue<string>(out var rs) && Reasoning.NormalizeEffort(rs) is { } eff) g.ReasoningEffort = eff;
 
         var messages = new List<ChatMessage>();

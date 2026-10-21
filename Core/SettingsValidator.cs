@@ -87,6 +87,18 @@ public static class SettingsValidator
         range($"{p}.presencePenalty", g.PresencePenalty, -2, 2, "Presence penalty");
         range($"{p}.maxTokens", g.MaxTokens, -2, 10_000_000, "Max tokens");
         range($"{p}.topLogprobs", g.TopLogprobs, 0, 20, "Top log-probs");
+        range($"{p}.mirostat", g.Mirostat, 0, 2, "Mirostat mode");
+        range($"{p}.mirostatTau", g.MirostatTau, 0, 20, "Mirostat tau");
+        range($"{p}.mirostatEta", g.MirostatEta, 0, 1, "Mirostat eta");
+        range($"{p}.dryMultiplier", g.DryMultiplier, 0, 10, "DRY multiplier");
+        range($"{p}.dryBase", g.DryBase, 1, 4, "DRY base");
+        range($"{p}.dryAllowedLength", g.DryAllowedLength, 0, 10_000, "DRY allowed length");
+        range($"{p}.dryPenaltyLastN", g.DryPenaltyLastN, -1, 10_000_000, "DRY penalty window");
+        range($"{p}.xtcProbability", g.XtcProbability, 0, 1, "XTC probability");
+        range($"{p}.xtcThreshold", g.XtcThreshold, 0, 1, "XTC threshold");
+        range($"{p}.topNSigma", g.TopNSigma, -1, 10, "Top-n sigma");
+        if (g.SamplerOrder != null && Inference.ConfigurableSamplingPipeline.UnknownStages(g.SamplerOrder).ToList() is { Count: > 0 } bad)
+            e.Add(new($"{p}.samplerOrder", $"Unknown sampler stage(s): {string.Join(", ", bad)}. Use: {string.Join(", ", Inference.ConfigurableSamplingPipeline.StageNames)}."));
         if (g.ReasoningEffort != null) oneOf($"{p}.reasoningEffort", g.ReasoningEffort, Efforts, "Reasoning effort");
     }
 

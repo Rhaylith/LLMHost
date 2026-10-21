@@ -136,6 +136,30 @@ public class GenerationOptions
     /// <summary>Record the log-probability of every generated token (and the <see cref="TopLogprobs"/> best alternatives).</summary>
     public bool Logprobs { get; set; }
     public int TopLogprobs { get; set; }
+    /// <summary>Mirostat mode: 0 = off, 1 or 2. When on it replaces top-k / top-p / min-p / typical / XTC (temperature still applies).</summary>
+    public int Mirostat { get; set; }
+    /// <summary>Mirostat target entropy (tau) and learning rate (eta).</summary>
+    public float MirostatTau { get; set; } = 5f;
+    public float MirostatEta { get; set; } = 0.1f;
+    /// <summary>DRY ("don't repeat yourself") penalty strength; 0 = off. Typical: 0.8.</summary>
+    public float DryMultiplier { get; set; }
+    public float DryBase { get; set; } = 1.75f;
+    /// <summary>Repeats up to this many tokens long are free; longer ones are penalised exponentially.</summary>
+    public int DryAllowedLength { get; set; } = 2;
+    /// <summary>Tokens scanned for repeats: -1 = the whole context, 0 = off.</summary>
+    public int DryPenaltyLastN { get; set; } = -1;
+    /// <summary>Strings that reset DRY's sequence matching. null = newline, ':', '"' and '*'.</summary>
+    public List<string>? DrySequenceBreakers { get; set; }
+    /// <summary>XTC ("exclude top choices"): with this probability, drop all but the least likely of the tokens above the threshold. 0 = off.</summary>
+    public float XtcProbability { get; set; }
+    public float XtcThreshold { get; set; } = 0.1f;
+    /// <summary>Keep only tokens within this many standard deviations of the top logit. 0 or less = off.</summary>
+    public float TopNSigma { get; set; }
+    /// <summary>
+    /// Order of the sampler stages: any of penalties, dry, top_n_sigma, top_k, typ_p, top_p, min_p, xtc, temperature.
+    /// null or empty = that default order; stages left out are skipped. (Tail-free sampling was removed from llama.cpp.)
+    /// </summary>
+    public List<string>? SamplerOrder { get; set; }
     /// <summary>Keep the KV cache between requests and only evaluate the part of the prompt that changed.</summary>
     public bool CachePrompt { get; set; } = true;
 
@@ -144,6 +168,8 @@ public class GenerationOptions
         var c = (GenerationOptions)MemberwiseClone();
         c.Stop = new List<string>(Stop);
         c.LogitBias = LogitBias != null ? new Dictionary<int, float>(LogitBias) : null;
+        c.DrySequenceBreakers = DrySequenceBreakers != null ? new List<string>(DrySequenceBreakers) : null;
+        c.SamplerOrder = SamplerOrder != null ? new List<string>(SamplerOrder) : null;
         return c;
     }
 }

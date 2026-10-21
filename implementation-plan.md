@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** when an item is finished, mark it ✅ with its commit hash where it is described (section 2 table or the
 item heading in section 4), tick it in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done (5 of 5). All P2 feature items (section 4) still open.
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers (1 of ~50).
 
 ---
 
@@ -129,13 +129,13 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
 * Interaction: reasoning/tool formatting in `Reasoning.cs`/`ToolCalling.cs` detect model families from the template text — they
   must keep working with an override (feed them the *effective* template).
 
-#### §1.4 Additional samplers — **M**
+#### §1.4 Additional samplers — **M** — ✅ Done
 * Extend `GenerationOptions`: `Mirostat (0|1|2)`, `MirostatTau`, `MirostatEta`, `DryMultiplier`, `DryBase`, `DryAllowedLength`,
-  `DryPenaltyLastN`, `DrySequenceBreakers`, `XtcProbability`, `XtcThreshold`, `Tfs` (z), `TopNSigma`, `SamplerOrder` (string list).
+  `DryPenaltyLastN`, `DrySequenceBreakers`, `XtcProbability`, `XtcThreshold`, `TopNSigma`, `SamplerOrder` (string list).
 * `DefaultSamplingPipeline` fixes the chain. Replace `BuildSampler` with a **custom `ISamplingPipeline`** composed from the
   native chain API (`llama_sampler_chain_add`, `llama_sampler_init_mirostat[_v2]`, `_dry`, `_xtc`, `_top_n_sigma`, `_typical`,
   `_temp_ext`, `_grammar`, `_logit_bias`, `_penalties`, `_dist`). Check LLamaSharp 0.27 exposes these in `NativeApi`/
-  `SafeLLamaSamplerChainHandle`; where a sampler is missing (TFS was removed upstream) implement as an `ISamplerStage` over the
+  `SafeLLamaSamplerChainHandle`; where a sampler is missing (TFS was removed upstream, so it is not offered) implement as an `ISamplerStage` over the
   candidate array in C#.
 * Default order mirrors llama.cpp: `penalties → dry → top_n_sigma → top_k → typ_p → top_p → min_p → xtc → temperature`;
   mirostat replaces the truncation + temperature stages. `SamplerOrder` = ordered subset of those names; validated.

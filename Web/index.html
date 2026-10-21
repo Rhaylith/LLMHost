@@ -129,6 +129,15 @@ dialog::backdrop{background:#0008}
     <select id="p-mcp-confirm"><option value="ask">Ask before each tool call</option><option value="never">Run tools without asking</option></select>
     <label><input type="checkbox" id="p-json" style="width:auto"> JSON mode</label>
     <label title="Reuse the evaluated prompt prefix between requests (KV cache)"><input type="checkbox" id="p-cache" style="width:auto" checked> Prompt cache</label>
+    <details id="adv-sampling"><summary style="cursor:pointer;margin-top:8px">Advanced sampling</summary>
+      <label>Mirostat</label><select id="p-mirostat"><option value="0">off</option><option value="1">Mirostat v1</option><option value="2">Mirostat v2</option></select>
+      <div class="grid2"><div><label>Mirostat tau</label><input type="number" step="0.1" id="p-mirostat_tau" value="5"></div><div><label>Mirostat eta</label><input type="number" step="0.01" id="p-mirostat_eta" value="0.1"></div></div>
+      <div class="grid2"><div><label>DRY multiplier (0 = off)</label><input type="number" step="0.1" id="p-dry_multiplier" value="0"></div><div><label>DRY base</label><input type="number" step="0.05" id="p-dry_base" value="1.75"></div></div>
+      <label>DRY allowed length</label><input type="number" id="p-dry_allowed_length" value="2">
+      <div class="grid2"><div><label>XTC probability (0 = off)</label><input type="number" step="0.05" id="p-xtc_probability" value="0"></div><div><label>XTC threshold</label><input type="number" step="0.01" id="p-xtc_threshold" value="0.1"></div></div>
+      <label>Top-n sigma (0 = off)</label><input type="number" step="0.1" id="p-top_n_sigma" value="0">
+      <label>Sampler order (comma separated, blank = default)</label><input id="p-samplers" placeholder="penalties,dry,top_n_sigma,top_k,typ_p,top_p,min_p,xtc,temperature">
+    </details>
     <label>JSON schema (structured output)</label><textarea id="p-schema" rows="3" placeholder='{"type":"object","properties":{...}}'></textarea>
     <h3>Presets</h3>
     <div class="row"><select id="preset-sel"></select><button class="b sec" onclick="loadPreset()">Load</button></div>
@@ -458,6 +467,24 @@ const defaults = {temperature:0.7, top_p:0.95, top_k:40, min_p:0.05, repeat_pena
 sliders.forEach(n => { const el = $('p-' + n); el.value = defaults[n]; const upd = () => el.nextElementSibling.textContent = el.value; el.oninput = upd; upd(); });
 $('p-max_tokens').value = -1;
 
+// advanced samplers: [element id, camelCase option, API field, default]
+const ADV = [['mirostat','mirostat','mirostat',0], ['mirostat_tau','mirostatTau','mirostat_tau',5], ['mirostat_eta','mirostatEta','mirostat_eta',0.1],
+  ['dry_multiplier','dryMultiplier','dry_multiplier',0], ['dry_base','dryBase','dry_base',1.75], ['dry_allowed_length','dryAllowedLength','dry_allowed_length',2],
+  ['xtc_probability','xtcProbability','xtc_probability',0], ['xtc_threshold','xtcThreshold','xtc_threshold',0.1], ['top_n_sigma','topNSigma','top_n_sigma',0]];
+function advParams(p) {
+  for (const [id, , api, def] of ADV) { const v = Number($('p-' + id).value); if (v !== def) p[api] = v; }
+  const order = $('p-samplers').value.split(',').map(s => s.trim()).filter(Boolean); if (order.length) p.samplers = order;
+}
+function advApply(g) {
+  for (const [id, key, , def] of ADV) $('p-' + id).value = g[key] ?? def;
+  $('p-samplers').value = (g.samplerOrder || []).join(',');
+}
+function advForServer() {
+  const o = {};
+  for (const [id, key] of ADV) o[key] = Number($('p-' + id).value);
+  o.samplerOrder = $('p-samplers').value.split(',').map(s => s.trim()).filter(Boolean);
+  return o;
+}
 function genParams() {
   const p = {};
   sliders.forEach(n => p[n] = Number($('p-' + n).value));
@@ -469,6 +496,7 @@ function genParams() {
   const schema = $('p-schema').value.trim();
   if (schema) { try { p.response_format = {type:'json_schema', json_schema:{name:'out', schema: JSON.parse(schema)}}; } catch { alert('JSON schema is not valid JSON'); throw new Error('schema'); } }
   else if ($('p-json').checked) p.response_format = {type:'json_object'};
+  advParams(p);
   return p;
 }
 function applyGen(g) {
@@ -482,12 +510,13 @@ function applyGen(g) {
   $('p-json').checked = !!g.jsonMode;
   $('p-schema').value = g.jsonSchema || '';
   if (g.systemPrompt !== undefined) $('p-system').value = g.systemPrompt || '';
+  advApply(g);
 }
 function genForServer() {
   const p = genParams();
   return {temperature:p.temperature, topP:p.top_p, topK:p.top_k, minP:p.min_p, repeatPenalty:p.repeat_penalty,
     frequencyPenalty:p.frequency_penalty, presencePenalty:p.presence_penalty, maxTokens:p.max_tokens ?? -1, seed:p.seed ?? null,
-    stop:p.stop || [], reasoningEffort: $('p-reasoning').value || null, systemPrompt:$('p-system').value || null, jsonMode: $('p-json').checked, jsonSchema: $('p-schema').value.trim() || null};
+    stop:p.stop || [], reasoningEffort: $('p-reasoning').value || null, systemPrompt:$('p-system').value || null, jsonMode: $('p-json').checked, jsonSchema: $("p-schema").value.trim() || null, ...advForServer()};
 }
 async function refreshPresets() {
   const all = await api('/api/presets');
