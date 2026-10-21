@@ -1,582 +1,610 @@
-# Implementation plan — BlahLLMWrapper parity for LLMHost
+# Implementation plan — P2 items
 
-Companion to [todo.md](todo.md). Every item in the todo list appears here as `§<section>.<n>` where `<n>` is the item's
-position inside that section of `todo.md` (e.g. **§6.3** = third item under "6. Server / API").
+Companion to [todo.md](todo.md). Covers **every open P2 item**, referenced as `§<section>.<n>` (n = position of the item inside
+that section of `todo.md`). P1 is finished; P3 is out of scope here. This plan replaces the earlier plan, whose "host
+`llama-server` as child processes" strategy no longer matches the code: the app embeds llama.cpp in-process through
+LLamaSharp 0.27 and already has continuous batching, per-slot KV reuse, vision (mtmd), reasoning, native tool calling,
+runtime manager and multi-GPU. The plan builds on that.
 
-Effort scale (one engineer, includes tests): **S** ≤ 2 days · **M** 3–5 days · **L** 6–10 days · **XL** > 10 days.
-All estimates assume the foundations in Phase 0/1 are done first.
+Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6–10 d · **XL** > 10 d.
 
 ---
 
-## 1. Strategic decisions (make these before writing feature code)
+## 1. Ground truth about the current code (what the plan hooks into)
 
-### D1 — Inference engine strategy (the decision that drives ~40% of the list)
-
-Today the app embeds llama.cpp through **LLamaSharp** in-process. That wrapper lags llama.cpp and exposes only part of it.
-Several todo items (continuous batching, prompt-cache reuse, vision via `mmproj`, native Jinja tool calling, reasoning
-parsing, speculative decoding, extra samplers, LoRA, MoE tensor overrides, multi-GPU split, logprobs) are already
-implemented and maintained inside llama.cpp's own **`llama-server`**.
-
-| Option | Pros | Cons |
+| Area | Where | Relevant facts |
 |---|---|---|
-| **A. Keep LLamaSharp, build every feature on `BatchedExecutor`/native API** | single process, no downloads | we re-implement templates, tools, reasoning, vision, batching, caching ourselves; wrapper lags upstream; backend fixed per process |
-| **B. Host `llama-server` as managed child processes (recommended)** | features arrive by upgrading a pinned binary; backend (CPU or Vulkan) chosen **per model** by choosing a different binary; crash/OOM isolation; matches BlahLLMWrapper's "runtime" concept 1:1 | must download/ship runtimes, manage processes and ports, translate our API ↔ llama-server API |
-| **C. Hybrid** — B as the primary engine, LLamaSharp kept as a zero-download "built-in" engine | first run works offline; graceful fallback | two code paths to test |
+| Engine | [Inference/ModelRuntime.cs](Inference/ModelRuntime.cs) | One `LLamaContext` per loaded model, scheduler task builds one batch per iteration over `Slot`s (≤ `MaxConcurrent`, unified KV pool). Each slot keeps its last token list (prefix reuse). Sampler is `DefaultSamplingPipeline` built in `BuildSampler`. |
+| Options | [Core/Settings.cs](Core/Settings.cs) | `LoadOptions` (per load), `GenerationOptions` (per request), `AppSettings`, `PresetStore` (single `presets.json`), `AppPaths`. |
+| Manager | [Inference/ModelManager.cs](Inference/ModelManager.cs) | `_loaded` dictionary keyed by identifier, `_loadGate`, idle timer using `LoadOptions.TtlMinutes`. |
+| Native | [Inference/NativeBackend.cs](Inference/NativeBackend.cs), [RuntimeManager.cs](Inference/RuntimeManager.cs) | Native library chosen **once per process**. |
+| API | [Server/ApiServer.cs](Server/ApiServer.cs) (+ NativeApi, ResponsesApi, AnthropicApi, McpApi, DocumentsApi, ApiAuth) | Minimal-API `Map*` routes; `/api/*` management routes; `LogBuffer` ring buffer for `/api/logs`. |
+| UI | [Web/index.html](Web/index.html) (1365 lines, single file), [Desktop/MainWindow.cs](Desktop/MainWindow.cs) | Chats persisted server-side in `chats/<id>.json` via `/api/chats`. |
+| CLI | [Cli/Shell.cs](Cli/Shell.cs) (1541 lines) | In-process shell + sub-commands, `Daemon.cs` for background mode. |
 
-**Decision: C, with B as the default.** All engine access goes through an `IEngine` abstraction (see §2). The built-in engine
-is frozen at its current feature level (chat, completions, embeddings, grammar) and everything new is built against
-`LlamaServerEngine`.
-
-**Spike (M, do first):** run official `llama-server` Windows builds (Vulkan and CPU) against the RX 7900 XTX with the
-Qwen 0.5B test model; confirm `--jinja`, `--parallel`, `--mmproj`, `--model-draft`, `--reasoning-format`, `--metrics`,
-`--slots` behave as documented for the pinned build number. Exit criteria: tokens/s on par with the current Vulkan path,
-clean shutdown, port handoff works. _Flag names in this plan come from upstream docs; verify against `llama-server --help` of
-the pinned build._
-
-### D2 — One canonical request model, thin API adapters
-
-Replace the ad-hoc mapping in `Server/OpenAiMapping.cs` and `Server/AnthropicApi.cs` with an internal model:
-`ChatRequest { Messages[ContentPart: text|image|tool_call|tool_result|reasoning], Tools, ToolChoice, Sampling, Output(format/schema), Reasoning, Stream, Cache hints }`
-and `ChatEvent` stream (`Start`, `TextDelta`, `ReasoningDelta`, `ToolCallDelta`, `ToolCallDone`, `Usage`, `Stats`, `Done`).
-OpenAI chat, Responses, Anthropic, native v1, v0 and Ollama become adapters in/out of this model. Prevents N×M feature drift.
-
-### D3 — Process model
-
-* One executable `llmhost` (host: API gateway, UI, CLI, downloads, MCP, RAG, link) + N engine child processes.
-* Daemon/headless = same exe (`llmhost daemon up`), optionally registered as a Windows Service/startup task.
-* Desktop shell is a separate thin project that hosts the web UI in WebView2 and talks to the same host over localhost.
-
-### D4 — Storage layout (`%USERPROFILE%\.llmhost`, versioned)
-
-```
-settings.json          (schemaVersion)       tokens.json   (hashed, per-token permissions)
-DownloadedModels\<publisher>\<model>\*.gguf  (default: ./DownloadedModels in the working directory; configurable)
-                                              model-defaults\<model-id>.json
-runtimes\<engine>-<build>\                   presets\*.json
-conversations\*.json   (message tree)        mcp.json
-rag\<chat-id>\         (chunks + vectors)    logs\*.log (rotated)
-```
-
-### D5 — UI strategy
-
-Keep **one** UI: the web UI, hosted in a WebView2 shell. The single `index.html` will not survive branching chats, RAG,
-split view and a runtime manager, so in Phase 4 move to a small component framework (Preact + Vite, output embedded as
-resources, no runtime Node dependency). No separate WPF UI.
-
-### D6 — Solution layout (replaces the single project)
-
-```
-LLMHostProject.sln
-  src/LLMHost.Core        settings, paths, canonical model, storage, hardware, logging
-  src/LLMHost.Engines     IEngine, LlamaServerEngine, BuiltinEngine, RuntimeManager, ModelHost
-  src/LLMHost.Services    downloads, library, RAG, MCP host, presets, tokens, link
-  src/LLMHost.Server      ASP.NET Core adapters (OpenAI, Anthropic, native v1/v0, Responses, Ollama), UI hosting
-  src/LLMHost.Cli         `llmhost` exe (shell + sub-commands + daemon)
-  src/LLMHost.Desktop     WebView2 shell + tray
-  web/                   Vite frontend → embedded
-  tests/*                unit + contract + integration
-```
-(The original "solution and project in one folder" requirement applied to the initial scaffold; splitting is a deliberate change.)
-
-### D7 — Testing strategy
-
-* **Unit:** GGUF reader, TextScanner, SchemaGrammar, adapters, download resume, settings migration.
-* **Contract:** golden JSON/SSE fixtures per API surface; run the official OpenAI/Anthropic SDKs against a fake engine.
-* **Integration:** a tiny model (Qwen2.5-0.5B Q4_K_M) cached in CI; smoke test per engine (CPU always, Vulkan on a GPU runner).
-* **Benchmarks:** tokens/s, TTFT, concurrent-request throughput tracked per build.
+**Already done but still unchecked in todo.md** (verify, add tests if missing, then tick):
+`logprobs`/`top_logprobs` and `n > 1` (OpenAI chat + completions, [ApiServer.cs:290](Server/ApiServer.cs:290)) → close the
+first half of §1.11; Anthropic `image` and `thinking` blocks ([AnthropicApi.cs:110](Server/AnthropicApi.cs:110)) → first
+half of §6.9 (remaining: images in tool results, `tool_choice`, `cache_control`).
 
 ---
 
-## 2. Target architecture
+## 2. Cross-cutting prerequisites (do first; unblock many items)
 
-```
- ┌─────────────── clients ───────────────┐
- │ web UI/WebView2 │ CLI │ OpenAI/Anthropic/LMS SDKs │ MCP clients │ other devices (Link)
- └───────┬─────────┴──┬──┴───────────────┬───────────┴───────────────────────────────┘
-         ▼            ▼                  ▼
-   ┌──────────────────────── LLMHost.Server (adapters) ─────────────────────────┐
-   │ /v1 OpenAI · /v1/messages · /api/v1 native · /api/v0 · /v1/responses · Ollama │
-   └───────────────┬───────────────────────────────────────────────────────────┘
-                   ▼  canonical ChatRequest / ChatEvent
-   ┌──────────────── LLMHost.Services ───────────────────────────────────────────┐
-   │ ConversationService · RagService · McpHost · PresetStore · TokenStore       │
-   │ ModelLibrary · DownloadManager · DefaultsStore · LinkService                │
-   └───────────────┬───────────────────────────────────────────────────────────┘
-                   ▼
-   ┌──────────────── LLMHost.Engines ────────────────────────────────────────────┐
-   │ ModelHost (JIT, TTL, auto-evict, fit estimator, scheduler)                  │
-   │ RuntimeManager (download/select builds)                                     │
-   │ IEngine ─ LlamaServerEngine (child process per instance) │ BuiltinEngine   │
-   └─────────────────────────────────────────────────────────────────────────────┘
-```
-
-```csharp
-interface IEngine {
-    string Id { get; }                                   // "llama-server:vulkan-b6xxx", "builtin"
-    EngineCapabilities Capabilities { get; }             // vision, tools, parallel, speculative, lora...
-    Task<IModelInstance> LoadAsync(ModelSpec m, LoadOptions o, IProgress<LoadProgress> p, CancellationToken ct);
-}
-interface IModelInstance : IAsyncDisposable {
-    ModelInfo Info { get; }                              // ctx, arch, size, device, layers, vram used
-    IAsyncEnumerable<ChatEvent> ChatAsync(ChatRequest r, CancellationToken ct);
-    Task<CompletionResult> CompleteAsync(CompletionRequest r, CancellationToken ct);
-    Task<float[][]> EmbedAsync(string[] inputs, CancellationToken ct);
-    Task<int[]> TokenizeAsync(string text, bool special, CancellationToken ct);
-}
-```
+| ID | Work | Effort | Unblocks |
+|---|---|---|---|
+| **X1** Settings schema version + migration + validation (§10.1) | Add `schemaVersion` to `settings.json`, `presets`, `model-defaults`, `chats`; `Migrations` list run at startup (backup file `.bak-vN` before migrating); field-level validators returning `{field, message}`; `PUT /api/settings` returns 400 with that list. | M | every item that adds settings/files (X1 first so later items only add a migration step) |
+| **X2** Structured logging (§10.2) | Replace ad-hoc `LogBuffer.Add` sinks with a thin logger writing JSON-lines to `logs/llmhost-YYYYMMDD.log` (size+age rotation, N files), keep `LogBuffer` as the live tail. Wire llama.cpp native log callback with level filter. | M | §6.12 log viewer, §10.3 |
+| **X3** Capability model | `ModelCapabilities { Vision, Audio, Tools, Reasoning, Embedding, Moe, Rerank }` computed from GGUF metadata + chat template + mmproj; exposed in `/v1/models`, `/api/models/local`, `/api/status`. | S | §3.1 badges, §1.12 embedding/rerank, §4 UI |
+| **X4** Option-plumbing pattern | One place that maps a new field through: `LoadOptions`/`GenerationOptions` → model defaults → presets → OpenAI/Anthropic/native mapping → CLI `params`/`load` → UI param panel → tests. Document it in README so each item below is a checklist, not a design. | S | all |
+| **X5** Test conventions | Pure logic gets unit tests in `UnitTests.cs`; HTTP surface in `ApiTests.cs`; anything needing a model uses the Qwen-0.5B fixture in `IntegrationTests.cs` (skipped when absent). | — | all |
 
 ---
 
-## 3. Phases, ordering and exit criteria
+## 3. Phasing
 
-| Phase | Theme | Items | Exit criteria | Effort |
-|---|---|---|---|---|
-| **0** | Foundations | §10.1 §10.2 §10.3 §10.4, D2 refactor, D6 split | tests green in CI; existing features unchanged behind new abstractions | 3–4 wks |
-| **1** | Engine & runtimes | §1.1–§1.16, §2.1–§2.8 | runtime manager installs Vulkan/CPU builds; parallel + cache reuse working on 7900 XTX | 5–6 wks |
-| **2** | Model management | §3.1–§3.10 | defaults, queued downloads, import, badges | 3 wks |
-| **3** | API surface | §6.1–§6.12 (except MCP/plugins) | native v1, Responses, tokens, v0, HTTPS, metrics | 4 wks |
-| **4** | Chat, presets, RAG | §4.*, §5.*, D5 frontend rebuild | branching chat, folders, attachments, RAG, presets | 5–6 wks |
-| **5** | Agents & ops | §6.MCP, §6 plugins, §7.*, daemon | MCP host, `lms`-parity CLI, headless service | 4 wks |
-| **6** | Desktop | §9.* | installer, tray, modes, themes, i18n, updater | 3–4 wks |
-| **7** | Remote | §8.* | Link between two machines | 3 wks |
-| **8** | Hardening | §10.5–§10.7, perf, docs, security review | release candidate | 2–3 wks |
+| Phase | Theme | Items |
+|---|---|---|
+| **A** (2–3 wk) | Foundations + cheap engine wins | X1–X4, §1.4 sampler set, §1.5 overflow policies, §1.11 close-out, §4 live token counter data, §6.1 JIT policy |
+| **B** (3–4 wk) | Model management + presets | §3.1–§3.5, §5.1–§5.2, §2.4 GPU ratio, §2.6 thread pool |
+| **C** (4–5 wk) | Engine depth | §1.3 prompt templates, §1.1 cache slots/disk, §1.6 MoE, §1.7 LoRA, §1.8 multi-instance, §1.12 embeddings/rerank, §1.2 vision follow-ups, §1.2b speculative decoding |
+| **D** (4–5 wk) | UI | componentise `index.html`, then §4.1–§4.6, §9.1–§9.5 |
+| **E** (3–4 wk) | Server hardening + ecosystem | §6.2–§6.5, §10.3, §7, §2.3 hardware monitor, §2.5 worker processes |
+| **F** (optional, XL) | Remote | §8.1 LM-Link-style network |
 
-Critical path: **D1 spike → Phase 0 → runtime manager (§2.1) → engine features (§1.x) → native v1 API (§6.1) → chat UX (§4.x)**.
-Phases 2 and 3 can run in parallel with Phase 1 once `IEngine` exists.
+Order inside a phase is free; dependencies are listed per item.
 
 ---
 
-## 4. Item-by-item plan
-
-Format: **Design** (how) · **Work** (concrete steps/files) · **Done when** · **Effort** · **Deps**.
+## 4. Item plans
 
 ### §1 Inference engine
 
-**§1.1 Parallel requests with continuous batching + max concurrent predictions** — L
-* Design: `LlamaServerEngine` starts `llama-server --parallel N` (default 4, same as BlahLLMWrapper); each slot serves one request, server batches continuously. Built-in engine: serialize (document limitation).
-* Work: add `MaxConcurrentPredictions` to `LoadOptions` + UI/CLI; scheduler in `ModelHost` queues beyond N with a fair queue and 429/`Retry-After` when queue cap exceeded; surface slot usage via `/slots`; split-view in UI sends two requests simultaneously.
-* Done when: 4 simultaneous streams each progress; aggregate tok/s > sequential; cancel of one does not affect others.
-* Deps: D1, §2.1.
+#### §1.1 Prompt-cache follow-ups — **L**
+Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
+* **Several slots.** Today `Slot.Cache` is the only per-sequence history, and slots are bounded by `MaxConcurrent`. Decouple
+  *cache entries* from *active slots*: `PromptCachePool` per runtime holding up to `CacheSlots` (new `LoadOptions.CacheSlots`,
+  default = `MaxConcurrent`+2) entries `{Tokens, SeqId, LastUsed, ImageKey}`. On admission pick the entry with the longest common
+  prefix (LCP); if none ≥ 32 tokens reuse LRU. Needs spare `n_seq_max` in the context (`max(MaxConcurrent, CacheSlots)`) and a
+  KV-budget check, since all sequences share the unified pool (`while (InUse() + need > ContextSize)` loop at
+  [ModelRuntime.cs:727](Inference/ModelRuntime.cs:727) must evict idle cache entries before blocking active requests).
+* **Disk save/restore.** LLamaSharp exposes `State.SaveState`/`SaveSeqState` (`llama_state_seq_save_file`). Add
+  `POST /api/models/cache/save {identifier, name}` and `/restore`, files under `cache/<model-hash>/<name>.kv` with header
+  `{modelSha, ctx, kvTypes, tokens}`; reject restore on mismatch. Option `autoSaveCache` writes the longest entry on unload and
+  restores on next load of the same chat (key = chat id sent as `x-cache-key`/`user`). Disk cap in settings (default 2 GB, LRU).
+* **llama-server engine cache.** Not applicable until §2.5 (worker processes) exists; if workers use `llama-server`, pass
+  `--slot-save-path` and `cache_prompt` through. Defer; record in §2.5.
+* **Tests:** two alternating prompts keep ≥ 90 % cached tokens; evicting under pressure never drops an active slot; restore of
+  a mismatched file is rejected.
+* Risks: unified-KV fragmentation → run `llama_kv_cache_defrag` when `cached/ctx > 0.8`.
 
-**§1.2 Prompt/KV-cache reuse between turns** — M _(built-in engine: DONE — single slot, longest-common-prefix reuse in `ModelRuntime.StreamAsync`; remaining: multi-slot LRU, disk save/restore, llama-server engine parity)_
-* Design: rely on llama-server `cache_prompt: true` + slot affinity (route a conversation to the same slot by `id_slot`/prompt-prefix hash); `--cache-reuse` for shifted prefixes. For stateful native chats keep the slot id in the response record.
-* Work: `SlotAffinity` in scheduler (map conversationKey → slot); send `cache_prompt`; expose cache-hit tokens in `stats`.
-* Done when: turn 20 of a long chat has TTFT ≈ turn 2 (prompt tokens evaluated ≈ only the new tokens).
-* Deps: §1.1.
+#### §1.2 Vision follow-ups — **L** (split into independently shippable pieces)
+1. **Per-image options (S).** `detail: low|high|auto` on `image_url` → max edge (e.g. 512 / 1344) resized in `ImageInput`
+   (System.Drawing is unavailable cross-platform: use `SixLabors.ImageSharp` or WIC on Windows). Setting `maxImageEdge`.
+2. **Encoded-image cache (M).** Hash image bytes (xxhash) → cache the `mtmd` encoded chunk/embeddings per runtime (LRU, N MB);
+   lets a request with images reuse the KV prefix too: store `ImageKey` list on cache entries (§1.1) and treat an image chunk as a
+   token run of known length. Removes "requests with images always re-evaluate".
+3. **Images in tool results (M).** Accept tool-result content arrays containing images in OpenAI `tool` messages, Responses
+   `function_call_output`, Anthropic `tool_result` blocks; map to a synthetic user message carrying the image after the tool
+   message when the template cannot embed images in tool turns. Add MCP tool results that return `image` content.
+4. **Audio input (L).** Check `mtmd` audio support in the LLamaSharp 0.27 native build (`mtmd_support_audio`); add
+   `input_audio` parts (OpenAI) → decode WAV/MP3 (NAudio) to 16 kHz mono PCM → `mtmd_bitmap_init_from_audio`. Capability flag
+   `audio` from X3. UI: attach audio file. Blocked if the pinned native lib lacks audio — then gate behind runtime update.
+5. **Video frames (S).** Client-side/CLI: `/video file.mp4 --fps 1 --max-frames 8` extracts frames (ffmpeg if found, else
+   Media Foundation) and sends them as ordered images. No new engine work.
+* llama-server vision: out of scope until §2.5.
 
-**§1.3 Vision / multimodal** — L _(built-in engine: DONE via LLamaSharp `MtmdWeights` — mmproj pairing + auto download, OpenAI/Anthropic image parts, UI/CLI attachments; remaining: native v1 `data_url` items, images in tool results, audio, llama-server parity)_
-* Design: capability detected from a sibling `mmproj*.gguf`; llama-server started with `--mmproj`. Accept images in OpenAI `image_url` (data URL or http), Anthropic `image` blocks, native `data_url`; downscale/validate in host.
-* Work: `ContentPart.Image`; mmproj pairing logic in library (same repo folder, name match) + auto download companion (§3.2); `capabilities.vision` flag; UI attachment button; reject images for non-vision models with a clear error.
-* Done when: describe-image works for a vision GGUF via UI, OpenAI SDK and Anthropic SDK.
-* Deps: D1, D2, §3.2.
+#### §1.2b Speculative decoding (todo §1.5) — **L**
+* **Draft model (L).** Add `LoadOptions.DraftModel`, `DraftTokens` (default 8), `DraftMinP`. Load a second `LLamaWeights` +
+  context; vocab compatibility check (compare token count + first/last 512 tokens' text; refuse otherwise with a clear message).
+  Algorithm in the scheduler: for a *single generating slot* draft k tokens greedily, evaluate them in one target batch, accept
+  the longest matching prefix, roll back KV with `llama_kv_cache_seq_rm`. Disable automatically when > 1 slot is generating
+  (batching is already efficient) and with grammar/logit-bias samplers unless verified token-by-token through the same sampler.
+  Check whether LLamaSharp exposes `llama_speculative_*`; if not, implement in C# (≈300 lines).
+* **Suggested pairings (S).** Static table in `Catalog.cs` (`family → draft candidates`, e.g. Qwen 0.5B for Qwen 7B+) plus a
+  "draft" badge in the Discover list; UI picker filters local models by same arch/vocab and size ≤ 1/8 of target; show estimated
+  extra memory via `FitEstimator`.
+* **MTP-style speculation (M, research first).** Models with built-in MTP heads (spot via GGUF `*.nextn_predict_layers` key)
+  need upstream llama.cpp support; implement only if the pinned native build supports it, otherwise leave as a checklist item
+  gated on the runtime version in `RuntimeManager`.
+* Stats: report `draft_accepted/draft_total` in `GenerationStats`, shown in UI and `/api/status`.
+* **Acceptance:** ≥ 1.3× tok/s on a repeating-text benchmark with Qwen 0.5B → 7B; output identical with temperature 0.
 
-**§1.4 Native template-aware tool calling** — L
-* Design: start with `--jinja` so llama.cpp renders the model's own template with `tools` and parses tool calls into OpenAI `tool_calls`; map to canonical `ToolCall` events. Fall back to the current prompt-based method for models without tool templates.
-* Work: capability detection (template contains tools section); `tool_choice` (`auto|none|required|{name}`) mapping (GBNF forcing for `required`); parallel tool calls; streaming `ToolCallDelta` (argument fragments); round-trip of `tool` role messages; adapter tests for OpenAI/Anthropic/native v1.
-* Done when: multi-tool, multi-turn loop passes with Llama 3.1, Qwen3 and Mistral templates; fallback still works on the 0.5B test model.
-* Deps: D1, D2.
+#### §1.3 Prompt-template override — **M**
+* Today `ApplyChatTemplate` uses the GGUF template. Add `LoadOptions.PromptTemplate { Mode: auto|jinja|manual, Jinja, Manual }`
+  where `Manual = { system:{prefix,suffix}, user:{…}, assistant:{…}, tool:{…}, bos, eos, stopStrings[] }`.
+* Jinja rendering: LLamaSharp's `LLamaTemplate` supports llama.cpp's built-in set only. For arbitrary Jinja add
+  **Fluid** or **Scriban** (+ `tojson`, `strftime_now`, `raise_exception` helpers). Keep llama.cpp's renderer as default;
+  use Jinja only for an explicit override. Test against 5 templates (ChatML, Llama 3, Gemma, Mistral, Qwen3 with thinking).
+* Manual mode renders without any engine: unit-testable string builder; auto-adds the manual stop strings to
+  `GenerationOptions.Stop`.
+* Auto-detect: read `tokenizer.chat_template` in `Gguf.cs` (already parsed) and show it; "Always show template" toggle
+  (`settings.alwaysShowTemplate`) in the load dialog. Validation endpoint `POST /api/models/template/preview {messages}` returns
+  the rendered prompt so the UI can show a live preview.
+* Interaction: reasoning/tool formatting in `Reasoning.cs`/`ToolCalling.cs` detect model families from the template text — they
+  must keep working with an override (feed them the *effective* template).
 
-**§1.5 Reasoning support + effort control** — M
-* Design: `--reasoning-format deepseek` (or parse `<think>` / harmony channels ourselves) → `ReasoningDelta`. Effort `off|low|medium|high|on` mapped per template: `enable_thinking` kwarg (Qwen3), `reasoning_effort` (gpt-oss), `--reasoning-budget` for off.
-* Work: `ReasoningMode` in `ChatRequest`; adapters emit `reasoning_content` (OpenAI), `thinking` blocks (Anthropic), `reasoning` output item (native v1), collapsible UI; stats `reasoning_output_tokens`.
-* Done when: DeepSeek-R1-distill and Qwen3 reasoning is separated in all three APIs; `off` suppresses thinking where the template supports it.
-* Deps: D2.
+#### §1.4 Additional samplers — **M**
+* Extend `GenerationOptions`: `Mirostat (0|1|2)`, `MirostatTau`, `MirostatEta`, `DryMultiplier`, `DryBase`, `DryAllowedLength`,
+  `DryPenaltyLastN`, `DrySequenceBreakers`, `XtcProbability`, `XtcThreshold`, `Tfs` (z), `TopNSigma`, `SamplerOrder` (string list).
+* `DefaultSamplingPipeline` fixes the chain. Replace `BuildSampler` with a **custom `ISamplingPipeline`** composed from the
+  native chain API (`llama_sampler_chain_add`, `llama_sampler_init_mirostat[_v2]`, `_dry`, `_xtc`, `_top_n_sigma`, `_typical`,
+  `_temp_ext`, `_grammar`, `_logit_bias`, `_penalties`, `_dist`). Check LLamaSharp 0.27 exposes these in `NativeApi`/
+  `SafeLLamaSamplerChainHandle`; where a sampler is missing (TFS was removed upstream) implement as an `ISamplerStage` over the
+  candidate array in C#.
+* Default order mirrors llama.cpp: `penalties → dry → top_n_sigma → top_k → typ_p → top_p → min_p → xtc → temperature`;
+  mirostat replaces the truncation + temperature stages. `SamplerOrder` = ordered subset of those names; validated.
+* Grammar must always be applied first (unchanged semantics); logprobs (`RecordLogprob`) must be taken from the pre-sampler
+  distribution — keep that working.
+* Surface: OpenAI extension fields (`mirostat`, `dry_multiplier`, `xtc_probability`, … same names as llama-server for client
+  compatibility), native API, CLI `params`, UI "Advanced sampling" collapsible, presets.
+* Tests: deterministic seed + temperature 0 unchanged; DRY reduces repeats on a loop prompt; sampler-order validation.
 
-**§1.6 Speculative decoding (draft model, MTP)** — M
-* Design: `--model-draft <gguf> --draft-max/--draft-min`; validate vocab compatibility from GGUF tokenizer metadata (vocab size + tokenizer model/pre) before load; suggest pairings by same family and ≤ size rules (1B for 7B, 3B for 14B, 7B for 32B). MTP: enable when the runtime build reports support (capability probe via `--help` parse / `/props`).
-* Work: `DraftModel` in `LoadOptions`; vocab check in `GgufInfo`; UI "Speculative decoding" section (Power User mode); report acceptance rate in stats if exposed.
-* Done when: Qwen2.5-14B + 0.5B draft shows measurable speed-up on predictable prompts; mismatch is rejected with explanation.
-* Deps: D1, §9.2 (mode gating, optional).
+#### §1.5 Context-overflow policies — **M**
+* `GenerationOptions.ContextOverflow = dropOldest (current) | truncateMiddle | rollingWindow | stopAtLimit | error`, plus
+  `KeepFirstTokens` (default: system prompt) and `KeepLastTokens`.
+* Prompt-time policies live in `BuildFittingPrompt` ([ModelRuntime.cs:337](Inference/ModelRuntime.cs:337)):
+  `truncateMiddle` removes whole messages from the middle (keeps system + first user + latest N), inserting an
+  `[… N earlier messages omitted …]` marker; `error` returns HTTP 400 `context_length_exceeded` (OpenAI error code).
+* Generation-time policies in the scheduler: `rollingWindow` shifts the KV cache (`seq_rm` of the oldest `n_discard` tokens after
+  `KeepFirstTokens`, `seq_add` the rest negative, update `Slot.Cache`) when a slot reaches the context; `stopAtLimit` ends with
+  `finish_reason: length`. Requires RoPE-shift support (check `llama_kv_self_can_shift`; refuse with message otherwise).
+* Report applied policy and dropped counts in stats (`context_dropped_messages`, `context_shifts`).
+* Setting precedence: request > chat > model default > global.
 
-**§1.7 Prompt-template override per model** — M
-* Design: precedence = per-model override → GGUF `tokenizer.chat_template` → ChatML fallback. Jinja mode: pass `--chat-template-file`; Manual mode: role prefixes/suffixes + BOS/EOS + stop strings rendered by our own template engine (no Jinja needed).
-* Work: `PromptTemplateConfig` stored in `model-defaults`; template editor with live preview (render sample conversation via `/apply-template`-style call); "always show template" toggle; stop-string defaults derived from template.
-* Done when: overriding a broken template fixes output; preview matches real prompt byte-for-byte.
-* Deps: §3.1.
+#### §1.6 MoE controls — **M**
+* `LoadOptions`: `MoeExpertCount` (override `*.expert_used_count` metadata key via `llama_model_kv_override`),
+  `MoeCpuLayers` (`--n-cpu-moe` equivalent) and `TensorOverrides: [{pattern, buffer}]` (e.g. `\.ffn_.*_exps\.=CPU`).
+  LLamaSharp: `LLamaModelParams.tensor_buft_overrides` — verify it is exposed in 0.27; otherwise pin to marshal the struct
+  ourselves (small P/Invoke addition in `NativeBackend.cs`).
+* "Force expert weights onto CPU" = convenience that generates the standard pattern; combined with `Device=gpu` it keeps
+  attention+KV on GPU. `FitEstimator` must treat overridden tensors as host memory (estimate MoE expert bytes from GGUF tensor
+  list names `ffn_*_exps`) — extend `GgufInfo` with per-tensor sizes (the reader already walks tensor infos).
+* UI: shown only for MoE models (capability from X3); tooltip with expected VRAM saving; Power-User mode (§9.1).
+* Tests: estimator math on a synthetic tensor list; load with override on a MoE fixture if available (else unit-only).
 
-**§1.8 Additional samplers (Mirostat, DRY, XTC, TFS, top-n-sigma, order)** — S
-* Design: pass-through to llama-server per-request fields (`mirostat`, `mirostat_tau/eta`, `dry_*`, `xtc_*`, `top_n_sigma`, `samplers` order). Built-in engine: ignore with warning.
-* Work: extend `GenerationOptions` + validation ranges; UI "Samplers" accordion with drag-to-reorder; CLI `set` keys; preset schema bump.
-* Done when: values reach the server (verified by `/slots` params dump) and change output deterministically with a fixed seed.
-* Deps: D1.
+#### §1.7 LoRA adapters — **M**
+* `LoadOptions.Loras: [{path, scale}]`. After model load, `llama_adapter_lora_init` + `llama_set_adapters_lora` on the context
+  (LLamaSharp `LoraAdapter`/`context.LoadLoraAdapter`). Validate base-model match (GGUF `general.architecture`, adapter's
+  `adapter.lora.alpha`), refuse mismatches.
+* Library: scan `*.gguf` with `general.type = adapter` into a separate **Adapters** list (`ModelLibrary` currently lists them as
+  models — filter them out and show under the base model). Download/import reuse existing flows.
+* Hot swap: `POST /api/models/lora {identifier, adapters:[{id,scale}]}` — changing scale does not need reload (re-apply to
+  context; clear caches because KV is invalid).
+* FitEstimator: add adapter file sizes. Per-request LoRA is out of scope (document).
 
-**§1.9 Context-overflow policies** — M
-* Design: policy enum `TruncateMiddle | RollingWindow | StopAtLimit | Error`, applied in host before dispatch using the tokenize endpoint; system prompt and last user turn always kept; RollingWindow may also use server context shift.
-* Work: `ContextPolicy` in generation options (per chat/request/default), `ContextWarning` event so UI shows "N messages dropped"; API param `context_overflow_policy`.
-* Done when: each policy yields the documented prompt on a unit test with a fake tokenizer.
-* Deps: D2.
+#### §1.8 Multiple instances of the same model — **M**
+* `ModelManager.LoadAsync` already supports `options.Identifier`, but `Get(id)` returning an existing instance and the
+  `/v1/models` listing assume 1 per model. Work: (a) never dedupe by file, only by identifier; (b) auto-suffix identifiers
+  (`name`, `name:2`) when requested with `allowDuplicate`; (c) share mmapped weights between instances — keep a
+  ref-counted `LLamaWeights` cache keyed by `{path, gpuConfig}` so a second instance only pays for context + KV;
+  (d) request routing: `model` field may be the base name — pick the least-loaded instance (`ActiveRequests + QueuedRequests`);
+  (e) unload by identifier only unloads weights when the refcount reaches 0.
+* Fit check must count only the incremental cost (context + compute buffers) for a shared-weights instance.
+* UI: "Load another instance" in the loaded-models list with distinct context size / params; CLI `load --identifier`.
+* Tests: two instances with different context sizes answer in parallel; unloading one keeps the other.
 
-**§1.10 MoE controls** — S
-* Design: `--n-cpu-moe N` / `--cpu-moe` and `--override-tensor "exps=CPU"`; expose "experts to keep on CPU" and "number of experts used" (GGUF KV override `--override-kv`).
-* Work: `LoadOptions.MoeCpuLayers`, `ExpertCount`; detect MoE from GGUF (`expert_count` key) and only show for MoE models; feed estimator (§2.3).
-* Done when: Qwen3-30B-A3B loads with experts on CPU and fits in less VRAM than all-GPU.
-* Deps: D1, §2.3.
+#### §1.11 `logprobs` / `n` — **S** (close-out)
+Verify existing OpenAI chat/completions implementation against the spec (bytes arrays, `top_logprobs` ≤ 20, streaming chunk
+shape, `n` with stream and `index`); add Responses API `top_logprobs` + `include: ["message.output_text.logprobs"]` and
+`/api/v1/chat` pass-through if missing; add contract tests; then tick the item.
 
-**§1.11 LoRA adapters** — S
-* Design: `--lora path[:scale]` (multiple); adapters stored under `models/<publisher>/<model>/adapters`.
-* Work: library scan, load-dialog multi-select with scale sliders, API `load` option `lora`.
-* Done when: adapter changes output; unload removes it.
-* Deps: D1.
-
-**§1.12 Multiple instances of the same model** — S
-* Design: instance key = identifier (not file); each instance its own server process/ctx; shared mmap pages reduce RAM.
-* Work: `ModelHost` keyed by identifier; auto-suffix `:2` when duplicate; UI shows instances; fit estimator accounts for each.
-* Done when: two instances with different ctx run concurrently.
-* Deps: §2.3.
-
-**§1.13 `logprobs` / `top_logprobs`, `n > 1`** — S
-* Design: `n_probs` on llama-server → map to OpenAI `logprobs.content[]`; `n>1` as n parallel slots (needs §1.1) or sequential on built-in.
-* Work: adapter fields + tests against OpenAI SDK parsing.
-* Done when: SDK parses logprobs; `n=3` returns 3 choices.
-* Deps: §1.1.
-
-**§1.14 Embedding options & reranking** — M
-* Design: separate engine instance with `--embedding --pooling <type>`; `/v1/embeddings` accepts arrays, `encoding_format=float|base64`, `dimensions` (truncate + renormalise); reranking via `--reranking` + `/v1/rerank` (Jina/Cohere-style).
-* Work: pooling/normalise options in load dialog; batching; model-type detection (embedding vs reranker from GGUF arch/pooling).
-* Done when: embeddings stable vs reference model outputs; rerank endpoint orders a known query set correctly.
-* Deps: D1.
-
-**§1.15 Harden schema→GBNF** — M
-* Design: replace `SchemaGrammar` with llama.cpp's own `json_schema` support (server converts) and keep ours only for built-in engine; extend ours with `$defs`/`$ref` cycles (bounded depth), `pattern` subset, `minimum/maximum` (digit-count approximation), `additionalProperties`, string length.
-* Work: conformance suite of ~60 schemas validated with a JSON-schema validator on generated outputs.
-* Done when: suite ≥ 95% valid; unsupported keywords reported, not silently ignored.
-* Deps: none.
-
-**§1.16 Cancel model load; progress events** — S
-* Design: killing the child process cancels a load; parse llama-server stderr/`/health` for phases (loading tensors %, warm-up); emit `LoadProgress` events via SSE.
-* Work: cancellation endpoint `DELETE /api/v1/models/load/{id}`; UI cancel button; prompt-processing progress via `return_progress`.
-* Done when: cancel frees VRAM within 2 s; progress bar monotonic.
-* Deps: D1.
+#### §1.12 Embeddings options & reranking — **M**
+* Embeddings: `LoadOptions.Pooling (auto|none|mean|cls|last|rank)`, `Normalize` (default true → L2), `EmbedBatchSize`; request
+  fields `dimensions` (truncate + renormalise, Matryoshka), `encoding_format: float|base64`, `truncate`. Batch many inputs into
+  one decode via multiple sequences (current `EmbedAsync` is one text at a time). Detect embedding GGUFs (X3) and prevent chat
+  use with a clear error.
+* Reranking: `POST /v1/rerank` and `/rerank` (Jina/Cohere shape: `query`, `documents`, `top_n`, `return_documents`) using
+  pooling `rank` models (bge-reranker GGUF). Score = classifier-head output; order by score. Add the catalog entries
+  (bge-reranker-v2-m3, Qwen3-Reranker).
+* RAG (`Documents.cs`) can optionally rerank retrieved chunks (`settings.rag.rerankModel`).
+* Tests: vectors identical (±1e-4) between batch and single; normalisation unit-length; rerank ordering on a toy set.
 
 ### §2 Hardware & runtimes
 
-**§2.1 Runtime/engine manager** — XL
-* Design: a *runtime* = a pinned llama.cpp release zip (`win-cpu-x64` and `win-vulkan-x64` only; CPU variants avx2/avx512 where offered — HIP/ROCm and CUDA builds are explicitly out of scope) extracted to `runtimes\<name>-<build>\` with a `runtime.json` manifest (build, backends, sha256, capabilities).
-* Work:
-  1. `RuntimeCatalog`: query GitHub Releases API (cache, offline-safe), map assets→runtime descriptors, show only compatible ones (hardware survey: Vulkan device present, AVX flags).
-  2. `RuntimeManager`: download+verify+extract, keep N versions, mark "preferred" per engine type and per model (`LoadOptions.Runtime`), auto-update policy (off/notify/auto), rollback.
-  3. Selection logic: `auto` = Vulkan if a usable Vulkan device exists, else CPU, with fallback to CPU on load failure.
-  4. UI "Runtimes" view (list, update, select, active badge, per-model override); CLI `runtime ls|get|select|update`.
-  5. Built-in LLamaSharp engine listed as runtime "builtin".
-* Done when: a fresh install can fetch Vulkan runtime, load a model on the GPU, and switch the same model to CPU runtime without restarting the host.
-* Deps: D1 spike.
+#### §2.4 GPU offload as ratio — **S**
+`LoadOptions.GpuRatio (0–1)` and `Device: "max"|"auto"|<ratio>`; `PlanGpuLayers`
+([ModelRuntime.cs:89](Inference/ModelRuntime.cs:89)) converts: `max` = all layers, `auto` = VRAM-fit result from
+`FitEstimator`, ratio = `round(ratio × nLayers)`. Accept `--gpu max|auto|0.0–1.0` in CLI `load`, `"gpu"` in
+`/api/v1/models/load`; UI slider with layer-count readout; keep `GpuLayers` as the explicit override (wins when both set).
+Tests for the conversion.
 
-**§2.2 Multi-GPU** — M
-* Design: enumerate devices from `llama-server --list-devices` (authoritative Vulkan device ordering) and join with DXGI by LUID/name to fix mapping; options `--device`, `--tensor-split`, `--split-mode`, `--main-gpu`.
-* Work: `GpuDevice` model {runtimeIndex, name, vram, integrated}; load dialog with device checkboxes, split sliders, priority order; persistence in model defaults.
-* Done when: on a 2-GPU test box layers split per ratio; single-GPU box UI hides split controls.
-* Deps: §2.1.
+#### §2.5 Per-backend worker processes (CPU ↔ Vulkan at runtime) — **XL**
+Problem: the native library is loaded once per process ([NativeBackend.cs](Inference/NativeBackend.cs)).
+* Introduce `IModelHost` with two implementations: `InProcessHost` (today's `ModelRuntime`) and `WorkerHost` (child process
+  `llmhost.exe --worker --backend vulkan|cpu-avx2 --pipe <name>`). Worker contains only `ModelRuntime` + a small RPC server
+  over a named pipe / localhost TCP with token (messages: `Load`, `Unload`, `Generate` stream, `Embed`, `Tokenize`, `Cache*`,
+  `Stats`). Reuse the canonical types by moving `GenerationOptions`, `LoadOptions`, `ChatMessage`, `TextSegment` to a shared
+  namespace (already plain POCOs).
+* `ModelManager` picks the host per model: backend requested in `LoadOptions.Backend` (`auto|cpu|vulkan`); one worker per
+  distinct backend+runtime id, started lazily, restarted on crash (the loaded model is reported as failed with the exit reason —
+  also gives OOM/driver-crash isolation).
+* The first worker for a runtime reuses `RuntimeManager` to pick the native library directory (set `LLAMA_NATIVE_PATH` for the
+  child).
+* Everything that touches `ModelRuntime` directly (ApiServer, NativeApi, CLI) must go through an interface (`IModelHost` →
+  `ILoadedModel`): do this refactor **first** as a no-behaviour-change PR (M), then add `WorkerHost` (L).
+* `llama-server` as an alternative worker engine and the llama-server prompt-cache item are intentionally **not** done; the
+  worker protocol leaves room for it.
+* Acceptance: load Qwen-0.5B on CPU and (concurrently) Vulkan in one running instance; kill a worker → host stays up; no
+  latency regression > 5 % vs. in-process.
 
-**§2.3 Accurate fit estimate + dedicated-memory guardrail** — M
-* Design: estimator = weights (file size, mmproj, draft) + KV (`2·layers·ctx·kvHeads·headDim·bytes(type)`, SWA aware) + compute buffer (empirical per arch/batch) + overhead; read free VRAM/RAM live (DXGI `QueryVideoMemoryInfo`). Calibrate against llama-server's own load log ("model buffer size", "KV buffer size", "compute buffer size").
-* Work: `FitEstimator` returning {vram, ram, offloadable layers, verdict}; "limit offload to dedicated GPU memory" toggle (don't spill to shared memory on iGPU); pre-load warning in UI/CLI/API (`409` with details unless `force`).
-* Done when: estimate within ±10% of actual for 5 reference models on the 7900 XTX.
-* Deps: §2.1.
+#### §2.3 Live hardware monitor — **M**
+* Sampler thread (1 Hz while any UI/SSE client listens, 0 otherwise): CPU % (PDH `\Processor Information(_Total)\% Processor
+  Utility`), RAM (existing `MemoryStatus`), process working set, per-GPU dedicated/shared memory used and engine utilisation via
+  PDH counters `\GPU Engine(*)\Utilization Percentage` and `\GPU Adapter Memory(*)\Dedicated Usage` (works for AMD/NVIDIA/Intel;
+  map `luid_…` → adapter using DXGI LUID already read in `Hardware.cs`). Temperature: not available via PDH — try vendor
+  libs optionally (NVAPI/ADL are out of scope; show "n/a"); optionally LibreHardwareMonitorLib behind a settings toggle.
+* `GET /api/hardware/live` (snapshot) and `GET /api/hardware/stream` (SSE). UI: small sparkline panel in the header and a
+  full panel in Settings → Hardware; per-loaded-model VRAM estimate vs. actual.
+* Tests: counter-name parser unit tests; endpoint returns schema even when counters are missing.
 
-**§2.4 GPU offload as ratio** — S
-* Work: parse `max|off|auto|0.0–1.0` → layers via block count; same in API (`gpu_offload`) and CLI (`--gpu`).
-* Done when: `0.5` on a 32-layer model sends 16 layers.
-* Deps: §2.3.
-
-**§2.5 Switch backend at runtime** — covered by §2.1 (child processes per runtime). Remaining work: M — remove process-wide `NativeBackend` assumptions from the built-in engine (it stays CPU-or-Vulkan fixed per host process, flagged in UI), ensure two instances on different runtimes coexist.
-
-**§2.6 Live hardware monitor** — M
-* Design: sample every 1 s: CPU via PerformanceCounter; GPU util/VRAM via DXGI `IDXGIAdapter3::QueryVideoMemoryInfo` + GPU Engine perf counters (`\GPU Engine(*)\Utilization Percentage`, `\GPU Adapter Memory(*)`); temps via AMD ADL if present (optional).
-* Work: `HardwareMonitor` service, SSE `/api/v1/hardware/stream`, UI sparkline panel, `llmhost hw --watch`.
-* Done when: values track Task Manager within a few %.
-
-**§2.7 CPU thread pool settings** — S
-* Work: `threads`, `threads_batch`, `cpu-mask`/`--cpu-strict`, `--prio`, `--numa` in `LoadOptions`; defaults = physical cores (not logical).
-* Done when: settings visible in server args and logged.
-
-**§2.8 Offline audit + system requirements doc** — S
-* Work: network-call inventory (HF API, GitHub releases, update check, link) each behind a setting; "offline mode" flag that disables all and makes failures friendly; write `docs/system-requirements.md`; hardware survey wizard reuses §2.3.
-* Done when: with the firewall blocking everything the app works for local models and shows no errors.
+#### §2.6 CPU thread pool, affinity, NUMA — **M**
+* `LoadOptions` additions: `ThreadsBatch` (exists as `BatchThreads`; expose consistently as `threads_batch`), `CpuAffinityMask`
+  / `CpuList`, `ThreadPriority (normal|high|low)`, `NumaMode (off|distribute|isolate|numactl)`, `Poll (0–100)`.
+* llama.cpp's own thread pool is created per context: LLamaSharp exposes only `n_threads`. Implement affinity/priority by
+  enumerating process threads after load and when the scheduler thread starts (Win32 `SetThreadAffinityMask`/
+  `SetThreadPriority`; for processor groups > 64 logical CPUs use `SetThreadGroupAffinity`). NUMA: call
+  `llama_numa_init` once at backend init (setting `numa`), before first model load — takes effect after restart, show a banner.
+* Defaults: physical cores for generation, all logical cores for prompt processing (detect via
+  `GetLogicalProcessorInformationEx`), replacing the current 75 % heuristic ([Hardware.cs:205](Core/Hardware.cs:205)).
+* UI in Power-User mode; "Test thread count" benchmark button (runs a 128-token generation at 2–3 settings).
 
 ### §3 Model management
 
-**§3.1 Per-model defaults (load + inference)** — M
-* Design: `model-defaults/<model-id>.json` {load, inference, promptTemplate, lora, draft}. Resolution order for a load: request → model defaults → global defaults.
-* Work: `DefaultsStore`; gear dialog in My Models; "save as default" button in load dialog and chat sidebar; applied in API JIT loads and `lms load`.
-* Done when: JIT load via API honours defaults; deleting defaults resets.
+#### §3.1 Capability badges & richer model card — **M** (needs X3)
+* `Gguf.cs` already parses KV metadata: add architecture, parameter count, context length, expert count, embedding length,
+  license (`general.license`), languages, base model; chat-template feature scan (`tools`, `enable_thinking`).
+* `HuggingFace.cs`: `GET /api/models/{id}` → card data (`cardData`, `tags`, `license`, `downloads`, `likes`, `lastModified`)
+  plus README (`/raw/main/README.md`, strip front-matter, sanitize rendered HTML/Markdown, cache 24 h under `cache/hf/`).
+* UI: badge row (👁 vision · 🔧 tools · 🧠 reasoning · ⚙ MoE · 📐 embedding) in Discover, My Models, model picker;
+  detail drawer with README, files/quants with fit hint, license (warning on non-commercial), architecture table.
+* Tests: capability derivation from fixture metadata dictionaries.
 
-**§3.2 Download manager (pause/resume/queue/persist/verify)** — L
-* Design: persisted job table (`downloads.json`); worker pool (default 2 concurrent), per-file `.part` + `.meta` (etag, size, sha256); pause = cancel token with state `paused`; verify sha256 via HF LFS `oid`; retries with exponential back-off; disk space check against `DriveInfo.AvailableFreeSpace`.
-* Work: refactor `DownloadManager`; queue ordering; companion files (mmproj, extra shards); events to UI/CLI; bandwidth limit option.
-* Done when: kill the process mid-download, restart, job resumes; corrupted part detected and re-fetched.
+#### §3.2 Discover filters, sorting, pagination, staff picks — **M**
+* `/api/models/search` parameters: `sort (trending|downloads|likes|updated)`, `quant`, `minSize/maxSize`, `family` (HF
+  `tags`/`pipeline_tag`), `fits=gpu|ram|any`, `vision/tools/reasoning` (tag-based), `limit`, `cursor` (HF returns `Link` header
+  for pagination → pass through). "Fits my GPU" is client-side from the per-file list using `FitEstimator`
+  (post-filter, flagged as approximate).
+* Staff picks: move the hard-coded catalog in `Catalog.cs` to `catalog.json` embedded as default + optional remote refresh
+  (`settings.catalogUrl`, default a raw-file URL of the project repo; off in offline mode, ETag caching, signature not needed
+  — schema-validated only). UI shows "updated <date>".
+* Persist filter state in `localStorage`.
 
-**§3.3 Download by URL / shorthand; import files** — M
-* Design: input parser accepts `user/model`, `user/model:Q4_K_M`, `hf.co/…`, full `resolve/` URLs; import = copy/move/hardlink into `publisher/model/file.gguf` (publisher inferred or prompted).
-* Work: `ModelRefParser`; drag-and-drop import in UI; `llmhost import <path> [--move|--link] [--publisher] [--name]`; GGUF validation before import.
-* Done when: all five input forms resolve; importing a file makes it appear in `ls` without restart.
+#### §3.3 Gated-model flow — **S**
+* Token validation: `GET https://huggingface.co/api/whoami-v2` with Bearer → show account name or "invalid" in Settings.
+* On 401/403 from `resolve/` or repo-info (`gated: "auto"|"manual"` field), return structured error
+  `{code: "gated", repo, accessUrl}`; UI shows "This model requires accepting a licence on Hugging Face" with button opening
+  `https://huggingface.co/<repo>` (external browser) and a "Retry" button; DownloadManager marks job `needs-access` instead of
+  failing generically. Token stored encrypted with DPAPI (`ProtectedData`) rather than plain `settings.json` (migration via X1).
 
-**§3.4 Capability badges + richer model card** — M
-* Design: capabilities from GGUF (arch, expert_count, chat template contents, `vision` via mmproj) + HF metadata (tags, license, README via `https://huggingface.co/{repo}/raw/main/README.md`, cached).
-* Work: `ModelInfo` DTO; badge rendering; markdown README viewer; license warning for gated/non-commercial.
-* Done when: Qwen3 shows reasoning+tools, Gemma3 vision, Qwen3-30B-A3B MoE.
+#### §3.4 Model update check — **M**
+* At download time store `{repo, file, revision(sha), lfsSha256, etag}` in a sidecar `<file>.llmhost.json` (backfill for
+  existing files by hashing is **not** done; those show "unknown").
+* `POST /api/models/updates/check` (and background daily check if enabled): for each tracked file query
+  `/api/models/<repo>/tree/main` → compare LFS sha256; also report newer **quant files** with the same base name and repos
+  whose name changed (`-GGUF` successor via `modelId` redirect). Result `updatesAvailable[]`; UI badge in My Models;
+  "Update" = new download job that replaces atomically (download to `.part`, verify SHA, swap, keep old until success).
+* Rate-limit and honour offline mode.
 
-**§3.5 Discover filters/sorting/pagination + updatable picks** — M
-* Work: HF API params (`sort`, `direction`, `limit`, `offset` via `Link` header), client filters (size range, quant, family, fits GPU), curated list moved to a remote JSON (`catalog.json` fetched from repo/CDN with embedded fallback and signature/hash check).
-* Done when: filter "fits my GPU" hides oversized quants; catalog updates without a rebuild.
+#### §3.5 Models-directory management — **M**
+* Multiple library roots: `settings.modelsDirectories[]` (first = download target); `ModelLibrary` merges them, ids stay
+  `publisher/repo/file`, duplicates resolved by first root. Change/move: `POST /api/models/directory/move {to, mode:
+  move|copy|switchOnly}` with progress job (reuse DownloadManager job list for visibility), refuses to move while models are
+  loaded from the folder, handles cross-volume.
+* Disk usage: per-model size column, per-root free space, "largest models" sort, total chart in Settings; stale `.part`
+  files cleanup action.
+* CLI: `models dir [add|remove|move]`. Tests with temp directories.
 
-**§3.6 Gated-model flow** — S
-* Work: token validation call (`/api/whoami-v2`), detect 401/403 on a repo and show "request access at …" with link; token stored encrypted (DPAPI).
-* Done when: gated Llama download fails with actionable message, succeeds after token set.
+### §4 Chat experience (Phase D; after splitting the UI — see §9.0)
 
-**§3.7 Model update check** — S
-* Work: store repo + commit sha at download; weekly (or manual) check `GET /api/models/{repo}` `sha`/file `lfs.oid`; badge "update available"; re-download keeps old until verified.
-* Done when: changed upstream file flagged in tests with a mocked HF.
+#### §9.0 UI restructuring (prerequisite for most of §4 and §9) — **L**
+`Web/index.html` is a single 1365-line file. Convert to **Preact + HTM or Vite build** whose output is embedded as resources
+(no Node needed at runtime; build step in CSProj `Exec` guarded by `node` presence, committed `dist/` fallback so building
+without Node still works). Split into modules: `api.js`, `store.js` (signals), `views/{chat,models,discover,settings,logs,
+runtimes}.js`, `components/*`. Keep the existing tooltip help (`p-*` keys) data-driven. Do it incrementally view by view; ship
+behind no feature flag (same URL). Add a Playwright smoke test (launch host, open `/`, send a prompt with the fixture model).
 
-**§3.8 Models-directory management** — S
-* Work: multiple library roots (primary + extra read-only), move-directory wizard with progress and symlink-safe copy, per-model disk usage + total.
-* Done when: moving 10 GB library works and models stay loadable.
+#### §4.1 Chat management — **L**
+* Storage: `chats/` becomes a tree: add `folders.json` (`{id, name, parentId, order}`) and `folderId`, `title`, `titleAuto`,
+  `pinned`, `updatedAt`, `deleted?` on chat JSON (migration via X1). API: `GET/PUT/DELETE /api/chat-folders`,
+  `POST /api/chats/{id}/duplicate` (copies messages, tree, and **documents/attachments** under new ids — `Documents.cs`
+  chunk store needs a `Clone(chatId→newId)`), `POST /api/chats/bulk-delete`, `PUT /api/chats/{id}/rename`.
+* Auto titles: after the first assistant reply run a 12-token "Title this conversation" request on the loaded model with
+  low priority (skip if the queue is busy; setting to disable; fall back to first 40 chars of user text).
+* Search: server-side full text over `chats/*.json` (in-memory inverted index built at startup, updated on save; matches
+  show snippet + jump to message). Optional later: SQLite FTS5.
+* Import/export: JSON (native lossless), Markdown, plain text; import accepts native JSON and OpenAI-style conversation
+  exports. Drag-and-drop folder/chat reordering in the sidebar (HTML5 DnD).
+* Safety: validate chat ids (`[0-9a-f-]{36}` only — ties to §10.3 path traversal).
 
-**§3.9 `model.yaml` virtual models** — M
-* Design: YAML descriptor {model id, base sources (HF refs), metadataOverrides, config defaults, suggestions}; resolves to concrete GGUFs through the library; used for curated "model families" and the catalog.
-* Work: parser (YamlDotNet), resolver, catalog migration to model.yaml, import/export.
-* Done when: catalog entries are driven by model.yaml files.
-* Deps: §3.1.
+#### §4.2 Split view & compare — **L** (needs §1.8 for same-model compare, parallel requests already exist)
+* UI: 2 (later up to 4) chat panes sharing one input box with "send to all" toggle; each pane has its own model + params
+  header. Compare mode = one prompt fans out to N panes; show tok/s and TTFT diff table and a "pick best / keep" action.
+* State: `panes: [{chatId, model, overrides}]` in the store; each pane uses its own SSE stream; shared prompt text. Panes on
+  the same model → parallel requests (continuous batching); different models → different runtimes (JIT-load with
+  progress; warn about memory from `FitEstimator` before loading a second one).
+* Persistence: layout in `localStorage`; each pane is an ordinary chat.
 
-**§3.10 Aliases / favourites / tags / folders** — S
-* Work: `library-meta.json` with per-model {alias, favourite, tags, folder}; alias used as API identifier; UI filters.
+#### §4.3 Per-chat settings panel — **M**
+* Chat JSON gains `settings { model, systemPrompt, generation:{…}, load? }` (load options shown but applied only on explicit
+  "Reload model"). Resolution order: request override > chat > preset > model default > global (single resolver function
+  `SettingsResolver.Effective(chat, preset, model)` shared by UI and server so the API can echo the effective config).
+* UI: side panel with sections, per-field "differs from default" dot, buttons *Save as preset*, *Save as model default*,
+  *Reset to preset*. (Relies on §5.1 for the preset dirty-indicator.)
 
-### §4 Chat experience
+#### §4.4 Rich rendering — **M**
+* Replace the minimal renderer with `marked` (or `markdown-it`) + `DOMPurify` + `highlight.js` (core + ~20 languages, copy
+  button per block, language label), `KaTeX` for `$…$`/`$$…$$`/`\(…\)`, GFM tables, task lists, links opening in the external
+  browser (WebView2 `NewWindowRequested`). Libraries are **vendored into the embedded resources** (offline-first: no CDN).
+* Streaming-safe: render incrementally with a throttle (50 ms) and handle unclosed fences/math without flicker.
+* Reasoning: collapsible `<details>` block, auto-collapsed when answer starts, shows "Thought for 12 s".
+* Tests: renderer unit tests in a headless JS test (vitest) for XSS payloads (`<img onerror>`, `javascript:` links).
 
-**§4.1 Edit / delete / regenerate with branching** — L
-* Design: conversation = **message tree** (`id`, `parentId`, `children`, `activeChild`), linearised via the active path when prompting. Native v1 `previous_response_id` maps to a node id.
-* Work: storage migration from flat list; UI controls (edit-resubmit creates sibling branch, `< 2/3 >` switcher, delete subtree); API for tree ops.
-* Done when: edit a middle message → new branch, old branch intact; prompts use only the active path.
-* Deps: D5.
+#### §4.5 Token counter & per-message stats — **S**
+* `POST /v1/tokenize` already exists; add `POST /api/chats/{id}/tokens` (or use client-side debounce 300 ms) returning
+  `{prompt, context, remaining}` for the composed prompt incl. system prompt, attachments (RAG-in-context size) and tools.
+  Context bar under the input: green < 70 %, amber < 90 %, red ≥ 90 %, tooltip with breakdown; warning shows the active
+  overflow policy (§1.5).
+* Per-message stats: persist `{tokens, tokensPerSecond, ttftSeconds, stopReason, loadSeconds, promptCachedTokens,
+  draftAccepted}` on each assistant message (already produced by `GenerationStats`); small footer on hover/expanded.
 
-**§4.2 Chat with documents (RAG)** — XL
-* Design: ingest `.pdf` (PdfPig), `.docx` (OpenXml), `.txt/.md`; if tokens ≤ ~60% of context → inline whole file; else chunk (≈400–800 tokens, 10% overlap, structure-aware), embed with a user-selected local embedding model (via §1.14), store vectors (flat float32 + cosine; sqlite-vec optional), retrieve top-k (default 5) with MMR, inject with citations `[doc, page]`.
-* Work: `DocumentIngestor`, `Chunker`, `VectorIndex`, `RagService`, retrieval settings (k, threshold, chunk size), citations UI, per-chat attachment lifecycle (duplicated with chat), progress for embedding, API: `documents` in native v1 chat.
-* Done when: question answerable only from a 200-page PDF returns the right passage with citation; small file path doesn't call the embedder.
-* Deps: §1.14, §4.3 (attachments UI).
-
-**§4.3 Image / file attachments** — M
-* Work: attach button + drag/drop + paste; images → vision (§1.3), documents → RAG (§4.2); thumbnail previews; size limits; stored under `conversations/<id>/attachments`.
-* Deps: §1.3, §4.2.
-
-**§4.4 Folders, duplicate, search, rename, titles, bulk ops, import/export** — M
-* Work: folder tree in metadata; duplicate (copies attachments); full-text search (SQLite FTS5 or simple inverted index); auto title via the loaded model (background, short prompt); export JSON/Markdown/TXT; import from JSON (and BlahLLMWrapper conversations format best-effort).
-* Done when: search finds text in 1,000 chats < 200 ms.
-
-**§4.5 Split view / multi-model compare** — M
-* Work: two chat panes bound to separate models/instances; "send to both" box; concurrent streaming (needs §1.1 or two instances); synced scroll toggle.
-* Deps: §1.1, D5.
-
-**§4.6 Per-chat settings panel** — S
-* Work: chat stores {model, system prompt, generation overrides}; "reset to preset/default" per field; "save as preset/default".
-* Deps: §5.1.
-
-**§4.7 Rich rendering** — M
-* Work: markdown-it + highlight.js (embedded, offline) + KaTeX; copy buttons; sanitization (DOMPurify); collapsible reasoning blocks; streaming-safe incremental render.
-* Done when: code, tables, LaTeX render during streaming without flicker or XSS.
-
-**§4.8 Token counter / context bar / per-message stats** — S
-* Work: `/api/v1/tokenize` live count (debounced) incl. system prompt + history; bar with overflow policy hint; per-message stats from `ChatEvent.Stats`.
-
-**§4.9 Keyboard shortcuts** — S
-* Work: central keymap (Ctrl+N new chat, Ctrl+Shift+N folder, Ctrl+Shift+R runtimes, Ctrl+P quick open), command palette, user remap file.
-
-**§4.10 Prompt library / snippets; voice input** — M
-* Work: snippets store + `/` menu in composer; voice via Web Speech API when available (online) or optional local Whisper runtime (later, flagged experimental).
+#### §4.6 Keyboard shortcuts — **S**
+Central `shortcuts.js` registry with a help overlay (`?`) and rebinding stored in settings: `Ctrl+N` new chat,
+`Ctrl+Shift+N` new folder, `Ctrl+Shift+R` runtime manager, `Ctrl+K`/`Ctrl+P` quick open (fuzzy: chats, models, commands),
+`Ctrl+Enter` send, `Esc` stop generation, `Ctrl+,` settings, `Ctrl+L` focus input, `Ctrl+Shift+C` copy last answer, `Alt+←/→`
+switch branch variant. WebView2: set `AreBrowserAcceleratorKeysEnabled=false` for conflicting keys, forward `Ctrl+Shift+R` from
+`MainWindow.cs`. Conflicts detector in the rebinding UI.
 
 ### §5 Presets
 
-**§5.1 Presets as files (system prompt + inference params; no load params)** — S
-* Work: migrate `presets.json` → `presets\<name>.json` with `schemaVersion`; "modified" dot + reset in UI; preset picker in chat header; CLI `preset`.
-* Done when: preset round-trips; load params excluded.
+#### §5.1 File-based presets — **M**
+* Move from one `presets.json` to `presets/<name>.json` (name sanitised; folder watched with `FileSystemWatcher` so edits on
+  disk appear live). Schema `{ "schemaVersion":1, "name", "description", "systemPrompt", "inference": { …GenerationOptions… } }`.
+  **Load params are excluded** (as in BlahLLMWrapper) — a validator drops/flags `load.*` keys. Migrate the old file (X1).
+* Dirty tracking: UI store keeps `activePresetId` + a deep-compare of current vs preset (`modified` dot, *Save*,
+  *Save as new*, *Reset to preset*). Chats remember the preset id and field overrides (§4.3).
+* API: `GET/PUT/DELETE /api/presets/{name}` (exist) + `POST /api/presets/{name}/duplicate`; CLI `preset save|load|rm|export`.
+* Tests: round-trip, invalid keys, name sanitisation (no path traversal).
 
-**§5.2 Import/export (file or URL)** — S
-* Work: drag-drop JSON, "import from URL" (validate schema, size cap, show diff before apply), export button.
-
-**§5.3 Hub-style publish/pull/push** — L (optional)
-* Design: define a simple registry = Git repo or static index (`presets/index.json` + files) with versioned revisions; `publish`, `pull` (update check by revision hash), `push` (PR/commit via git or HTTP API).
-* Work: `PresetRegistryClient`, revision diff UI, auth token. Defer until a hosting target is chosen.
-
-**§5.4 Legacy preset migration** — S
-* Work: importer for BlahLLMWrapper 0.2.x/0.3 preset JSON (map known fields, drop unknown with report).
+#### §5.2 Import/export & sharing — **S** (needs §5.1)
+* Export: download `name.preset.json`. Import: file picker/drag-drop, paste JSON, or URL (`POST /api/presets/import {url}`;
+  HTTPS only, ≤ 256 KB, content-type JSON, schema-validated; **user confirmation dialog listing the fields** before saving, name
+  collision → rename/overwrite prompt). Also accept GitHub `blob` URLs by rewriting to `raw`. CLI `preset import <file|url>`.
+* Share-by-file: register `.llmpreset` extension → open with the app (single-instance message to running host).
 
 ### §6 Server / API
 
-**§6.1 Native REST API v1** — XL (split into sub-tasks)
-* Design: new adapter `NativeV1Api` over the canonical model; endpoints `POST /api/v1/chat`, `GET /api/v1/models`, `POST /api/v1/models/load`, `POST /api/v1/models/unload`, `POST /api/v1/models/download`, `GET /api/v1/models/download/status`.
-  * **Stateful chats** — `ConversationState` store keyed by `resp_<id>`; each response persists {messages, model, ids}; `previous_response_id` loads the chain; `store=false` skips persistence; retention policy (TTL, max count).
-  * **Request fields** — `input` string|array (`text`, `image` with `data_url`), `system_prompt`, sampling fields, `max_output_tokens`, `reasoning`, `context_length` (JIT-load with that ctx or reload), `stream`, `store`, `integrations`.
-  * **Response** — `model_instance_id`, `output[]` (`message`, `reasoning`, `tool_call`, `invalid_tool_call`), `stats` {`input_tokens`, `total_output_tokens`, `reasoning_output_tokens`, `tokens_per_second`, `time_to_first_token_seconds`, `model_load_time_seconds`}, `response_id`.
-  * **SSE events** — typed events: `model_load.progress`, `prompt_processing.progress`, `reasoning.delta`, `message.delta`, `tool_call.*`, `chat.end` (verify exact names against the Streaming-events doc page, which could not be read).
-  * **Load options** — context length, flash attention, GPU offload, eval batch, mmap, KV types, parallel, `echo_load_config`.
-* Done when: official BlahLLMWrapper TS/Python SDK smoke tests (if available) or recorded fixtures pass; stateful branching works via `previous_response_id`.
-* Deps: D2, §1.1–§1.5, §6.3.
+#### §6.1 JIT loading policy — **M**
+* Settings `jit { enabled, defaultTtlMinutes, autoEvict, maxLoadedModels, evictOrder: lru|oldest }`; per-request `ttl`
+  (seconds) in native API, `x-llmhost-ttl` header and `ttl` body field on OpenAI routes (BlahLLMWrapper-compatible).
+* `ModelManager.LoadAsync`: track `LoadedBy = manual|jit`. When loading would exceed `maxLoadedModels` — or `FitEstimator`
+  says the new model will not fit alongside — and `autoEvict`, unload JIT-loaded idle models (LRU) first; never evict manual
+  loads or busy runtimes; if still not enough, return a 503 `model_load_blocked` with the reason. Serialise through the
+  existing `_loadGate`.
+* TTL timer already runs ([ModelManager.cs:117](Inference/ModelManager.cs:117)): apply `defaultTtlMinutes` when options have 0,
+  refresh `LastUsed` on every request (also queued ones).
+* UI settings group + loaded-models list shows origin/TTL countdown. Tests with a fake runtime (needs `IModelHost` from §2.5
+  refactor, or a thin `ILoadedModel` test double).
 
-**§6.2 OpenAI Responses API** — M
-* Design: `/v1/responses` adapter: `input` (string | items incl. `message`, `function_call`, `function_call_output`), `instructions`, `previous_response_id`, `store`, streaming events (`response.created`, `response.output_text.delta`, `response.function_call_arguments.delta`, `response.completed`, …); share state store with §6.1. Include the Open Responses variant behaviours Codex-style clients need.
-* Done when: official OpenAI SDK `client.responses.create` (streaming and not) and a Codex-style tool loop work.
-* Deps: §6.1 state store, §1.4.
+#### §6.2 Legacy `/api/v0/*` — **S**
+Thin adapters: `GET /api/v0/models` & `/{id}` (adds `state: loaded|not-loaded`, `type: llm|vlm|embeddings`, `arch`,
+`quantization`, `max_context_length`, `loaded_context_length`, `publisher`, `capabilities[]`), `POST /api/v0/chat/completions`,
+`/completions`, `/embeddings` → same handlers as `/v1/*`, with the v0 response extras (`stats {tokens_per_second,
+time_to_first_token, generation_time, stop_reason}`, `model_info`, `runtime`). Put in `Server/LegacyApi.cs`; contract tests
+compare field sets.
 
-**§6.3 API tokens + permissions** — M
-* Design: `tokens.json` stores `{id, name, sha256(token), permissions[], createdAt, lastUsed}`; permissions: `chat`, `embeddings`, `models:read`, `models:load`, `models:download`, `admin`, `mcp`. Middleware resolves `Authorization: Bearer` or `x-api-key`. Legacy single key becomes an `admin` token on migration.
-* Work: create/revoke/edit endpoints + UI modal (token shown once); per-token rate limits (§6.8); audit log entry.
-* Done when: restricted token can chat but cannot load/download.
+#### §6.3 HTTPS, allow-list, limits — **M**
+* **HTTPS:** `settings.server.tls { mode: off|selfSigned|file, certPath, keyPath/pfxPassword, port }`. Self-signed: generate
+  RSA-2048/ECDSA P-256 cert with SANs (localhost, machine name, LAN IPs) via `CertificateRequest`, store PFX in
+  `AppPaths.Root\tls\` (DPAPI-protected password), export the public cert for client trust (`GET /api/tls/cert`), regenerate
+  before expiry. Kestrel `ListenAnyIP(port, o => o.UseHttps(cert))`; HTTP→HTTPS redirect optional; WebView2 shell keeps using
+  loopback HTTP/HTTPS with cert-error handling only for loopback self-signed.
+* **IP allow-list:** middleware (before auth) checking `RemoteIpAddress` against CIDR list (IPv4/IPv6, `::1`), default
+  `loopback only` unless LAN binding is on (then `private ranges`); 403 + log line.
+* **Limits:** `MaxRequestBodySize` per route class (default 32 MB chat, 256 MB uploads — currently global 256 MB at
+  [ApiServer.cs:42](Server/ApiServer.cs:42)), max concurrent connections, per-token + per-IP token-bucket rate limit
+  (`System.Threading.RateLimiting`), `Retry-After` header, max `n`/`max_tokens` caps. Config validated through X1.
+* Tests: allow-list matcher, rate limiter 429 behaviour, TLS cert generation (parse + SANs).
 
-**§6.4 Headless daemon / service** — L
-* Design: `llmhost daemon up|down|status|update`: starts host without UI, writes `daemon.json` (pid, port), IPC for control; Windows Service via `Microsoft.Extensions.Hosting.WindowsServices` (`llmhost daemon install-service`) or per-user Scheduled Task at logon; no GUI dependency (tray optional).
-* Work: lifecycle commands, graceful shutdown (drain requests, unload models), log files, single-instance mutex, `update` = runtimes + self-update check.
-* Done when: reboot → service up → API reachable → `lms ps`-equivalent shows models.
+#### §6.4 Request/response log viewer & metrics — **M** (needs X2)
+* **Request log:** middleware records `{id, time, method, path, status, durationMs, model, token, inputTokens, outputTokens,
+  stream, error}` into a ring buffer (default 2 000) and, optionally, bodies (`settings.logging.logBodies`, redacted
+  `Authorization`/API keys, truncated to 8 KB, off by default for privacy).
+* `GET /api/requests?model=&status=&since=&q=` + SSE `/api/requests/stream`; UI "Requests" tab with filters, detail drawer
+  (headers, bodies, timings, stats). CLI `log stream [--source server|load|request] [--json] [--filter]` (extend the existing
+  verb). 
+* **`/metrics`** (Prometheus text): `llmhost_requests_total{route,status}`, `llmhost_request_duration_seconds` histogram,
+  `llmhost_tokens_generated_total{model}`, `llmhost_prompt_tokens_total`, `llmhost_tokens_per_second`,
+  `llmhost_loaded_models`, `llmhost_active_requests{model}`, `llmhost_queue_depth{model}`, `llmhost_kv_cache_tokens{model}`,
+  `llmhost_gpu_memory_bytes{gpu}` (from §2.3). Behind auth unless `metrics.public=true`. Hand-written exporter (no library
+  needed, ~120 lines).
 
-**§6.5 MCP host** — XL
-* Design: `McpHost` using the C# `ModelContextProtocol` SDK: stdio and streamable-HTTP/SSE transports; `mcp.json` in Cursor notation (`mcpServers`: command/args/env or url/headers); lifecycle (lazy start, restart, health); tool discovery cached; **tool loop** in `ConversationService`: model emits tool call → confirmation policy (always ask / per-server allow / allow-all per chat) → execute → feed result → continue (max iterations).
-* Work: UI "Program/Integrations" tab (edit mcp.json with validation, per-tool toggles, server logs), confirmation dialog (shows server + args), token/context-cost warning, API: `integrations` entries `plugin` and `ephemeral_mcp` (`server_label`, `server_url`, `allowed_tools`, `headers`) in native v1; security warnings, env redaction, working-dir restrictions, timeouts.
-* Done when: filesystem and HF MCP servers usable from UI and API; denied confirmations return an `invalid_tool_call`-style result; headers never logged.
-* Deps: §1.4, §6.1, §10.5.
+#### §6.5 Anthropic API gaps — **M**
+Already present: `image` blocks (user messages) and `thinking` output blocks. Remaining:
+1. **Images in tool results:** parse `tool_result.content` arrays with `image` blocks (share logic with §1.2-3).
+2. **`tool_choice`:** `{type:auto|any|tool|none, name, disable_parallel_tool_use}` → existing native tool-calling
+   (`ToolCalling.cs`) modes (`required`/named already supported for OpenAI). Test forced tool and `none`.
+3. **`thinking` request param:** `thinking: {type: enabled, budget_tokens}` → `ReasoningEffort` mapping (budget thresholds
+   → off/low/medium/high) plus hard thinking-token budget; `type: disabled` → `off`. Return `signature` as an HMAC of the text
+   (clients echo it back) and accept `thinking`/`redacted_thinking` blocks in assistant history (drop them from the prompt or
+   re-inject as reasoning depending on template).
+4. **`cache_control`:** accept (and ignore) on system, message content and tool blocks without error; report
+   `usage.cache_read_input_tokens` / `cache_creation_input_tokens` from our actual prefix-cache stats (maps naturally to
+   `CachedTokens`).
+5. Missing request fields tolerated: `metadata`, `service_tier`, `top_k`, `container`, `betas` header. Error format
+   `{type:"error", error:{type,message}}`; `anthropic-version` header accepted.
+6. Message Batches and Files API stay out of scope (document).
+Contract tests with captured Claude Code CLI requests.
 
-**§6.6 JIT policy: TTL defaults, auto-evict, max loaded, per-request TTL** — M
-* Design: `ModelHost` memory governor: before JIT load run estimator; if over budget evict LRU **JIT-loaded, idle** instances first (never user-pinned), then fail with explanation. Defaults: JIT TTL 60 min (configurable), `ttl` per request/load, `max_loaded_models`.
-* Done when: loading model B via API evicts idle JIT model A; manually loaded A is never evicted.
-* Deps: §2.3.
+### §7 CLI
 
-**§6.7 Legacy `/api/v0/*`** — S
-* Work: adapter returning BlahLLMWrapper v0 shapes (`/api/v0/models` with `state`, `quantization`, `arch`, `max_context_length`, `loaded_context_length`, `capabilities`), `/api/v0/chat/completions`, `/completions`, `/embeddings`.
+#### §7.1 `link` verbs — **S** (stub now, real once §8.1 exists)
+Add `link enable|disable|status|set-device-name|set-preferred-device` that call `/api/link/*`. Until §8.1 lands the commands
+return "LM Link-style remoting is not available in this build" with exit code 2 (documented), so scripts can detect it.
+Do the plumbing and tests now; implement bodies in §8.1.
 
-**§6.8 HTTPS, IP allow-list, limits** — M
-* Work: Kestrel cert from PFX/PEM or auto self-signed (stored, fingerprint shown); `Cidrs` allow-list middleware; max body size, max concurrent requests, per-token rate limit (sliding window); settings UI with warnings when exposing to LAN without a token.
+#### §7.2 `login` / `push` / `clone` / `dev` — **S** (decision item)
+These only make sense with a hub or plugin system, both P3. Plan: reserve the verbs, implement **`login`** for Hugging Face
+(`login --hf-token` stores the encrypted token, shares storage with §3.3) and **`clone <user/model>`** as alias of `get`;
+`push`/`dev` are documented as not applicable (exit code 2 with explanation). Revisit when §5 P3 Hub-style publish is scheduled.
 
-**§6.9 Request/response log viewer, `log stream`, `/metrics`** — M
-* Work: structured request log (ring buffer + file, redaction of content optional), UI filters (model, status, token), SSE `/api/v1/logs/stream`; Prometheus text `/metrics` (requests, tokens, TTFT histogram, queue depth, VRAM).
-
-**§6.10 Anthropic API gaps** — M
-* Work: `image` blocks, images in `tool_result`, `thinking` blocks (from §1.5) and `thinking` request param, `tool_choice` any/tool/none/auto, accept `cache_control`/`metadata`/`service_tier` (ignored), `/v1/models` Anthropic shape (`has_more`, `first_id`), `anthropic-beta` header tolerance, error-event streaming.
-* Done when: official `anthropic` SDK sample suite (text, stream, tools, image, thinking) passes.
-
-**§6.11 Ollama-compatible endpoints** — S
-* Work: `/api/chat`, `/api/generate`, `/api/tags`, `/api/show`, `/api/pull` (map to downloads), `/api/embed`, NDJSON streaming; opt-in toggle (port 11434 optional).
-
-**§6.12 OpenAPI document** — S
-* Work: generate with `Microsoft.AspNetCore.OpenApi` from typed minimal-API endpoints (requires typed request DTOs — a by-product of D2); serve `/openapi.json` + Swagger UI page.
-
-**§6.13 Plugin system (tool providers, prompt preprocessors, generators; `dev/push/clone`)** — XL (optional)
-* Design: plugins = out-of-process executables speaking JSON-RPC over stdio (reuse MCP plumbing) with a manifest `plugin.json` {id, type, permissions}; hook points: `tools`, `preprocess(prompt)`, `generate` (custom backend). `llmhost dev` = run plugin in watch mode against the live host.
-* Defer until MCP host ships; revisit demand.
-
-**§6.14 Client SDKs** — S (optional)
-* Work: thin typed wrappers over the native v1 API (C# NuGet, Python, TS) generated from the OpenAPI doc; existing OpenAI/Anthropic SDKs remain the primary path.
-
-### §7 CLI (`lms` parity)
-
-**§7.1 Missing verbs** — L
-* Work (one command per class under `Cli/Commands`, shared parser): `server start|stop|status` (talks to daemon via `daemon.json`), `daemon up|down|status|update`, `log stream`, `import`, `runtime ls|get|select|update|remove`, `load <model> --identifier --gpu max|off|auto|0–1 --context-length --ttl --parallel`, `unload --all`, `ls --json`, `ps --json`, `get` with interactive search + quant picker (arrow-key list, fit hints), `chat` attaching to a running server instead of loading in-process (`--server URL`).
-* Done when: scripted workflow `daemon up → get → load → chat → unload → daemon down` works unattended.
-* Deps: §6.4, §2.1, §3.3.
-
-**§7.2 `link` verbs** — S — `enable|disable|status|set-device-name|set-preferred-device` once §8.1 exists.
-
-**§7.3 `login/push/clone/dev`** — S — thin commands over preset registry (§5.3) and plugin dev (§6.13); skip if those are deferred.
-
-**§7.4 Machine-readable output** — S
-* Work: global `--json`, `--quiet`, NDJSON for streams; exit-code table (0 ok, 1 error, 2 usage, 3 not found, 4 unavailable); output contract tests.
-
-**§7.5 Completions + line editing** — S
-* Work: `llmhost completion powershell|bash|zsh` generator; replace `Console.ReadLine` with a small line editor (history file, Ctrl+R, multi-line via Alt+Enter) using PrettyPrompt or ReadLine library.
+#### §7.3 Machine-readable output & exit codes — **M**
+* Global flags `--json`, `--quiet/-q`, `--no-color`, `--verbose`; `--json` prints one JSON document (or JSON-lines for
+  streaming verbs); all human output goes to stderr in that mode. Extend `ls`/`ps` (exist) to every verb that prints a list
+  or status (`models`, `runtime`, `hardware`, `presets`, `chats`, `downloads`, `server status`, `daemon status`).
+* Stable exit codes in `Cli/ExitCodes.cs`: 0 ok · 1 generic · 2 usage/unsupported · 3 not found · 4 unauthorised ·
+  5 server unreachable · 6 out of memory/doesn't fit · 7 cancelled · 8 conflict/already running. Documented in README.
+* Refactor `Shell.cs` (1541 lines): split output into an `IOutput` (Human/Json/Quiet) so verbs call
+  `Out.Table(...)`/`Out.Result(obj)` once; do verb-by-verb. Golden-file tests for JSON schemas.
 
 ### §8 Remote / multi-device
 
-**§8.1 LM Link equivalent** — XL
-* Design: devices form a private link via **Tailscale** (or embedded WireGuard as v2). Each host publishes `/api/v1/link/info` (device name, models, load, preferred flag) over the tailnet; `LinkService` discovers peers (Tailscale local API / MagicDNS), authenticates with a link token, and registers **remote model instances** in `ModelHost` that proxy requests (`RemoteModelInstance : IModelInstance`).
-* Work: pairing flow (code/QR + token exchange), device list UI, preferred-device routing rule, remote model badges, streaming proxy with back-pressure and cancellation, failover to local when peer offline, encryption relies on tailnet (also require TLS + token).
-* Done when: laptop chats with a model loaded on the desktop via UI, CLI and API; unplugging the peer yields a clear error.
-* Deps: §6.3, §6.8, §1 abstractions.
-
-**§8.2 Pair mobile/remote clients** — M
-* Work: QR code with URL+token in settings, PWA manifest + responsive layout for the web UI, optional mDNS advertisement on LAN.
+#### §8.1 Private device network (LM-Link equivalent) — **XL**, optional (Phase F)
+Decision first (S, 2 d): **don't build a VPN.** Options: (a) rely on the user's Tailscale/ZeroTier/WireGuard and provide
+discovery + routing on top (recommended, M); (b) embed `tsnet`-like userspace networking (needs Go sidecar — rejected);
+(c) own relay + Noise-protocol tunnel (XL, security-critical — not recommended).
+Plan for (a):
+* **Identity & pairing:** each install has a device keypair (Ed25519) and name (`settings.link.deviceName`). Pair by entering
+  a 6-digit code / scanning a QR displayed by the other device; pairing exchanges public keys and stores `peers.json`.
+  All peer calls are mutually authenticated (signed request headers with timestamp + nonce, or mTLS using §6.3 certs pinned
+  per peer). Tokens from §P1 API-tokens get a `link` permission.
+* **Discovery:** configured peer addresses (Tailscale MagicDNS names/IPs) + mDNS (`_llmhost._tcp`) on the LAN; periodic
+  `GET /api/link/info` (version, models, loaded, capabilities, load/GPU headroom).
+* **Remote models:** `/v1/models` and `/api/models/local` gain `device` field; the UI model picker groups by device;
+  requests with `model: "<device>/<model>"` or a "preferred device" setting are proxied (streaming pass-through, cancellation
+  propagation, auth rewrite) by `LinkRouter`. Load/unload/download of remote models via the same proxy with explicit user
+  action. Failover: if the preferred device is offline, fall back to local with a visible notice (setting).
+* **Security:** off by default; per-peer permission (chat / load / manage); audit entries in the request log (§6.4);
+  rate limits (§6.3). Threat-model doc before shipping.
+* CLI (`link …` from §7.1) and API (`/api/link/*`) complete; tests with two in-process hosts on loopback ports.
 
 ### §9 Desktop application & UX
 
-**§9.1 Native desktop shell** — M (window already implemented: WinForms + WebView2 in `Desktop/MainWindow.cs`; remaining = tray/lifecycle)
-* Work (remaining): tray icon (status, load/unload, open, quit), start host in-process or attach to daemon, single-instance named mutex, window state persistence, protocol handler (`llmhost://`), update toast.
-* Done when: launching the shell starts everything; closing to tray keeps the server running.
+#### §9.1 Interface modes — **M** (after §9.0)
+`settings.uiMode = user | power | developer`. A `features.js` table maps every control to its minimum mode: *User* = chat,
+models, discover, basic params; *Power User* = adds samplers (§1.4), per-model configs, MoE/LoRA/threads, speculative
+decoding, presets editor, runtime manager; *Developer* = adds server settings, tokens, MCP, request logs (§6.4), logs, metrics,
+API playground, raw template editor. Controls are hidden, not disabled; a "Show all settings" search ignores mode. Mode
+switch in the footer and first-run (§9.3); CLI unaffected. Each new setting in this plan registers its mode.
 
-**§9.2 User / Power User / Developer modes** — M
-* Work: `UiMode` setting + `FeatureFlag` map (which panels/fields each mode reveals); gate speculative decoding, per-model defaults, runtimes, server settings, logs; mode switcher in footer; API stays fully available.
+#### §9.2 Themes & localisation — **M**
+* **Themes:** extract colours into CSS variables (`--bg`, `--fg`, `--accent`, …); `light|dark|system` (listens to
+  `prefers-color-scheme`; the WebView2 shell sets `PreferredColorScheme`, title bar via `DwmSetWindowAttribute`
+  immersive-dark). Optional custom accent colour. Contrast check ≥ 4.5:1 in both themes.
+* **i18n:** all UI strings moved to `locales/<lang>.json` with keys (`t('chat.send')`), ICU-style plurals via
+  `Intl.PluralRules`, `Intl` formatting for numbers/dates/bytes. Ship `en` + one more (e.g. `de` or `es`) to prove the
+  mechanism; language auto-detect from `navigator.language`; fallback to `en`. Tooltip help text (`p-*` keys) included.
+  Server/CLI messages stay English (documented). A script checks for missing/unused keys in CI.
 
-**§9.3 Themes + language** — M
-* Work: CSS-variable theme tokens (light/dark/system + accent), i18n resource files (`en` base; extraction script; community translation PR flow), RTL-safe layout.
+#### §9.3 First-run onboarding — **M**
+Wizard shown when `settings.onboardingDone=false`: (1) welcome + mode choice (§9.1); (2) **hardware survey** from
+`/api/hardware` and `RuntimeManager.Survey()` (CPU features, RAM, GPUs, Vulkan present, recommended runtime, offer to
+download Vulkan runtime); (3) **models folder** picker with free-space check (§3.5); (4) **recommended models** chosen by
+`FitEstimator` against detected memory (one small, one medium, one vision) with one-click download; (5) optional HF token
+(§3.3); (6) done → open chat with the model loading. Re-runnable from Settings. Never blocks: "Skip" at every step.
 
-**§9.4 First-run onboarding** — S
-* Work: wizard: hardware survey → recommended runtime + models that fit (§2.3/§3.4) → models folder → optional MCP/API token setup.
+#### §9.4 Auto-update & installer — **L**
+* **Release channels:** `settings.update.channel = stable|beta`; `UpdateChecker.cs` already polls — extend to read a
+  `releases.json`/GitHub Releases API, compare semver, show changelog, support signature check (SHA-256 + Authenticode of the
+  package).
+* **In-app update:** download installer/zip to temp, verify, then hand off to an **updater helper** (`LLMHost.Updater.exe`)
+  that waits for the app to exit, replaces files (or runs the installer silently), restarts, rolls back on failure.
+  Services/daemon mode: stop service → update → start.
+* **Packaging:** self-contained single-file publish (`PublishSingleFile`, `SelfContained`, `win-x64`; keep native llama DLLs
+  beside the exe since they are runtime-selected — `IncludeNativeLibrariesForSelfExtract=false`), plus **MSIX** (needs signing
+  certificate; ship MSI via WiX v4 as the unsigned-friendly alternative). CI job produces artifacts per tag. Per-user install
+  (no admin) to `%LOCALAPPDATA%\Programs\LLMHost`; keep data in `%USERPROFILE%\.llmhost`.
+* Risks: code-signing cost/process, SmartScreen reputation, WebView2 runtime prerequisite (evergreen bootstrapper).
 
-**§9.5 Auto-update + installer + single-file publish** — L
-* Work: MSIX (or WiX MSI) packaging, self-contained single-file publish (`PublishSingleFile`, trimming off for reflection-heavy parts), Velopack/Squirrel-style delta updates with signed manifest, release channels (stable/beta), runtimes updated independently of the app.
-
-**§9.6 Notifications** — S — Windows toast (download/load complete, errors) with per-type toggles.
-
-**§9.7 Accessibility + responsive layout** — M — ARIA roles/labels, focus order, contrast checks (axe CI), min-width 360 px layout, reduced-motion.
+#### §9.5 Completion notifications — **S**
+Windows toast via `Microsoft.Toolkit.Uwp.Notifications` / `AppNotificationManager` (unpackaged apps need an AUMID +
+Start-menu shortcut — done by installer §9.4, fallback to tray balloon from `MainWindow.cs`). Events: download finished/failed,
+model loaded (when load > 10 s), generation finished while window unfocused, update available. Settings per event + "only when
+minimised". Clicking a toast focuses the relevant view. Web (non-shell) clients use the Notifications API with the same
+setting.
 
 ### §10 Quality, safety & operations
 
-**§10.1 Automated tests** — L (start Phase 0, continues forever)
-* Work: test projects per D7; fake `IEngine` (scripted tokens) for adapter/contract tests; fixture recorder; CI matrix (windows-latest CPU; self-hosted AMD runner for Vulkan); coverage gate on Core/Server.
+#### §10.1 Settings versioning & validation — **M** → implemented as **X1** above.
+UI: validation errors shown inline per field (red outline + message) and as a summary; invalid keys in a hand-edited
+`settings.json` are preserved in `settings.json.invalid` and reported at startup instead of silently dropped.
 
-**§10.2 Robust failure handling** — M
-* Work: classify failures from engine stderr/exit codes (OOM, device lost, unsupported arch, corrupt file); auto-retry loader ladder (fewer layers → smaller ctx → CPU) with user-visible explanation; engine process watchdog + restart; typed error codes in all APIs.
-* Done when: forcing OOM yields a successful lower-offload load and a clear message.
+#### §10.2 Structured logging & native log level — **M** → implemented as **X2**.
+Settings: `logging.level` (trace…error), `logging.native` (off|error|warn|info|debug), `logging.retainDays`,
+`logging.maxFileMb`. CLI `log level <x>`. "Open logs folder" button + diagnostic export (P3) reuses the same files.
 
-**§10.3 Settings schema versioning + validation** — S
-* Work: `schemaVersion`, ordered migrations, JSON-schema validation of settings/presets/defaults with field-level errors surfaced in UI; backup before migration.
-
-**§10.4 Structured logging** — S
-* Work: `Microsoft.Extensions.Logging` + Serilog file sink (rotating, JSON), categories (engine, api, download, mcp), correlation id per request, runtime log level control (UI + `config loglevel`), llama.cpp output captured per instance.
-
-**§10.5 Security review** — M
-* Work: threat model (LAN exposure, malicious GGUF/mmproj, prompt injection → MCP tools, SSRF via `image_url`/`ephemeral_mcp`/URL imports), fixes: path normalisation on all IDs, body/size/time limits, deny private-range fetches for remote URLs unless allowed, auth on the web UI session (cookie/token) when not loopback, CSRF protection for state-changing UI routes, secrets in DPAPI, MCP command allow-list/confirmations, dependency scanning, signed binaries.
-
-**§10.6 Crash dumps / diagnostic bundle** — S — `llmhost diag` zips logs (redacted), settings (secrets stripped), hardware, runtime versions, recent request metadata.
-
-**§10.7 Documentation** — M — user guide (install, models, GPU/AMD setup), API reference generated from OpenAPI, troubleshooting (Vulkan driver, VRAM errors), contributor guide, changelog.
+#### §10.3 Security review & fixes — **L**
+Work through a checklist, fix, and add regression tests:
+1. **Path traversal:** chat ids, preset names, model ids in `DELETE /api/models/local`, import/copy targets, runtime ids,
+   download destination (`publisher/repo/file` must be sanitised: reject `..`, absolute paths, drive letters, reserved names,
+   alternate data streams), zip/archive extraction in `RuntimeManager.InstallAsync` (zip-slip), document uploads.
+   Central `SafePath.Combine(root, parts…)` that throws if the result leaves `root`; use everywhere.
+2. **Body limits:** per-route limits (§6.3), JSON depth limit, max image size / count per request, max tool-call args.
+3. **Auth on the web UI itself:** today `/` and `/api/*` management routes — decide policy: loopback-only unauthenticated
+   (WebView2 shell uses a per-launch random token passed via header/cookie), any non-loopback access requires a token.
+   Management routes (`/api/*`) require a token with `manage` permission; inference routes with `inference`. CSRF: management
+   mutations require a custom header (`x-llmhost-csrf`) or `Content-Type: application/json` plus `Origin` check against allowed
+   origins (blocks drive-by requests from web pages to `localhost`); CORS default restricted to the UI origin, wildcard only
+   by explicit setting. DNS-rebinding defence: `Host` header allow-list.
+4. **Safe defaults for LAN binding:** enabling LAN requires auth enabled + at least one token (forced), shows a warning dialog,
+   binds only to selected interfaces, allow-list default `private ranges` (§6.3). Refuse `0.0.0.0` with auth off.
+5. **MCP sandbox warnings:** first-use confirmation per server showing command line / URL; stdio servers run with a scrubbed
+   environment (explicit allow-list of env vars), working dir = a temp dir; display "can run code on your machine" warning;
+   `ephemeral_mcp` over the API restricted to an allow-list setting and `allowed_tools` required; tool-call confirmation UI
+   already exists — make "always allow" scoped per tool and expiring; log every call.
+6. **Secrets:** HF token and API tokens at rest (DPAPI / hashed), never logged (redaction filter in X2), not returned by
+   `GET /api/settings`.
+7. **SSRF:** URL downloads/preset import/image URL fetching (`ImageInput.FromUrl`): block loopback/link-local/private targets
+   unless explicitly allowed, size + time limits, redirect limit.
+8. **Dependency scan** (`dotnet list package --vulnerable`) in CI.
+Deliverable: `SECURITY.md` + test project `SecurityTests`.
 
 ---
 
-## 5. Cross-cutting requirements
+## 5. Cross-cutting requirements for every item
 
-* **Compatibility tests:** keep a `compat/` suite with recorded request/response fixtures from OpenAI, Anthropic and BlahLLMWrapper SDKs; run on every PR.
-* **Performance budget:** TTFT on a warm 4k context ≤ 300 ms for 0.5B model; API overhead (host proxy) < 5 ms p50; UI stream render 60 fps.
-* **Backward compatibility:** keep existing CLI verbs, `/v1` and `/api/*` management routes for one release behind `/api/legacy` aliases; settings migration (§10.3).
-* **Feature flags:** every Phase-4+ feature behind a flag until its tests are green.
-* **Telemetry:** none by default; any future opt-in must be explicit and documented (§2.8).
+* **Offline-first:** no new network call without a setting and a mention in the offline audit (P3 §2.7); vendored JS/CSS only.
+* **Back-compat:** old settings/chats keep loading (X1 migrations); new request fields are optional; API additions follow
+  OpenAI/Anthropic/llama-server names where a de-facto standard exists.
+* **Docs:** each item updates the in-UI help (`p-*`/`l-*` tooltips), README and the CLI `help` text.
+* **Tests:** per X5; an item is not done without at least one automated test and a manual check on the RX 7900 XTX Vulkan
+  path **and** CPU path.
+* **Definition of done:** feature works in UI + API + CLI where applicable, mode (§9.1) assigned, `todo.md` ticked.
 
 ## 6. Risk register
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| llama-server flags/behaviour change between builds | engine breaks silently | pin build per app release; capability probe at runtime start; contract tests against the pinned binary |
-| Child-process management (ports, zombies, AV false positives) | flaky loads | job object (kill-on-close), random free ports on loopback, restart watchdog, code-sign binaries |
-| Memory estimator inaccurate | OOM / needless CPU offload | calibrate on logs, keep retry ladder (§10.2), user override |
-| RAG quality/latency | poor answers | pluggable chunking/embedding, evaluation set, expose settings |
-| MCP security (arbitrary code execution) | local compromise | confirmations, allow-lists, sandbox warnings, no auto-install |
-| Scope size | schedule slip | phase gates; defer optional items (§5.3, §6.13, §6.14, §8.2) |
-| BlahLLMWrapper API drift (docs partially unreadable) | incompatible shapes | re-verify unread pages (streaming events, MCP-via-API, TTL/evict, model.yaml, runtimes) before building §6.1/§6.5/§6.6/§3.9/§2.1 |
+| LLamaSharp 0.27 lacks native entry points (tensor overrides, newer samplers, LoRA hot-swap, audio, `state_seq`) | §1.1, 1.2, 1.4, 1.6, 1.7 slip | 1-day spike per item first; fall back to direct P/Invoke on `llama.dll` (already loaded by `NativeBackend`); budget a LLamaSharp bump (re-run integration tests) |
+| Custom sampler chain regresses grammar/logprobs behaviour | Wrong output | Keep old `DefaultSamplingPipeline` path behind `legacySampler` flag one release; golden tests with fixed seeds |
+| Unified-KV pool exhaustion with extra cache slots / instances | Stalls, OOM | Single budget accountant in `ModelRuntime`; evict idle cache before blocking; load-time warning |
+| Worker-process refactor (§2.5) touches every call site | Long-lived branch | Interface extraction PR first, no behaviour change; then add workers |
+| UI rewrite (§9.0) blocks Phase D | Schedule | Incremental per-view migration; keep old views working until replaced |
+| Updater/installer signing and SmartScreen | Distribution friction | Start with unsigned zip + in-app updater; add MSIX/MSI when a cert exists |
+| Security hardening (§10.3) breaks existing clients (CORS/CSRF/auth defaults) | Support load | Settings migration keeps current behaviour for existing installs with a one-time banner; new installs get safe defaults |
+| LM-Link scope creep | Never finishes | Phase F, separate decision gate; use external VPN overlay |
 
 ## 7. Effort summary
 
-| Area | Items | Rough total |
+| Section | Items | Effort |
 |---|---|---|
-| Foundations (D1 spike, D2, D6, §10.1–§10.4) | 7 | 7–9 wks |
-| Engine (§1) + hardware/runtimes (§2) | 24 | 12–15 wks |
-| Model management (§3) | 10 | 4–5 wks |
-| API surface (§6) incl. MCP, excl. plugins/SDK | 12 | 9–11 wks |
-| Chat, presets, RAG (§4, §5) | 14 | 9–11 wks |
-| CLI + daemon (§7, §6.4) | 5 | 3–4 wks |
-| Desktop (§9) | 7 | 5–7 wks |
-| Remote (§8) | 2 | 4–5 wks |
-| Hardening/docs (§10.5–§10.7) | 3 | 3 wks |
-| **Total (single engineer, sequential)** | ~84 | **≈ 56–70 wks**; ≈ 28–35 wks with two engineers working in parallel after Phase 0 |
+| X1–X4 foundations | 4 | M+M+S+S ≈ 2.5 wk |
+| §1 Inference | 1.1 L · 1.2 L · 1.2b L · 1.3 M · 1.4 M · 1.5 M · 1.6 M · 1.7 M · 1.8 M · 1.11 S · 1.12 M | ≈ 10 wk |
+| §2 Hardware | 2.3 M · 2.4 S · 2.5 XL · 2.6 M | ≈ 5 wk |
+| §3 Models | 3.1 M · 3.2 M · 3.3 S · 3.4 M · 3.5 M | ≈ 3.5 wk |
+| §4 Chat (+§9.0 UI base) | 9.0 L · 4.1 L · 4.2 L · 4.3 M · 4.4 M · 4.5 S · 4.6 S | ≈ 6.5 wk |
+| §5 Presets | 5.1 M · 5.2 S | ≈ 1.5 wk |
+| §6 Server/API | 6.1 M · 6.2 S · 6.3 M · 6.4 M · 6.5 M | ≈ 3.5 wk |
+| §7 CLI | 7.1 S · 7.2 S · 7.3 M | ≈ 1.5 wk |
+| §8 Remote | 8.1 XL (optional) | ≈ 3–4 wk |
+| §9 Desktop | 9.1 M · 9.2 M · 9.3 M · 9.4 L · 9.5 S | ≈ 4.5 wk |
+| §10 Security/ops | 10.3 L (10.1/10.2 counted in X) | ≈ 1.5 wk |
+| **Total** | | **≈ 40–45 engineer-weeks** (one engineer; ~25 wk with two, since §1/§2 and §4/§9 are independent tracks) |
 
-## 8. Suggested first 6 weeks (concrete)
+## 8. Suggested first 4 weeks
 
-1. **Week 1:** D1 spike (llama-server Vulkan + CPU on the 7900 XTX), decide C/B, pin build, write `IEngine` interfaces.
-2. **Week 2:** solution split (D6), canonical request model (D2), port OpenAI + Anthropic adapters, test project + CI skeleton (§10.1).
-3. **Week 3:** `LlamaServerEngine` (spawn, health, proxy, shutdown with job object), `BuiltinEngine` wrapper, settings versioning + logging (§10.3, §10.4).
-4. **Week 4:** `RuntimeManager` MVP (download/select Vulkan + CPU), runtime selection in load dialog/CLI (§2.1, §2.5).
-5. **Week 5:** parallel requests + cache reuse (§1.1, §1.2) and fit estimator v1 (§2.3).
-6. **Week 6:** native tool calling + reasoning (§1.4, §1.5) with adapters; demo milestone M1: _"BlahLLMWrapper-class engine on AMD, existing UI/CLI/API unchanged"_.
+1. **Week 1:** X1 (versioning/validation), X3 (capabilities), X4 (checklist doc); spikes: LLamaSharp native-API coverage
+   (samplers, tensor overrides, LoRA, state_seq, audio) → write findings into this file's risk table.
+2. **Week 2:** §1.4 samplers, §1.5 overflow policies, §1.11 close-out, §2.4 GPU ratio.
+3. **Week 3:** X2 logging, §6.1 JIT policy, §6.2 `/api/v0`, §10.3 items 1–2 (path safety + body limits — cheap and high value).
+4. **Week 4:** §5.1/§5.2 presets, §3.3 gated models, §6.5 Anthropic gaps; start `IModelHost` interface extraction (§2.5 step 1).
