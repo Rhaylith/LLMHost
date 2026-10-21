@@ -12,7 +12,7 @@ public record McpTool(string Server, string Name, string Description, JsonNode? 
     public string QualifiedName => McpManager.Sanitize(Server) + "__" + McpManager.Sanitize(Name);
 }
 
-public record McpToolResult(bool IsError, string Text, JsonNode? Raw);
+public record McpToolResult(bool IsError, string Text, JsonNode? Raw, IReadOnlyList<byte[]>? Images = null);
 
 /// <summary>Connection to one MCP server over stdio (local process) or streamable HTTP (remote URL).</summary>
 public sealed class McpClient : IDisposable
@@ -282,19 +282,23 @@ public sealed class McpClient : IDisposable
         {
             ["name"] = tool, ["arguments"] = arguments?.DeepClone() ?? new JsonObject(),
         }, TimeSpan.FromMinutes(2), ct);
+        var images = new List<byte[]>();
         var sb = new StringBuilder();
         foreach (var c in r["content"] as JsonArray ?? new JsonArray())
         {
             switch (c?["type"]?.GetValue<string>())
             {
                 case "text": sb.AppendLine(c["text"]?.GetValue<string>()); break;
-                case "image": sb.AppendLine($"[image: {c["mimeType"]?.GetValue<string>()}]"); break;
+                case "image":
+                    sb.AppendLine($"[image: {c["mimeType"]?.GetValue<string>()}]");
+                    if (c["data"]?.GetValue<string>() is { Length: > 0 } b64) { try { images.Add(Convert.FromBase64String(b64)); } catch (FormatException) { } }
+                    break;
                 case "resource": sb.AppendLine(c["resource"]?["text"]?.GetValue<string>() ?? $"[resource {c["resource"]?["uri"]?.GetValue<string>()}]"); break;
                 default: sb.AppendLine(c?.ToJsonString()); break;
             }
         }
         if (sb.Length == 0 && r["structuredContent"] != null) sb.Append(r["structuredContent"]!.ToJsonString());
-        return new McpToolResult(r["isError"]?.GetValue<bool>() ?? false, sb.ToString().TrimEnd(), r);
+        return new McpToolResult(r["isError"]?.GetValue<bool>() ?? false, sb.ToString().TrimEnd(), r, images);
     }
 
     private void Close()

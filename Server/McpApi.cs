@@ -67,7 +67,7 @@ public partial class ApiServer
             if (args is JsonValue av && av.TryGetValue<string>(out var astr)) { try { args = JsonNode.Parse(astr); } catch { args = new JsonObject(); } }
             var r = await _host.Mcp.CallAsync(server, toolName, args, ctx.RequestAborted);
             LogBuffer.Add("mcp", $"called {server}/{toolName}" + (r.IsError ? " (error result)" : ""));
-            await WriteJson(ctx, new { server, tool = toolName, isError = r.IsError, content = r.Text });
+            await WriteJson(ctx, new { server, tool = toolName, isError = r.IsError, content = r.Text, images = (r.Images ?? Array.Empty<byte[]>()).Select(b => "data:image/png;base64," + Convert.ToBase64String(b)) });
         });
     }
 

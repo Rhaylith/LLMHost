@@ -34,6 +34,16 @@ public partial class ApiServer
         return await _host.Models.ResolveAsync(null, false, ct);
     }
 
+    /// <summary>The picture of an Anthropic <c>image</c> block (base64 or URL source), or null when it has none.</summary>
+    internal static byte[]? ReadImageBlock(JsonObject block)
+    {
+        var src = block["source"];
+        string? kind = src?["type"]?.GetValue<string>();
+        if (kind == "base64" && src?["data"]?.GetValue<string>() is { } b64) return ImageInput.FromBase64(b64, null);
+        if (kind == "url" && src?["url"]?.GetValue<string>() is { } u) return ImageInput.FromUrl(u, null);
+        return null;
+    }
+
     private static string BlocksToText(JsonNode? content)
     {
         if (content == null) return "";
@@ -101,6 +111,7 @@ public partial class ApiServer
             var images = new List<byte[]>();
             var toolUses = new List<(string, JsonNode?)>();
             var results = new List<string>();
+            var resultImages = new List<byte[]>();
             foreach (var b in blocks)
             {
                 if (b is not JsonObject bo) continue;
@@ -108,13 +119,8 @@ public partial class ApiServer
                 {
                     case "text": if (bo["text"]?.GetValue<string>() is { } tp) textParts.Add(tp); break;
                     case "image":
-                        {
-                            var src = bo["source"];
-                            string? kind = src?["type"]?.GetValue<string>();
-                            if (kind == "base64" && src?["data"]?.GetValue<string>() is { } b64) images.Add(ImageInput.FromBase64(b64, null));
-                            else if (kind == "url" && src?["url"]?.GetValue<string>() is { } u) images.Add(ImageInput.FromUrl(u, null));
-                            break;
-                        }
+                        if (ReadImageBlock(bo) is { } img) images.Add(img);
+                        break;
                     case "tool_use":
                         {
                             string nm = bo["name"]?.GetValue<string>() ?? "";
@@ -127,6 +133,9 @@ public partial class ApiServer
                             string uid = bo["tool_use_id"]?.GetValue<string>() ?? "";
                             string nm = names.TryGetValue(uid, out var n) ? n : uid;
                             results.Add(ToolFormats.Result(fmt, nm, BlocksToText(bo["content"])).Content);
+                            if (bo["content"] is JsonArray rc)
+                                foreach (var rb in rc.OfType<JsonObject>().Where(x => x["type"]?.GetValue<string>() == "image"))
+                                    if (ReadImageBlock(rb) is { } ri) resultImages.Add(ri);
                             break;
                         }
                 }
@@ -135,7 +144,10 @@ public partial class ApiServer
             if (toolUses.Count > 0)
                 list.Add(new ChatMessage("assistant", ToolFormats.EchoCalls(fmt, text.ToString(), toolUses)));
             else if (results.Count > 0)
+            {
                 list.Add(new ChatMessage("user", string.Join("\n", results) + (text.Length > 0 ? "\n" + text : "")));
+                if (OpenAiMapping.ToolImagesMessage("tool", resultImages) is { } shown) list.Add(shown);
+            }
             else list.Add(new ChatMessage(role, text.ToString(), images.Count > 0 ? images : null));
         }
         return list;

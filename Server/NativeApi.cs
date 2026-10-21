@@ -312,14 +312,14 @@ public partial class ApiServer
                         string toolShown = map.TryGetValue(c.Name, out var it2) ? it2.Tool : c.Name;
                         if (stream) await NativeEvent(ctx, "tool_call.start", new { type = "tool_call.start", tool = toolShown, provider_info = provider });
                         if (stream) await NativeEvent(ctx, "tool_call.arguments", new { type = "tool_call.arguments", tool = toolShown, arguments = argNode, provider_info = provider });
-                        string output; bool failed = false;
+                        string output; bool failed = false; IReadOnlyList<byte[]>? toolImages = null;
                         if (!map.TryGetValue(c.Name, out var found)) { output = $"Tool '{c.Name}' is not available."; failed = true; }
                         else
                         {
                             try
                             {
                                 var res = await found.Client.CallAsync(found.Tool, argNode, ct);
-                                output = res.Text; failed = res.IsError;
+                                output = res.Text; failed = res.IsError; toolImages = res.Images;
                             }
                             catch (Exception ex) { output = "Tool call failed: " + ex.Message; failed = true; }
                         }
@@ -329,6 +329,7 @@ public partial class ApiServer
                                 new { type = failed ? "tool_call.failure" : "tool_call.success", tool = toolShown, arguments = argNode, output, provider_info = provider });
                         var (rr, rc) = ToolFormats.Result(fmt, c.Name, output);
                         messages.Add(new ChatMessage(rr, rc));
+                        if (found != null && OpenAiMapping.ToolImagesMessage(toolShown, toolImages) is { } shownImages) messages.Add(shownImages);
                     }
                 }
 

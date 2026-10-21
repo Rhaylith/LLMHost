@@ -139,7 +139,8 @@ public static class OpenAiMapping
         return n?.DeepClone();
     }
 
-    private static string ContentText(JsonNode? c, List<byte[]>? images = null)
+    /// <summary>Text of a message content (string or parts array); images found in the parts are added to <paramref name="images"/>.</summary>
+    public static string ContentText(JsonNode? c, List<byte[]>? images = null)
     {
         if (c == null) return "";
         if (c is JsonValue v && v.TryGetValue<string>(out var s)) return s;
@@ -235,6 +236,13 @@ public static class OpenAiMapping
     }
 
     /// <summary>
+    /// Images returned by a tool cannot ride inside the tool turn of most chat templates, so they follow it as a user turn
+    /// that says where they came from. Null when the tool returned no images.
+    /// </summary>
+    public static ChatMessage? ToolImagesMessage(string toolName, IReadOnlyList<byte[]>? images) =>
+        images is { Count: > 0 } ? new ChatMessage("user", $"[{(images.Count == 1 ? "Image" : images.Count + " images")} returned by the tool '{toolName}']", images) : null;
+
+    /// <summary>
     /// Converts the "messages" of an OpenAI request. Tool results and earlier tool calls are rendered the way the
     /// model's own template expects (see <see cref="ToolFormats"/>).
     /// </summary>
@@ -255,6 +263,7 @@ public static class OpenAiMapping
                 string name = o["name"]?.GetValue<string>() ?? (names.TryGetValue(id, out var n) ? n : id);
                 var (r, c) = ToolFormats.Result(fmt, name.Length > 0 ? name : "tool", content);
                 list.Add(new ChatMessage(r, c));
+                if (ToolImagesMessage(name, images) is { } shown) list.Add(shown);
             }
             else if (role == "assistant" && o["tool_calls"] is JsonArray calls && calls.Count > 0)
             {

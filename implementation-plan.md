@@ -91,9 +91,10 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
 2. **Encoded-image cache (M).** Hash image bytes (xxhash) → cache the `mtmd` encoded chunk/embeddings per runtime (LRU, N MB);
    lets a request with images reuse the KV prefix too: store `ImageKey` list on cache entries (§1.1) and treat an image chunk as a
    token run of known length. Removes "requests with images always re-evaluate".
-3. **Images in tool results (M).** Accept tool-result content arrays containing images in OpenAI `tool` messages, Responses
+3. ✅ **Images in tool results (M).** Accept tool-result content arrays containing images in OpenAI `tool` messages, Responses
    `function_call_output`, Anthropic `tool_result` blocks; map to a synthetic user message carrying the image after the tool
    message when the template cannot embed images in tool turns. Add MCP tool results that return `image` content.
+   As built: always the synthetic user turn (`ToolImagesMessage`), never inside the tool turn; MCP results keep `image` content (`McpToolResult.Images`) and the native tool loop feeds it back; `POST /api/mcp/call` returns `images` as data URLs. The web UI's own MCP loop still sends text only.
 4. **Audio input (L).** Check `mtmd` audio support in the LLamaSharp 0.27 native build (`mtmd_support_audio`); add
    `input_audio` parts (OpenAI) → decode WAV/MP3 (NAudio) to 16 kHz mono PCM → `mtmd_bitmap_init_from_audio`. Capability flag
    `audio` from X3. UI: attach audio file. Blocked if the pinned native lib lacks audio — then gate behind runtime update.

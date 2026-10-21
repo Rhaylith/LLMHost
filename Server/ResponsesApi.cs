@@ -60,7 +60,7 @@ public partial class ApiServer
         return sb.ToString();
     }
 
-    private static List<ChatMessage> ResponsesMessages(IEnumerable<JsonNode> items, string? instructions, ToolFormat fmt)
+    internal static List<ChatMessage> ResponsesMessages(IEnumerable<JsonNode> items, string? instructions, ToolFormat fmt)
     {
         var list = new List<ChatMessage>();
         if (!string.IsNullOrWhiteSpace(instructions)) list.Add(new ChatMessage("system", instructions));
@@ -105,9 +105,13 @@ public partial class ApiServer
                     {
                         FlushCalls();
                         string callId = o["call_id"]?.GetValue<string>() ?? "";
-                        string output = o["output"] is JsonValue ov && ov.TryGetValue<string>(out var os) ? os : o["output"]?.ToJsonString() ?? "";
-                        var (r, c) = ToolFormats.Result(fmt, names.TryGetValue(callId, out var n) ? n : callId, output);
+                        var outImages = new List<byte[]>();
+                        string output = o["output"] is JsonValue ov && ov.TryGetValue<string>(out var os) ? os
+                            : o["output"] is JsonArray oa ? OpenAiMapping.ContentText(oa, outImages) : o["output"]?.ToJsonString() ?? "";
+                        string toolName = names.TryGetValue(callId, out var n) ? n : callId;
+                        var (r, c) = ToolFormats.Result(fmt, toolName, output);
                         list.Add(new ChatMessage(r, c));
+                        if (OpenAiMapping.ToolImagesMessage(toolName, outImages) is { } shown) list.Add(shown);
                         break;
                     }
                 // reasoning items from earlier turns are not sent back to the model

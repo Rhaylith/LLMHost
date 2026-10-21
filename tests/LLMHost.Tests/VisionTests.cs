@@ -98,3 +98,64 @@ public class ImageSizeTests
         Assert.Contains("vision.lowDetailEdge", f);
     }
 }
+
+[Trait("Category", "Unit")]
+public class ToolResultImageTests
+{
+    private static string DataUrl() =>
+        "data:image/png;base64," + Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3 });
+
+    private static void AssertToolThenImage(IReadOnlyList<LLMHostProject.Inference.ChatMessage> msgs, string toolName)
+    {
+        var shown = msgs.Last();
+        Assert.Equal("user", shown.Role);
+        Assert.Single(shown.Images!);
+        Assert.Contains(toolName, shown.Content);
+        Assert.Null(msgs[^2].Images);                      // the tool turn itself stays text
+    }
+
+    [Fact]
+    public void OpenAiToolMessageWithImagePartIsFollowedByAUserTurnWithTheImage()
+    {
+        var body = JsonNode.Parse("""
+            {"messages":[
+              {"role":"user","content":"look"},
+              {"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"screenshot","arguments":"{}"}}]},
+              {"role":"tool","tool_call_id":"c1","content":[{"type":"text","text":"done"},{"type":"image_url","image_url":{"url":"@@IMG@@"}}]}]}
+            """.Replace("@@IMG@@", DataUrl()))!;
+        var msgs = OpenAiMapping.ReadMessages(body);
+        AssertToolThenImage(msgs, "screenshot");
+        Assert.Contains("done", msgs[^2].Content);
+    }
+
+    [Fact]
+    public void ToolMessageWithoutImagesAddsNothing()
+    {
+        var body = JsonNode.Parse("""{"messages":[{"role":"tool","tool_call_id":"c1","name":"t","content":"plain"}]}""")!;
+        Assert.Single(OpenAiMapping.ReadMessages(body));
+    }
+
+    [Fact]
+    public void ResponsesFunctionCallOutputCanCarryImages()
+    {
+        var items = JsonNode.Parse("""
+            [{"type":"function_call","call_id":"c1","name":"snap","arguments":"{}"},
+             {"type":"function_call_output","call_id":"c1","output":[{"type":"input_text","text":"ok"},{"type":"input_image","image_url":"@@IMG@@"}]}]
+            """.Replace("@@IMG@@", DataUrl()))!.AsArray().Select(x => x!);
+        var msgs = ApiServer.ResponsesMessages(items, null, LLMHostProject.Inference.ToolFormat.Generic);
+        AssertToolThenImage(msgs, "snap");
+    }
+
+    [Fact]
+    public void AnthropicToolResultImageBlocksAreForwarded()
+    {
+        var body = JsonNode.Parse("""
+            {"messages":[
+              {"role":"assistant","content":[{"type":"tool_use","id":"u1","name":"shoot","input":{}}]},
+              {"role":"user","content":[{"type":"tool_result","tool_use_id":"u1","content":[{"type":"text","text":"ok"},
+                 {"type":"image","source":{"type":"base64","media_type":"image/png","data":"@@B64@@"}}]}]}]}
+            """.Replace("@@B64@@", Convert.ToBase64String(new byte[] { 1, 2, 3, 4 })))!;
+        var msgs = ApiServer.ReadAnthropicMessages(body);
+        AssertToolThenImage(msgs, "tool");
+    }
+}
