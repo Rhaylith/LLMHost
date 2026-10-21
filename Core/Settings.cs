@@ -225,6 +225,7 @@ public class AppSettings
     public bool VerboseNativeLog { get; set; }
     public LoggingSettings Logging { get; set; } = new();
     public PromptCacheSettings PromptCache { get; set; } = new();
+    public VisionSettings Vision { get; set; } = new();
     /// <summary>Write the last /v1/messages request to ~/.llmhost/debug/anthropic-last.json (to see what a client such as Claude Code really sends). Contains your prompts.</summary>
     public bool DebugRequests { get; set; }
     /// <summary>Send reasoning to Anthropic-API clients as ordinary text (inside a think tag) so it streams visibly; off = separate thinking blocks.</summary>
@@ -326,7 +327,7 @@ public class AppSettings
         MinimizeToTray = other.MinimizeToTray; CheckUpdates = other.CheckUpdates; DebugRequests = other.DebugRequests; AnthropicReasoningAsText = other.AnthropicReasoningAsText;
         UpdateFeedUrl = string.IsNullOrWhiteSpace(other.UpdateFeedUrl) ? null : other.UpdateFeedUrl.Trim();
         LoadGuardrail = other.LoadGuardrail is "off" or "strict" ? other.LoadGuardrail : "balanced";
-        VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); PromptCache = other.PromptCache ?? new(); DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
+        VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); PromptCache = other.PromptCache ?? new(); Vision = other.Vision ?? new(); DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
         Save();
     }
 }
@@ -361,4 +362,13 @@ public class PresetStore
             return true;
         }
     }
+}
+
+/// <summary>Image input options (settings.json → <c>vision</c>).</summary>
+public class VisionSettings
+{
+    /// <summary>Images are scaled down so their longest edge is at most this many pixels before they are encoded. 0 = keep the original size.</summary>
+    public int MaxImageEdge { get; set; }
+    /// <summary>Longest edge used for images sent with <c>detail: "low"</c>.</summary>
+    public int LowDetailEdge { get; set; } = 512;
 }

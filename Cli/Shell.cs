@@ -1281,7 +1281,7 @@ public class Shell
             if (!File.Exists(path)) { Ui.Error($"file not found: {path}"); return false; }
             var bytes = File.ReadAllBytes(path);
             if (bytes.Length > ImageInput.MaxBytes) { Ui.Error($"{path} is larger than {ImageInput.MaxBytes / (1024 * 1024)} MB"); return false; }
-            _pendingImages.Add(bytes);
+            _pendingImages.Add(ImageInput.Resize(bytes, ImageInput.EdgeFor(null)));
         }
         var rt = _activeModel != null ? _host.Models.Get(_activeModel) : null;
         Ui.Info($"{_pendingImages.Count} image(s) will be sent with your next message." +

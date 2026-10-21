@@ -65,7 +65,7 @@ Order inside a phase is free; dependencies are listed per item.
 
 ### §1 Inference engine
 
-#### ✅ §1.1 Prompt-cache follow-ups — **L**
+#### ✅ §1.1 Prompt-cache follow-ups — **L** (`026bd55`)
 Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
 
 **As built:** `LoadOptions.CacheSlots` (0 = parallel requests + 2) sets the number of sequences; only `MaxConcurrent` may generate at once. `PickSlot` reuses the longest shared prefix (≥ 32 tokens, or the whole short prompt), else an empty slot, else the least recently used. Saved caches: `Inference/PromptCacheStore.cs`, `POST /api/models/cache/save|restore`, `GET /api/models/cache/saved`, `DELETE /api/models/cache/saved`; `promptCache.autoSave` writes idle caches as `auto-N` on unload and restores them on load; `promptCache.maxDiskMb` caps the folder. Deviations: auto-save is per model, not per chat id; no `modelSha` header (the folder key is library id + file size); the llama-server part stays deferred to §2.5. Found while testing: unloading used to wipe caches before they could be saved.
@@ -86,8 +86,8 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
 * Risks: unified-KV fragmentation → run `llama_kv_cache_defrag` when `cached/ctx > 0.8`.
 
 #### §1.2 Vision follow-ups — **L** (split into independently shippable pieces)
-1. **Per-image options (S).** `detail: low|high|auto` on `image_url` → max edge (e.g. 512 / 1344) resized in `ImageInput`
-   (System.Drawing is unavailable cross-platform: use `SixLabors.ImageSharp` or WIC on Windows). Setting `maxImageEdge`.
+1. ✅ **Per-image options (S).** `detail: low|high|auto` on `image_url` → max edge (e.g. 512 / 1344) resized in `ImageInput`
+   As built: `System.Drawing` (the app is Windows-only); `vision.maxImageEdge` (0 = off) and `vision.lowDetailEdge` (512) in settings; `detail` read from OpenAI chat, Responses and native `image` parts; the CLI `/image` applies the general limit.
 2. **Encoded-image cache (M).** Hash image bytes (xxhash) → cache the `mtmd` encoded chunk/embeddings per runtime (LRU, N MB);
    lets a request with images reuse the KV prefix too: store `ImageKey` list on cache entries (§1.1) and treat an image chunk as a
    token run of known length. Removes "requests with images always re-evaluate".

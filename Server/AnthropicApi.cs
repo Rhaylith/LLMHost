@@ -111,8 +111,8 @@ public partial class ApiServer
                         {
                             var src = bo["source"];
                             string? kind = src?["type"]?.GetValue<string>();
-                            if (kind == "base64" && src?["data"]?.GetValue<string>() is { } b64) images.Add(ImageInput.FromBase64(b64));
-                            else if (kind == "url" && src?["url"]?.GetValue<string>() is { } u) images.Add(ImageInput.FromUrl(u));
+                            if (kind == "base64" && src?["data"]?.GetValue<string>() is { } b64) images.Add(ImageInput.FromBase64(b64, null));
+                            else if (kind == "url" && src?["url"]?.GetValue<string>() is { } u) images.Add(ImageInput.FromUrl(u, null));
                             break;
                         }
                     case "tool_use":

@@ -50,6 +50,12 @@ public static class SettingsValidator
         }
         if (s.PromptCache == null) e.Add(new("promptCache", "Missing."));
         else Range("promptCache.maxDiskMb", s.PromptCache.MaxDiskMb, 0, 10_000_000, "Prompt cache disk limit (MB)");
+        if (s.Vision == null) e.Add(new("vision", "Missing."));
+        else
+        {
+            Range("vision.maxImageEdge", s.Vision.MaxImageEdge, 0, 16384, "Maximum image edge");
+            Range("vision.lowDetailEdge", s.Vision.LowDetailEdge, 32, 4096, "Low-detail image edge");
+        }
         ValidateLoad(s.DefaultLoad, "defaultLoad", e, Range, OneOf);
         ValidateGeneration(s.DefaultGeneration, "defaultGeneration", e, Range, OneOf);
         return e;

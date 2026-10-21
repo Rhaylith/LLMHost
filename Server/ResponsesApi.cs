@@ -52,7 +52,7 @@ public partial class ApiServer
                         {
                             var iu = o["image_url"];
                             string? url = iu is JsonObject io ? io["url"]?.GetValue<string>() : iu?.GetValue<string>();
-                            if (!string.IsNullOrEmpty(url)) images.Add(ImageInput.FromUrl(url));
+                            if (!string.IsNullOrEmpty(url)) images.Add(ImageInput.FromUrl(url, (iu as JsonObject)?["detail"]?.GetValue<string>() ?? o["detail"]?.GetValue<string>()));
                             break;
                         }
                 }

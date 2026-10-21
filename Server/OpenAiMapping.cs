@@ -158,7 +158,8 @@ public static class OpenAiMapping
                         // {"type":"image_url","image_url":{"url":"data:..."}} or {"image_url":"data:..."}
                         var iu = po["image_url"];
                         string? url = iu is JsonObject io ? io["url"]?.GetValue<string>() : iu?.GetValue<string>();
-                        if (!string.IsNullOrEmpty(url) && images != null) images.Add(ImageInput.FromUrl(url));
+                        if (!string.IsNullOrEmpty(url) && images != null)
+                            images.Add(ImageInput.FromUrl(url, (iu as JsonObject)?["detail"]?.GetValue<string>() ?? po["detail"]?.GetValue<string>()));
                         break;
                 }
             }

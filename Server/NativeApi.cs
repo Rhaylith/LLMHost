@@ -197,7 +197,7 @@ public partial class ApiServer
                 {
                     case "text": text.Append(po["content"]?.GetValue<string>() ?? po["text"]?.GetValue<string>()); break;
                     case "image":
-                        if ((po["data_url"] ?? po["url"])?.GetValue<string>() is { } url) images.Add(ImageInput.FromUrl(url));
+                        if ((po["data_url"] ?? po["url"])?.GetValue<string>() is { } url) images.Add(ImageInput.FromUrl(url, po["detail"]?.GetValue<string>()));
                         break;
                 }
             }
