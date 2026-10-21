@@ -393,6 +393,10 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
     <div><label>Draft tokens per step (0 = 6)</label><input type="number" id="l-drafttokens" value="0" min="0" max="64"></div>
   </div>
   <div class="grid2"><div><label>Flash attention</label><select id="l-flash"><option value="auto">auto (recommended)</option><option value="on">on</option><option value="off">off</option></select></div></div>
+  <div id="l-moe" class="grid2" style="display:none">
+    <div><label>Experts in system memory: layers (-1 = all, 0 = off)</label><input type="number" id="l-moecpu" value="0" min="-1"></div>
+    <div><label>Experts used per token (0 = model default)</label><input type="number" id="l-moeexp" value="0" min="0"></div>
+  </div>
   <details id="l-template" style="margin:8px 0"><summary style="cursor:pointer">Prompt template</summary>
     <div class="grid2"><div><label>Template</label><select id="l-tpl-mode"><option value="auto">the model's own (auto)</option><option value="jinja">Jinja</option><option value="manual">Manual prefixes / suffixes</option></select></div></div>
     <div id="l-tpl-info" class="dim" style="margin:4px 0"></div>
@@ -923,6 +927,7 @@ function fillLoad(d) {
   $('l-main').value = d.mainGpu || 0; $('l-conc').value = d.maxConcurrent || 4;
   $('l-drafttokens').value = d.draftTokens || 0; window._draftWanted = d.draftModel || '';
   fillTemplate(d.promptTemplate);
+  $('l-moecpu').value = d.moeCpuLayers || 0; $('l-moeexp').value = d.moeExpertCount || 0;
   $('l-flash').value = d.flashAttentionMode && d.flashAttentionMode !== 'auto' ? d.flashAttentionMode : (d.flashAttention ? 'on' : 'auto'); $('l-mmap').checked = d.useMmap !== false; $('l-mlock').checked = !!d.useMlock;
   $('l-vision').checked = d.vision !== false;
 }
@@ -955,7 +960,7 @@ function collectLoad() {
     tensorSplit: on.length > 1 && ratios.every(r => r != null && r > 0) ? ratios : null, splitMode: $('l-splitmode').value,
     device: $('l-device').value, gpuLayers: gl === '' ? null : Number(gl), contextSize: Number($('l-ctx').value), threads: Number($('l-threads').value),
     batchSize: Number($('l-batch').value), uBatchSize: Number($('l-batch').value), ttlMinutes: Number($('l-ttl').value), kvCacheTypeK: $('l-kvk').value, kvCacheTypeV: $('l-kvv').value,
-    identifier: $('l-id').value || null, mainGpu: Number($('l-main').value), maxConcurrent: Number($('l-conc').value) || 4, draftModel: $('l-draft').value || null, draftTokens: Number($('l-drafttokens').value) || 0, promptTemplate: collectTemplate(), flashAttentionMode: $('l-flash').value, flashAttention: $('l-flash').value === 'on', useMmap: $('l-mmap').checked, useMlock: $('l-mlock').checked,
+    identifier: $('l-id').value || null, mainGpu: Number($('l-main').value), maxConcurrent: Number($('l-conc').value) || 4, draftModel: $('l-draft').value || null, draftTokens: Number($('l-drafttokens').value) || 0, promptTemplate: collectTemplate(), moeCpuLayers: Number($('l-moecpu').value) || 0, moeExpertCount: Number($('l-moeexp').value) || 0, flashAttentionMode: $('l-flash').value, flashAttention: $('l-flash').value === 'on', useMmap: $('l-mmap').checked, useMlock: $('l-mlock').checked,
     embeddings: $('l-emb').checked, vision: $('l-vision').checked};
 }
 function fillGen(g) {
@@ -1014,6 +1019,15 @@ async function showTemplateInfo(id) {
   } catch {}
   try { const s = window._settings || await api('/api/settings'); $('l-template').open = !!s.alwaysShowTemplate || $('l-tpl-mode').value !== 'auto'; } catch {}
 }
+// mixture-of-experts options are only offered for MoE models
+async function showMoe(id) {
+  $('l-moe').style.display = 'none';
+  try {
+    const list = await api('/api/models/local');
+    const m = list.find(x => x.id === id);
+    if (m?.capabilities?.moe) $('l-moe').style.display = '';
+  } catch {}
+}
 // models that can act as draft for speculative decoding (same vocabulary, much smaller) + suggested downloads
 async function loadDrafts(id) {
   const sel = $('l-draft');
@@ -1041,7 +1055,7 @@ async function openLoad(id, emb, mode = 'load') {
   $('l-go').style.display = mode === 'defaults' ? 'none' : '';
   $('l-clear').style.display = d.hasLoad || d.hasGeneration ? '' : 'none';
   $('l-badge').textContent = d.hasLoad || d.hasGeneration ? 'saved defaults applied' : 'global defaults';
-  loadDrafts(id); showTemplateInfo(id);
+  loadDrafts(id); showTemplateInfo(id); showMoe(id);
   loadTarget = id; $('loadname').textContent = id; $('l-emb').checked = emb; $('l-msg').textContent = ''; $('l-msg').className = 'dim';
   $('l-force').style.display = 'none'; $('l-fit').textContent = 'Estimating memory use…';
   $('loaddlg').showModal();
@@ -1443,6 +1457,8 @@ const TIPS = {
   'l-ctx': {t:'How many tokens (prompt + conversation + answer) the model can keep in view. Bigger costs more memory (KV cache).', r:'512 – the model\'s maximum', e:'4096 chat · 16384+ long documents'},
   'l-threads': {t:'CPU threads used for the CPU part of generation. 0 = automatic (75% of the cores).', r:'0 or 1 – logical cores', e:'On a 192-thread CPU, 16–32 is often faster than all of them.'},
   'l-batch': {t:'Prompt tokens processed at once. Larger = faster prompt processing, slightly more memory.', r:'32 – 4096 (default 512)', e:'1024 for long prompts on a fast GPU'},
+  'l-moecpu': {t:'Mixture-of-experts models are huge but only use a few experts per token. Keeping the expert weights in system memory while attention and the cache stay on the GPU lets a model far bigger than the VRAM run at a useful speed.', r:'-1 (all layers), 0 (off) or the number of layers', e:'-1 for a 30B MoE on a 24 GB card'},
+  'l-moeexp': {t:'How many experts take part in each token. Fewer is faster but answers get worse.', r:'0 (model default) up to the number of experts', e:'4 instead of 8 for a quick draft'},
   'l-draft': {t:'A much smaller model of the same family guesses the next words and the main model checks them all at once. The answers stay exactly the same; they come faster (most for predictable text such as code).', r:'a downloaded model with the same vocabulary, under about 1/6 of the size', e:'Qwen3-0.6B for Qwen3-14B'},
   'l-ttl': {t:'Unload the model after this many idle minutes to free memory. It reloads on the next request.', r:'0 (never) – any number of minutes', e:'30 → unload after half an hour unused'},
   'l-kvk': {t:'Precision of the K half of the KV cache. q8_0 halves its memory, q4_0 quarters it, with a small quality cost.', r:'f16 · q8_0 · q4_0', e:'q8_0 for long contexts on small GPUs'},

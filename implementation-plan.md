@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies (6 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls (7 of ~50).
 
 ---
 
@@ -175,7 +175,7 @@ Deviations: no separate `eos` field in the manual format (put it in the assistan
 Deviations: no `KeepLastTokens` (the newest message is always kept); precedence request > chat > model default > global works through the existing settings layers but chats do not store the policy yet; dropped-message counts are not returned by the API (only logged by the CLI/chat endpoints that already had them).
 Verified on SmolVLM-256M with a 512-token window: error / dropOldest / truncateMiddle / stopAtLimit behave as described, and a 700-token answer succeeds with the rolling window (cache shifted) but stops short without it.
 
-#### §1.6 MoE controls — **M**
+#### ✅ §1.6 MoE controls — **M**
 * `LoadOptions`: `MoeExpertCount` (override `*.expert_used_count` metadata key via `llama_model_kv_override`),
   `MoeCpuLayers` (`--n-cpu-moe` equivalent) and `TensorOverrides: [{pattern, buffer}]` (e.g. `\.ffn_.*_exps\.=CPU`).
   LLamaSharp: `LLamaModelParams.tensor_buft_overrides` — verify it is exposed in 0.27; otherwise pin to marshal the struct
@@ -185,6 +185,10 @@ Verified on SmolVLM-256M with a 512-token window: error / dropOldest / truncateM
   list names `ffn_*_exps`) — extend `GgufInfo` with per-tensor sizes (the reader already walks tensor infos).
 * UI: shown only for MoE models (capability from X3); tooltip with expected VRAM saving; Power-User mode (§9.1).
 * Tests: estimator math on a synthetic tensor list; load with override on a MoE fixture if available (else unit-only).
+
+**As built:** `LoadOptions.MoeExpertCount` (metadata override `<arch>.expert_used_count`), `MoeCpuLayers` (-1 = all layers, N = first N layers) and the general `TensorOverrides` (regex → buffer) in `Inference/TensorOverrides.cs`; LLamaSharp 0.27 exposes both overrides (`ModelParams.MetadataOverrides`, `TensorBufferOverrides`), so no P/Invoke was needed. The expert pattern is `blk\.(0|1|…)\.ffn_(up|down|gate|gate_up)(_ch)?_exps\.` (shared experts stay on the GPU). The memory estimate (`FitEstimator`) moves the bytes of host-placed tensors from the GPU side to system memory per offloaded layer; MoE options on a dense model are ignored with a warning, an expert count above the model's is ignored. UI: two fields in the load dialog, shown only for MoE models (`capabilities.moe`); CLI `--cpu-moe`, `--n-cpu-moe N`, `--moe-experts N`, `--override-tensor "regex=CPU;…"`.
+Deviation: no per-tensor sizes were added to `GgufInfo` — the estimator already reads the tensor table.
+Verified on Qwen3-30B-A3B-Q4_K_M (17 GB): the expert-count override shows up in llama.cpp's log (`validate_override … expert_used_count`), and with the experts forced into system memory the model loads on the Vulkan GPU and answers (llama.cpp logs "buffer type overridden"); the estimate arithmetic is unit-tested.
 
 #### §1.7 LoRA adapters — **M**
 * `LoadOptions.Loras: [{path, scale}]`. After model load, `llama_adapter_lora_init` + `llama_set_adapters_lora` on the context

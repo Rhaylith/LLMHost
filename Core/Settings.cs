@@ -77,6 +77,12 @@ public class LoadOptions
     public float DraftMinP { get; set; } = 0.5f;
     /// <summary>Replaces the chat template stored in the model file (Jinja text or manual prefixes / suffixes). Default: the model's own.</summary>
     public PromptTemplateSettings PromptTemplate { get; set; } = new();
+    /// <summary>Mixture-of-experts models: experts used per token (0 = the model's own number). Fewer = faster and less accurate.</summary>
+    public int MoeExpertCount { get; set; }
+    /// <summary>Keep the expert weights of the first N layers in system memory (-1 = all layers, 0 = off). Attention and cache stay on the GPU, so big MoE models fit.</summary>
+    public int MoeCpuLayers { get; set; }
+    /// <summary>Advanced: put tensors whose name matches a regular expression into a given buffer ("CPU" or a device buffer name).</summary>
+    public List<TensorOverrideSetting> TensorOverrides { get; set; } = new();
     [JsonIgnore]
     public int SlotCount => Math.Min(16, Math.Max(Math.Clamp(MaxConcurrent, 1, 16), CacheSlots > 0 ? CacheSlots : MaxConcurrent + 2));
     public uint BatchSize { get; set; } = 512;
@@ -118,6 +124,7 @@ public class LoadOptions
         c.GpuDevices = GpuDevices != null ? new List<int>(GpuDevices) : null;
         c.TensorSplit = TensorSplit != null ? new List<float>(TensorSplit) : null;
         c.PromptTemplate = PromptTemplate?.Clone() ?? new PromptTemplateSettings();
+        c.TensorOverrides = TensorOverrides?.Select(t => new TensorOverrideSetting { Pattern = t.Pattern, Buffer = t.Buffer }).ToList() ?? new();
         return c;
     }
 }
@@ -394,4 +401,12 @@ public class VisionSettings
     public int LowDetailEdge { get; set; } = 512;
     /// <summary>Path of ffmpeg.exe for video input (blank = next to the app, then the PATH).</summary>
     public string? FfmpegPath { get; set; }
+}
+
+/// <summary>Places the tensors whose name matches <see cref="Pattern"/> (regular expression, searched anywhere in the name) in <see cref="Buffer"/>.</summary>
+public class TensorOverrideSetting
+{
+    public string Pattern { get; set; } = "";
+    /// <summary>"CPU" (system memory) or the name of a device buffer type.</summary>
+    public string Buffer { get; set; } = "CPU";
 }

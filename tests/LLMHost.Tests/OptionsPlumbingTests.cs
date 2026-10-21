@@ -37,6 +37,7 @@ public class OptionsPlumbingTests
         if (type == typeof(List<int>)) return new List<int> { 1, 2 };
         if (type == typeof(List<float>)) return new List<float> { 0.5f, 0.5f };
         if (type == typeof(Dictionary<int, float>)) return new Dictionary<int, float> { [3] = 1.5f };
+        if (type == typeof(List<TensorOverrideSetting>)) return new List<TensorOverrideSetting> { new() { Pattern = "exps", Buffer = "CPU" }, new() { Pattern = "out", Buffer = "CPU" } };
         if (type == typeof(LLMHostProject.Inference.PromptTemplateSettings))
             return new LLMHostProject.Inference.PromptTemplateSettings
             {
@@ -118,6 +119,7 @@ public class OptionsPlumbingTests
             foreach (DictionaryEntry e in da) if (!db.Contains(e.Key) || !Equals(e.Value, db[e.Key])) return false;
             return true;
         }
-        return ea.Cast<object?>().SequenceEqual(((IEnumerable)b).Cast<object?>());
+        var la = ea.Cast<object?>().ToList(); var lb = ((IEnumerable)b).Cast<object?>().ToList();
+        return la.Count == lb.Count && la.Zip(lb).All(p => Equal(p.First, p.Second));
     }
 }

@@ -205,6 +205,7 @@ public class Shell
             Running
               load <model> [--cpu|--gpu max|auto|off|0.5] [--gpu-layers N] [--identifier name] [--context-length N] [--ctx N] [--threads N (default 75% of cores)] [--batch N]
                            [--flash] [--no-mmap] [--mlock] [--kv-k q8_0] [--kv-v q8_0] [--no-vision] [--mmproj <file>] [--draft <small model>] [--draft-tokens 6] [--template-file chat.jinja]
+                           [--cpu-moe | --n-cpu-moe N] [--moe-experts N] [--override-tensor "regex=CPU;regex2=CPU"]
                            [--id name] [--ttl minutes] [--embeddings]
                            [--gpus 0,1] [--split 3,1] [--split-mode layer|row|none]   multi-GPU: devices (priority order), shares, mode
                            [--parallel N]   requests generated at the same time (continuous batching, default 4)
@@ -760,6 +761,16 @@ public class Shell
         if (a.Value("ttl") is { } ttl) o.TtlMinutes = int.Parse(ttl);
         if (a.Value("draft") is { } dm) o.DraftModel = dm;
         if (a.Value("draft-tokens") is { } dt) o.DraftTokens = int.Parse(dt);
+        if (a.Flag("cpu-moe")) o.MoeCpuLayers = -1;
+        if (a.Value("n-cpu-moe") is { } ncm) o.MoeCpuLayers = int.Parse(ncm);
+        if (a.Value("moe-experts") is { } mex) o.MoeExpertCount = int.Parse(mex);
+        if (a.Value("override-tensor") is { } ot)
+            foreach (var rule in ot.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int eq = rule.LastIndexOf('=');
+                if (eq <= 0) { Ui.Error($"--override-tensor expects pattern=BUFFER (e.g. exps=CPU), got '{rule}'"); return false; }
+                o.TensorOverrides.Add(new TensorOverrideSetting { Pattern = rule[..eq], Buffer = rule[(eq + 1)..] });
+            }
         if (a.Value("template-file") is { } tf)
         {
             if (!File.Exists(tf)) { Ui.Error($"template file not found: {tf}"); return false; }
@@ -1592,7 +1603,7 @@ public class Args
     public List<string> Positional { get; } = new();
     private readonly Dictionary<string, string?> _opts = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> Booleans = new(StringComparer.OrdinalIgnoreCase)
-        { "cpu", "no-flash", "no-mmap", "mlock", "embeddings", "bg", "y", "lan", "no-vision", "no-mmproj", "move", "link", "copy", "skip-fit-check", "force", "daemon", "service", "json", "all", "follow", "f", "local" };
+        { "cpu", "cpu-moe", "no-flash", "no-mmap", "mlock", "embeddings", "bg", "y", "lan", "no-vision", "no-mmproj", "move", "link", "copy", "skip-fit-check", "force", "daemon", "service", "json", "all", "follow", "f", "local" };
 
     public Args(string[] args)
     {

@@ -157,13 +157,19 @@ public static class FitEstimator
         // ---- weights per layer
         int n = (int)info.BlockCount;
         var layerBytes = new long[Math.Max(n, 0)];
+        var layerHost = new long[Math.Max(n, 0)];                    // part of each layer the options keep in system memory (MoE experts...)
+        var hostRules = TensorOverrides.HostRules(o);
         long outputBytes = 0, otherBytes = 0, embedBytes = 0;
         bool hasOutputTensor = false;
         var layerRx = new Regex(@"^blk\.(\d+)\.", RegexOptions.Compiled);
         foreach (var t in tensors)
         {
             var m = layerRx.Match(t.Name);
-            if (m.Success && int.TryParse(m.Groups[1].Value, out int il) && il < n) layerBytes[il] += t.Size;
+            if (m.Success && int.TryParse(m.Groups[1].Value, out int il) && il < n)
+            {
+                layerBytes[il] += t.Size;
+                if (hostRules.Any(r => r.IsMatch(t.Name))) layerHost[il] += t.Size;
+            }
             else if (t.Name == "token_embd.weight") embedBytes += t.Size;
             else if (t.Name.StartsWith("output")) { outputBytes += t.Size; if (t.Name == "output.weight") hasOutputTensor = true; }
             else otherBytes += t.Size;
@@ -224,7 +230,7 @@ public static class FitEstimator
             int rep = Math.Min(Math.Max(k, 0), n);
             outGpu = k > n;
             long gpuLayerWeights = 0;
-            for (int i = n - rep; i < n; i++) gpuLayerWeights += layerBytes[i];
+            for (int i = n - rep; i < n; i++) gpuLayerWeights += layerBytes[i] - layerHost[i];
             gpu = gpuLayerWeights + (long)(rep * kvPerLayer);
             if (outGpu) gpu += outputBytes + (hasOutputTensor ? 0 : embedBytes);
             if (k > 0) gpu += compute + proj;
@@ -278,6 +284,10 @@ public static class FitEstimator
             est.Warnings.Add($"The requested context ({o.ContextSize}) is larger than the model's training context ({info.ContextLength}); it is capped.");
         if (devices.Any(g => g.Integrated) && !dedicatedOnly)
             est.Warnings.Add("The integrated GPU shares system RAM with the rest of the machine. Enable \"limit offload to dedicated GPU memory\" to keep it free.");
+        if ((o.MoeCpuLayers != 0 || o.MoeExpertCount > 0) && !info.IsMoe)
+            est.Warnings.Add("The mixture-of-experts options do not apply: this is not a mixture-of-experts model.");
+        else if (info.IsMoe && o.MoeCpuLayers != 0 && est.OffloadedLayers == 0)
+            est.Warnings.Add("Keeping experts in system memory only matters when layers are offloaded to a GPU.");
         if (o.KvCacheTypeV.ToLowerInvariant() != "f16" && o.FlashAttentionSetting == false)
             est.Warnings.Add("A quantized V cache needs flash attention; it will be switched on automatically.");
         if (est.Verdict != "fits" && est.KvCacheBytes > 0)

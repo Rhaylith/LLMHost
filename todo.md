@@ -45,7 +45,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P2** Prompt-template override per model: auto-detect from GGUF metadata, edit as **Jinja** or as **manual** role prefix/suffix, "always show template" toggle 
 - [x] **P2** Additional samplers: Mirostat v1/v2, DRY, XTC, top-n-sigma (TFS no longer exists in llama.cpp), configurable sampler order
 - [x] **P2** Context-overflow policies (truncate middle, rolling window, stop at limit, error) per request; the default stays "drop oldest turns"
-- [ ] **P2** MoE controls (number of experts, force expert weights onto CPU / tensor buffer overrides)
+- [x] **P2** MoE controls (number of experts, force expert weights onto CPU / tensor buffer overrides)
 - [ ] **P2** LoRA adapter loading
 - [ ] **P2** Multiple instances of the same model (distinct identifiers/contexts)
 - [ ] **P2** `logprobs` / `top_logprobs`, `n > 1` choices

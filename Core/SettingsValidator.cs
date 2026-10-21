@@ -72,6 +72,7 @@ public static class SettingsValidator
         oneOf($"{p}.kvCacheTypeV", o.KvCacheTypeV, KvTypes, "V cache type");
         if (o.ContextSize != 0) range($"{p}.contextSize", o.ContextSize, 128, 4_000_000, "Context length");
         range($"{p}.maxConcurrent", o.MaxConcurrent, 1, 16, "Parallel requests");
+        foreach (var problem in Inference.TensorOverrides.Check(o)) e.Add(new($"{p}.tensorOverrides", problem));
         if (o.PromptTemplate != null)
             foreach (var problem in Inference.PromptTemplates.Check(o.PromptTemplate)) e.Add(new($"{p}.promptTemplate", problem));
         range($"{p}.draftTokens", o.DraftTokens, 0, 64, "Draft tokens");

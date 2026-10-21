@@ -195,6 +195,13 @@ public sealed class ModelRuntime : IDisposable
         // quantized V cache requires flash attention
         if (v.HasValue && p.FlashAttention != true) p.FlashAttention = true;
 
+        // mixture of experts: number of experts per token and where the expert weights live
+        if (o.MoeExpertCount > 0 && !string.IsNullOrEmpty(model.Architecture))
+            (p.MetadataOverrides ??= new()).Add(new MetadataOverride($"{model.Architecture}.expert_used_count", o.MoeExpertCount));
+        if (gpuLayers > 0)
+            foreach (var t in TensorOverrides.Effective(o))
+                (p.TensorBufferOverrides ??= new()).Add(new TensorBufferOverride(t.Pattern, t.Buffer));
+
         // multi-GPU: which devices, in which proportions
         if (plan != null && gpuLayers > 0)
         {
@@ -226,6 +233,19 @@ public sealed class ModelRuntime : IDisposable
             options.ContextSize = (uint)info.ContextLength;
         }
 
+        // mixture-of-experts options only make sense for such models
+        if (!info.IsMoe && (options.MoeExpertCount > 0 || options.MoeCpuLayers != 0))
+        {
+            warnings.Add("The mixture-of-experts options were ignored: this is not a mixture-of-experts model.");
+            options.MoeExpertCount = 0; options.MoeCpuLayers = 0;
+        }
+        else if (info.IsMoe && options.MoeExpertCount > info.ExpertCount)
+        {
+            warnings.Add($"The model has {info.ExpertCount} experts; using all of them instead of {options.MoeExpertCount}.");
+            options.MoeExpertCount = 0;
+        }
+        else if (info.IsMoe && options.MoeExpertCount > 0)
+            warnings.Add($"Using {options.MoeExpertCount} of {info.ExpertUsedCount} experts per token instead of the model's default of {info.ExpertUsedCount}: faster, but answers may get worse.");
         int layers = PlanGpuLayers(model, options, info);
 
         // the native library is process wide: report (do not switch) when the model prefers another runtime

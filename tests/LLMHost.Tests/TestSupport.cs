@@ -38,6 +38,8 @@ internal static class GgufBuilder
 
         var tensors = new List<string> { "token_embd.weight", "output_norm.weight", "output.weight" };
         for (int i = 0; i < blocks; i++) { tensors.Add($"blk.{i}.attn_q.weight"); tensors.Add($"blk.{i}.ffn_up.weight"); }
+        if (experts.HasValue)
+            for (int i = 0; i < blocks; i++) foreach (var kind in new[] { "up", "down", "gate" }) tensors.Add($"blk.{i}.ffn_{kind}_exps.weight");
 
         var kvs = new List<Action>
         {
