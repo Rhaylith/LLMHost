@@ -8,8 +8,8 @@ runtime manager and multi-GPU. The plan builds on that.
 
 Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6–10 d · **XL** > 10 d.
 
-**Status convention:** when an item is finished, mark it ✅ with its commit hash where it is described (section 2 table or the
-item heading in section 4), tick it in [todo.md](todo.md), and update the progress line below.
+**Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
+hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
 **Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers (1 of ~50).
 
@@ -38,11 +38,11 @@ half of §6.9 (remaining: images in tool results, `tool_choice`, `cache_control`
 
 | ID | Work | Effort | Unblocks | Status |
 |---|---|---|---|---|
-| **X1** Settings schema version + migration + validation (§10.1) | Add `schemaVersion` to `settings.json`, `presets`, `model-defaults`, `chats`; `Migrations` list run at startup (backup file `.bak-vN` before migrating); field-level validators returning `{field, message}`; `PUT /api/settings` returns 400 with that list. | M | every item that adds settings/files (X1 first so later items only add a migration step) | ✅ Done `40690ec` — `Core/Migrations.cs`, `Core/SettingsValidator.cs`; inline errors in the settings page; unknown keys kept in `settings.json.invalid` |
-| **X2** Structured logging (§10.2) | Replace ad-hoc `LogBuffer.Add` sinks with a thin logger writing JSON-lines to `logs/llmhost-YYYYMMDD.log` (size+age rotation, N files), keep `LogBuffer` as the live tail. Wire llama.cpp native log callback with level filter. | M | §6.12 log viewer, §10.3 | ✅ Done `16cb207` — `Core/FileLog.cs`, redaction, `logging.*` settings, `log level`/`log path` CLI |
-| **X3** Capability model | `ModelCapabilities { Vision, Audio, Tools, Reasoning, Embedding, Moe, Rerank }` computed from GGUF metadata + chat template + mmproj; exposed in `/v1/models`, `/api/models/local`, `/api/status`. | S | §3.1 badges, §1.12 embedding/rerank, §4 UI | ✅ Done `48259a2` — `Models/ModelCapabilities.cs`; UI badges are §3.1 |
-| **X4** Option-plumbing pattern | One place that maps a new field through: `LoadOptions`/`GenerationOptions` → model defaults → presets → OpenAI/Anthropic/native mapping → CLI `params`/`load` → UI param panel → tests. Document it in README so each item below is a checklist, not a design. | S | all | ✅ Done `d343da1` — `docs/adding-options.md` + `OptionsPlumbingTests` (found and fixed a shared `LogitBias` in `Clone()`) |
-| **X5** Test conventions | Pure logic gets unit tests in `UnitTests.cs`; HTTP surface in `ApiTests.cs`; anything needing a model uses the Qwen-0.5B fixture in `IntegrationTests.cs` (skipped when absent). | — | all | ✅ Done `2cc6d80` — `tests/README.md`, `Category=Unit|Api` traits |
+| ✅ **X1** Settings schema version + migration + validation (§10.1) | Add `schemaVersion` to `settings.json`, `presets`, `model-defaults`, `chats`; `Migrations` list run at startup (backup file `.bak-vN` before migrating); field-level validators returning `{field, message}`; `PUT /api/settings` returns 400 with that list. | M | every item that adds settings/files (X1 first so later items only add a migration step) | Done `40690ec` — `Core/Migrations.cs`, `Core/SettingsValidator.cs`; inline errors in the settings page; unknown keys kept in `settings.json.invalid` |
+| ✅ **X2** Structured logging (§10.2) | Replace ad-hoc `LogBuffer.Add` sinks with a thin logger writing JSON-lines to `logs/llmhost-YYYYMMDD.log` (size+age rotation, N files), keep `LogBuffer` as the live tail. Wire llama.cpp native log callback with level filter. | M | §6.12 log viewer, §10.3 | Done `16cb207` — `Core/FileLog.cs`, redaction, `logging.*` settings, `log level`/`log path` CLI |
+| ✅ **X3** Capability model | `ModelCapabilities { Vision, Audio, Tools, Reasoning, Embedding, Moe, Rerank }` computed from GGUF metadata + chat template + mmproj; exposed in `/v1/models`, `/api/models/local`, `/api/status`. | S | §3.1 badges, §1.12 embedding/rerank, §4 UI | Done `48259a2` — `Models/ModelCapabilities.cs`; UI badges are §3.1 |
+| ✅ **X4** Option-plumbing pattern | One place that maps a new field through: `LoadOptions`/`GenerationOptions` → model defaults → presets → OpenAI/Anthropic/native mapping → CLI `params`/`load` → UI param panel → tests. Document it in README so each item below is a checklist, not a design. | S | all | Done `d343da1` — `docs/adding-options.md` + `OptionsPlumbingTests` (found and fixed a shared `LogitBias` in `Clone()`) |
+| ✅ **X5** Test conventions | Pure logic gets unit tests in `UnitTests.cs`; HTTP surface in `ApiTests.cs`; anything needing a model uses the Qwen-0.5B fixture in `IntegrationTests.cs` (skipped when absent). | — | all | Done `2cc6d80` — `tests/README.md`, `Category=Unit|Api` traits |
 
 ---
 
@@ -129,7 +129,7 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
 * Interaction: reasoning/tool formatting in `Reasoning.cs`/`ToolCalling.cs` detect model families from the template text — they
   must keep working with an override (feed them the *effective* template).
 
-#### §1.4 Additional samplers — **M** — ✅ Done
+#### ✅ §1.4 Additional samplers — **M** (`f5326bb`)
 * Extend `GenerationOptions`: `Mirostat (0|1|2)`, `MirostatTau`, `MirostatEta`, `DryMultiplier`, `DryBase`, `DryAllowedLength`,
   `DryPenaltyLastN`, `DrySequenceBreakers`, `XtcProbability`, `XtcThreshold`, `TopNSigma`, `SamplerOrder` (string list).
 * `DefaultSamplingPipeline` fixes the chain. Replace `BuildSampler` with a **custom `ISamplingPipeline`** composed from the
@@ -530,11 +530,11 @@ setting.
 
 ### §10 Quality, safety & operations
 
-#### §10.1 Settings versioning & validation — **M** → implemented as **X1** above. — ✅ Done (X1, `40690ec`)
+#### ✅ §10.1 Settings versioning & validation — **M** → implemented as **X1** above (done as X1, `40690ec`)
 UI: validation errors shown inline per field (red outline + message) and as a summary; invalid keys in a hand-edited
 `settings.json` are preserved in `settings.json.invalid` and reported at startup instead of silently dropped.
 
-#### §10.2 Structured logging & native log level — **M** → implemented as **X2**. — ✅ Done (X2, `16cb207`)
+#### ✅ §10.2 Structured logging & native log level — **M** → implemented as **X2** (done as X2, `16cb207`)
 Settings: `logging.level` (trace…error), `logging.native` (off|error|warn|info|debug), `logging.retainDays`,
 `logging.maxFileMb`. CLI `log level <x>`. "Open logs folder" button + diagnostic export (P3) reuses the same files.
 
@@ -593,7 +593,7 @@ Deliverable: `SECURITY.md` + test project `SecurityTests`.
 
 | Section | Items | Effort |
 |---|---|---|
-| X1–X4 foundations | 4 | M+M+S+S ≈ 2.5 wk | — ✅ done
+| ✅ X1–X4 foundations | 4 | M+M+S+S ≈ 2.5 wk |
 | §1 Inference | 1.1 L · 1.2 L · 1.2b L · 1.3 M · 1.4 M · 1.5 M · 1.6 M · 1.7 M · 1.8 M · 1.11 S · 1.12 M | ≈ 10 wk |
 | §2 Hardware | 2.3 M · 2.4 S · 2.5 XL · 2.6 M | ≈ 5 wk |
 | §3 Models | 3.1 M · 3.2 M · 3.3 S · 3.4 M · 3.5 M | ≈ 3.5 wk |
