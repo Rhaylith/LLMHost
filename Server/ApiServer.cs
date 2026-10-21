@@ -71,7 +71,7 @@ public partial class ApiServer
             {
                 LogBuffer.Add("server", $"{ctx.Request.Method} {ctx.Request.Path}: {ex.Message}");
                 int status = ex is FileNotFoundException or InvalidOperationException or ArgumentException ? 400 : 500;
-                await WriteError(ctx, status, ex.Message, ex is ModelLoadException ml ? ml.Kind : "server_error");
+                await WriteError(ctx, status, ex.Message, ex is ModelLoadException ml ? ml.Kind : ex is ContextLengthException ? "context_length_exceeded" : "server_error");
             }
         });
 
@@ -237,7 +237,7 @@ public partial class ApiServer
         // reasoning_format "none" keeps <think>...</think> inside the content (llama.cpp convention)
         bool inlineReasoning = (body["reasoning_format"] as JsonValue)?.GetValue<string>() == "none";
         int reserve = g.MaxTokens > 0 ? g.MaxTokens : (int)Math.Min(512, rt.ContextSize / 4);
-        var prompt = rt.BuildFittingPrompt(messages, reserve, out int dropped, out var images, g.ReasoningEffort);
+        var prompt = rt.BuildFittingPrompt(messages, reserve, out int dropped, out var images, g.ReasoningEffort, g.ContextOverflow);
         if (dropped > 0) LogBuffer.Add("server", $"Context full: dropped {dropped} oldest message(s)");
 
         string id = "chatcmpl-" + Guid.NewGuid().ToString("N")[..24];

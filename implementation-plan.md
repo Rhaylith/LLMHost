@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override (5 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies (6 of ~50).
 
 ---
 
@@ -159,7 +159,7 @@ Deviations: no separate `eos` field in the manual format (put it in the assistan
   compatibility), native API, CLI `params`, UI "Advanced sampling" collapsible, presets.
 * Tests: deterministic seed + temperature 0 unchanged; DRY reduces repeats on a loop prompt; sampler-order validation.
 
-#### §1.5 Context-overflow policies — **M**
+#### ✅ §1.5 Context-overflow policies — **M**
 * `GenerationOptions.ContextOverflow = dropOldest (current) | truncateMiddle | rollingWindow | stopAtLimit | error`, plus
   `KeepFirstTokens` (default: system prompt) and `KeepLastTokens`.
 * Prompt-time policies live in `BuildFittingPrompt` ([ModelRuntime.cs:337](Inference/ModelRuntime.cs:337)):
@@ -170,6 +170,10 @@ Deviations: no separate `eos` field in the manual format (put it in the assistan
   `finish_reason: length`. Requires RoPE-shift support (check `llama_kv_self_can_shift`; refuse with message otherwise).
 * Report applied policy and dropped counts in stats (`context_dropped_messages`, `context_shifts`).
 * Setting precedence: request > chat > model default > global.
+
+**As built:** `GenerationOptions.ContextOverflow` (dropOldest | truncateMiddle | rollingWindow | stopAtLimit | error; spellings in camelCase, snake_case and kebab-case) and `KeepFirstTokens`; request fields `context_overflow` / `context_overflow_policy` / `contextOverflowPolicy` (LM Studio's name) and `keep_first_tokens`; web UI selector "When the context is full"; `Inference/ContextOverflow.cs`. `BuildFittingPrompt` takes the policy: truncateMiddle keeps the system prompt, the first question and the newest turns and adds "[… N earlier messages omitted …]" to the first question; stopAtLimit never touches the conversation; error throws `ContextLengthException` → HTTP 400 with error type `context_length_exceeded`. rollingWindow lets an answer run past the window (up to 8× the window when no token limit is given): `MakeRoom` first recycles idle caches of other conversations and then discards the older half of the request's own cache after the first `KeepFirstTokens` (default 32) tokens (`MemorySequenceRemove` + `MemorySequenceAdd`); when the model cannot shift its cache (`MemoryCanShift`) the policy behaves like stopAtLimit and logs why. The native API reports `stats.context_shifts`.
+Deviations: no `KeepLastTokens` (the newest message is always kept); precedence request > chat > model default > global works through the existing settings layers but chats do not store the policy yet; dropped-message counts are not returned by the API (only logged by the CLI/chat endpoints that already had them).
+Verified on SmolVLM-256M with a 512-token window: error / dropOldest / truncateMiddle / stopAtLimit behave as described, and a 700-token answer succeeds with the rolling window (cache shifted) but stops short without it.
 
 #### §1.6 MoE controls — **M**
 * `LoadOptions`: `MoeExpertCount` (override `*.expert_used_count` metadata key via `llama_model_kv_override`),

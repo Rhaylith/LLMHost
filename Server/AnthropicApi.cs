@@ -204,7 +204,7 @@ public partial class ApiServer
         if (tools != null) OpenAiMapping.ApplyTools(tools, messages, g);
 
         int reserve = g.MaxTokens > 0 ? g.MaxTokens : (int)Math.Min(512, rt.ContextSize / 4);
-        string prompt = rt.BuildFittingPrompt(messages, reserve, out _, out var images, g.ReasoningEffort);
+        string prompt = rt.BuildFittingPrompt(messages, reserve, out _, out var images, g.ReasoningEffort, g.ContextOverflow);
         bool stream = body["stream"]?.GetValue<bool>() ?? false;
         string id = "msg_" + Guid.NewGuid().ToString("N")[..24];
         var stats = new GenerationStats();

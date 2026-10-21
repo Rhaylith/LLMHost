@@ -99,6 +99,9 @@ public static class SettingsValidator
         range($"{p}.presencePenalty", g.PresencePenalty, -2, 2, "Presence penalty");
         range($"{p}.maxTokens", g.MaxTokens, -2, 10_000_000, "Max tokens");
         range($"{p}.topLogprobs", g.TopLogprobs, 0, 20, "Top log-probs");
+        if (!Inference.ContextOverflow.TryParse(g.ContextOverflow, out _))
+            e.Add(new($"{p}.contextOverflow", $"Context overflow must be one of: {string.Join(", ", Inference.ContextOverflow.Names)}."));
+        range($"{p}.keepFirstTokens", g.KeepFirstTokens, 0, 100_000, "Tokens to keep");
         range($"{p}.mirostat", g.Mirostat, 0, 2, "Mirostat mode");
         range($"{p}.mirostatTau", g.MirostatTau, 0, 20, "Mirostat tau");
         range($"{p}.mirostatEta", g.MirostatEta, 0, 1, "Mirostat eta");

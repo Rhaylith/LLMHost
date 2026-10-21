@@ -32,6 +32,8 @@ public static class OpenAiMapping
             else if (stop is JsonArray arr) foreach (var x in arr) if (x?.GetValue<string>() is { } s) g.Stop.Add(s);
         }
         ReadSamplers(body, g);
+        if ((body["context_overflow"] ?? body["context_overflow_policy"] ?? body["contextOverflowPolicy"]) is JsonValue cov && cov.TryGetValue<string>(out var covs)) g.ContextOverflow = covs;
+        if (Num(body, "keep_first_tokens") is { } kft) g.KeepFirstTokens = (int)kft;
         ReadReasoning(body, g);
         if (body["grammar"]?.GetValue<string>() is { Length: > 0 } gr) g.Grammar = gr;
         if (body["cache_prompt"] is JsonValue cp && cp.TryGetValue<bool>(out var cache)) g.CachePrompt = cache;

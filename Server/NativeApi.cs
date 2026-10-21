@@ -206,7 +206,7 @@ public partial class ApiServer
 
         var history = messages.ToList();
         int reserve = g.MaxTokens > 0 ? g.MaxTokens : (int)Math.Min(512, rt.ContextSize / 4);
-        string prompt = rt.BuildFittingPrompt(messages, reserve, out _, out var imgs, g.ReasoningEffort);
+        string prompt = rt.BuildFittingPrompt(messages, reserve, out _, out var imgs, g.ReasoningEffort, g.ContextOverflow);
         var stats = new GenerationStats();
         string responseId = "resp_" + Guid.NewGuid().ToString("N")[..24];
 
@@ -222,6 +222,7 @@ public partial class ApiServer
             input_tokens = stats.PromptTokens, total_output_tokens = stats.CompletionTokens, reasoning_output_tokens = reasoningTokens,
             tokens_per_second = Math.Round(stats.TokensPerSecond, 2), time_to_first_token_seconds = Math.Round(stats.TimeToFirstTokenMs / 1000.0, 3),
             model_load_time_seconds = jit ? Math.Round(loadSeconds, 3) : (double?)null,
+            context_shifts = stats.ContextShifts > 0 ? stats.ContextShifts : (int?)null,
             draft_tokens_proposed = stats.DraftTokens > 0 ? stats.DraftTokens : (int?)null,
             draft_tokens_accepted = stats.DraftTokens > 0 ? stats.DraftAccepted : (int?)null,
         };
@@ -265,7 +266,7 @@ public partial class ApiServer
                 {
                     var work = messages.ToList();
                     if (setup != null) OpenAiMapping.ApplyTools(setup, work, new GenerationOptions());
-                    string roundPrompt = rt.BuildFittingPrompt(work, reserve, out _, out var im, g.ReasoningEffort);
+                    string roundPrompt = rt.BuildFittingPrompt(work, reserve, out _, out var im, g.ReasoningEffort, g.ContextOverflow);
                     var st = new GenerationStats();
                     var parser = setup != null ? new ToolStreamParser(setup.Format) : null;
                     var answer = new StringBuilder();

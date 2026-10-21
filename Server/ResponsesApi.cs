@@ -162,7 +162,7 @@ public partial class ApiServer
         var messages = ResponsesMessages(history.Concat(inputItems), instructions, rt.ToolFormat);
         if (tools != null) OpenAiMapping.ApplyTools(tools, messages, g);
         int reserve = g.MaxTokens > 0 ? g.MaxTokens : (int)Math.Min(512, rt.ContextSize / 4);
-        var prompt = rt.BuildFittingPrompt(messages, reserve, out _, out var images, g.ReasoningEffort);
+        var prompt = rt.BuildFittingPrompt(messages, reserve, out _, out var images, g.ReasoningEffort, g.ContextOverflow);
 
         string respId = "resp_" + Guid.NewGuid().ToString("N")[..24];
         long created = UnixNow();

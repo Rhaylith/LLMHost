@@ -33,6 +33,8 @@ public class GenerationStats
     /// <summary>Prompt tokens served from the KV cache instead of being evaluated again.</summary>
     public int CachedTokens { get; set; }
     public int CompletionTokens { get; set; }
+    /// <summary>Times the oldest part of the cache was discarded so the answer could continue (context overflow policy rollingWindow).</summary>
+    public int ContextShifts { get; set; }
     /// <summary>Speculative decoding: tokens the draft model proposed for this request and how many the main model accepted.</summary>
     public int DraftTokens { get; set; }
     public int DraftAccepted { get; set; }
@@ -498,9 +500,10 @@ public sealed class ModelRuntime : IDisposable
     /// Image tokens are counted with the real multimodal tokenizer so they are budgeted correctly.
     /// </summary>
     public string BuildFittingPrompt(List<ChatMessage> messages, int reserveForOutput, out int droppedMessages,
-        out IReadOnlyList<byte[]> images, string? reasoningEffort = null)
+        out IReadOnlyList<byte[]> images, string? reasoningEffort = null, string? overflowPolicy = null)
     {
         droppedMessages = 0;
+        var policy = ContextOverflow.Parse(overflowPolicy);
         // earlier reasoning is not sent back to the model (it would only use up the context window)
         var work = messages.Select(m => m.Role == "assistant" && m.Content.Contains(TextScanner.ThinkOpen)
             ? m with { Content = Reasoning.StripThink(m.Content) } : m).ToList();
@@ -512,17 +515,45 @@ public sealed class ModelRuntime : IDisposable
             else work.Insert(0, new ChatMessage("system", hint));
         }
         int budget = (int)ContextSize - Math.Max(16, reserveForOutput);
-        while (true)
+
+        // renders one candidate conversation and returns its prompt, images and token count
+        (string Prompt, List<byte[]> Images, int Tokens) Render(List<ChatMessage> w)
         {
-            var prompt = Reasoning.ApplyToPrompt(ApplyChatTemplate(work), ReasoningStyle, reasoningEffort);
-            var imgs = work.Where(m => m.Images != null).SelectMany(m => m.Images!).ToList();
-            images = imgs;
+            var prompt = Reasoning.ApplyToPrompt(ApplyChatTemplate(w), ReasoningStyle, reasoningEffort);
+            var imgs = w.Where(m => m.Images != null).SelectMany(m => m.Images!).ToList();
             RequireAudioSupport(imgs);
             if (imgs.Count > 0 && _mtmd == null)
                 throw new InvalidOperationException(
                     $"Model '{Identifier}' cannot read images: no multimodal projector (mmproj) is loaded. " +
                     "Download a vision model (it ships an mmproj file) or load it with vision enabled.");
-            if (CountPromptTokens(prompt, imgs) <= budget) return prompt;
+            return (prompt, imgs, CountPromptTokens(prompt, imgs));
+        }
+
+        // truncateMiddle keeps the system prompt, the first question and the newest turns
+        int first = work.FindIndex(m => m.Role != "system");
+        int omitted = 0;
+        List<ChatMessage> View() => omitted == 0 || first < 0 ? work : work.Select((m, i) => i == first
+            ? m with { Content = m.Content + $"\n\n[… {omitted} earlier message{(omitted == 1 ? "" : "s")} omitted …]" } : m).ToList();
+
+        while (true)
+        {
+            var (prompt, imgs, tokens) = Render(View());
+            images = imgs;
+            if (tokens <= budget || policy == OverflowPolicy.StopAtLimit) return prompt;
+            if (policy == OverflowPolicy.Error)
+                throw new ContextLengthException(
+                    $"This conversation is {tokens} tokens but only {budget} fit in the {ContextSize}-token context window " +
+                    $"(after reserving {Math.Max(16, reserveForOutput)} for the answer). Shorten it, load the model with a larger context, or choose another context overflow policy.");
+
+            if (policy == OverflowPolicy.TruncateMiddle)
+            {
+                // drop the message right after the first question; the newest message always stays
+                if (first < 0 || first + 1 >= work.Count - 1) return prompt;
+                work.RemoveAt(first + 1);
+                omitted++; droppedMessages++;
+                continue;
+            }
+
             int idx = work.FindIndex(m => m.Role != "system");
             // always keep the last message (the user's current turn)
             if (idx < 0 || idx >= work.Count - 1) return prompt;
@@ -610,6 +641,10 @@ public sealed class ModelRuntime : IDisposable
         public bool Multimodal;
         /// <summary>The prompt has a token signature (images as stand-in tokens), so its KV cache can be reused and kept.</summary>
         public bool ImageReuse;
+        /// <summary>Policy rollingWindow is active for this request; Room = tokens that fit after the prompt.</summary>
+        public bool Rolling;
+        public int Room;
+        public int Reserve => PromptTokens + Math.Min(MaxTokens, Room);
         /// <summary>Speculative decoding: tokens proposed for this step (they sit behind the real token in the batch).</summary>
         public List<LLamaToken>? Drafts;
         public int SpecFirstIdx, DraftProposed, DraftAccepted;
@@ -731,7 +766,10 @@ public sealed class ModelRuntime : IDisposable
             throw new InvalidOperationException(
                 $"Prompt{(multimodal ? " (with images)" : "")} is {promptTokens} tokens but the context window is only {ContextSize}. Reload with a larger context.");
         req.PromptTokens = promptTokens;
-        req.MaxTokens = g.MaxTokens > 0 ? Math.Min(g.MaxTokens, room) : room;
+        req.Room = room;
+        req.Rolling = ContextOverflow.Parse(g.ContextOverflow) == OverflowPolicy.RollingWindow && CanShiftCache();
+        req.MaxTokens = req.Rolling ? (g.MaxTokens > 0 ? g.MaxTokens : (int)Math.Min(int.MaxValue / 2, ContextSize * 8L))
+                                    : g.MaxTokens > 0 ? Math.Min(g.MaxTokens, room) : room;
         req.Sampler = BuildSampler(g);
         req.Scanner = new TextScanner(TemplateStops.Count == 0 ? g.Stop : g.Stop.Concat(TemplateStops).Distinct().ToList(), Reasoning.EndsInsideThink(prompt));
         req.ThinkBudget = Reasoning.Budget(g.ReasoningEffort);
@@ -871,9 +909,9 @@ public sealed class ModelRuntime : IDisposable
             if (slot == null) break;
 
             // space in the pool: active requests reserve prompt + max tokens, idle slots hold their cache
-            long need = req.PromptTokens + req.MaxTokens;
+            long need = req.Reserve;
             var chosen = slot;
-            long InUse() => _slots.Where(s => s != chosen).Sum(s => s.Req != null ? s.Req.PromptTokens + s.Req.MaxTokens : s.Cache.Count);
+            long InUse() => _slots.Where(s => s != chosen).Sum(s => s.Req != null ? s.Req.Reserve : s.Cache.Count);
             while (InUse() + need > ContextSize)
             {
                 var victim = _slots.Where(s => s != chosen && s.Req == null && s.Cache.Count > 0).OrderBy(s => s.LastUsed).FirstOrDefault();
@@ -903,6 +941,12 @@ public sealed class ModelRuntime : IDisposable
         {
             var r = s.Req;
             if (r == null || r.State != SlotState.Generating || r.Feed.Count == 0) continue;
+            if (r.Rolling && !MakeRoom(s, r, r.Feed.Count, ctx))
+            {
+                r.MaxTokens = r.Generated;                    // no room left and nothing to discard: end with finish reason "length"
+                Finish(s);
+                continue;
+            }
             r.InFlight = r.Feed; r.Feed = new List<LLamaToken>();
             if (lone && CanSpeculate(r)) TryDraft(s, r);
             int idx = -1;
@@ -972,6 +1016,53 @@ public sealed class ModelRuntime : IDisposable
             }
             catch (Exception ex) { Fail(s, ex); }
         }
+    }
+
+    // ------------------------------------------------------------------ rolling window (context overflow policy)
+
+    private bool? _canShift;
+    private bool CanShiftCache()
+    {
+        if (_canShift != null) return _canShift.Value;
+        try { _canShift = Context.NativeHandle.MemoryCanShift; }
+        catch { _canShift = false; }
+        if (_canShift == false) LogBuffer.Add("gen", $"{Identifier}: this model cannot shift its cache, so the rollingWindow policy behaves like stopAtLimit.", LogLevel.Warn);
+        return _canShift.Value;
+    }
+
+    /// <summary>Cells of the shared context window that a slot holds (a running request counts its sequence, an idle slot its cache).</summary>
+    private int CellsOf(Slot s) => s.Req != null ? s.Req.NextPos : s.Cache.Count;
+
+    /// <summary>
+    /// Before a rolling-window request adds <paramref name="need"/> tokens: frees room in the window by recycling idle caches
+    /// (oldest first) and, when that is not enough, by discarding the older half of this request's own sequence after the
+    /// tokens that are kept. Returns false when no room could be made (the answer then stops with finish reason "length").
+    /// </summary>
+    private bool MakeRoom(Slot slot, GenRequest r, int need, LLamaContext ctx)
+    {
+        long Used() => _slots.Sum(s => (long)CellsOf(s));
+        while (Used() + need > ContextSize)
+        {
+            var victim = _slots.Where(s => s != slot && s.Req == null && s.Cache.Count > 0).OrderBy(s => s.LastUsed).FirstOrDefault();
+            if (victim == null) break;
+            ClearSlot(victim);
+        }
+        if (Used() + need <= ContextSize) return true;
+
+        // shift this sequence: keep the start, drop the older half of the rest
+        int keep = Math.Min(r.G.KeepFirstTokens > 0 ? r.G.KeepFirstTokens : 32, Math.Max(1, r.NextPos / 2));
+        int left = r.NextPos - keep;
+        if (left < 2) return false;
+        int discard = Math.Max(left / 2, need);
+        if (discard >= left) discard = left - 1;
+        var seq = (LLamaSeqId)slot.Id;
+        ctx.NativeHandle.MemorySequenceRemove(seq, keep, keep + discard);
+        ctx.NativeHandle.MemorySequenceAdd(seq, keep + discard, r.NextPos, -discard);
+        r.NextPos -= discard;
+        if (slot.Cache.Count >= keep + discard) slot.Cache.RemoveRange(keep, discard);
+        r.Stats.ContextShifts++;
+        LogBuffer.Add("gen", $"{Identifier}: context window full, discarded {discard} cached tokens after the first {keep}.", LogLevel.Debug);
+        return Used() + need <= ContextSize;
     }
 
     // ------------------------------------------------------------------ speculative decoding
@@ -1398,7 +1489,7 @@ public sealed class ModelRuntime : IDisposable
             throw new InvalidOperationException($"The saved cache holds {meta.Tokens} tokens but the context window is only {ContextSize}.");
 
         // make room in the shared pool: other idle caches are recycled, oldest first
-        while (_slots.Where(o => o != s).Sum(o => o.Req != null ? o.Req.PromptTokens + o.Req.MaxTokens : o.Cache.Count) + meta.Tokens > ContextSize)
+        while (_slots.Where(o => o != s).Sum(o => o.Req != null ? o.Req.Reserve : o.Cache.Count) + meta.Tokens > ContextSize)
         {
             var victim = _slots.Where(o => o != s && o.Req == null && o.Cache.Count > 0).OrderBy(o => o.LastUsed).FirstOrDefault();
             if (victim == null) throw new InvalidOperationException("Not enough free context to restore this cache while other requests are running.");

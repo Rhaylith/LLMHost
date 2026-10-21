@@ -157,6 +157,13 @@ public class GenerationOptions
     /// <summary>Record the log-probability of every generated token (and the <see cref="TopLogprobs"/> best alternatives).</summary>
     public bool Logprobs { get; set; }
     public int TopLogprobs { get; set; }
+    /// <summary>
+    /// What to do when the conversation is longer than the context window: dropOldest (default), truncateMiddle, rollingWindow,
+    /// stopAtLimit or error. rollingWindow also lets an answer run past the window by discarding the oldest cached tokens.
+    /// </summary>
+    public string ContextOverflow { get; set; } = "dropOldest";
+    /// <summary>rollingWindow: tokens at the start that are never discarded (0 = the first 32).</summary>
+    public int KeepFirstTokens { get; set; }
     /// <summary>Mirostat mode: 0 = off, 1 or 2. When on it replaces top-k / top-p / min-p / typical / XTC (temperature still applies).</summary>
     public int Mirostat { get; set; }
     /// <summary>Mirostat target entropy (tau) and learning rate (eta).</summary>

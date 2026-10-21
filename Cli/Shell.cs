@@ -1155,7 +1155,7 @@ public class Shell
         messages.AddRange(_history);
 
         int reserve = _gen.MaxTokens > 0 ? _gen.MaxTokens : (int)Math.Min(512, rt.ContextSize / 4);
-        string prompt = rt.BuildFittingPrompt(messages, reserve, out int dropped, out var images, _gen.ReasoningEffort);
+        string prompt = rt.BuildFittingPrompt(messages, reserve, out int dropped, out var images, _gen.ReasoningEffort, _gen.ContextOverflow);
         if (dropped > 0) Ui.Info(Ui.Dim($"[context full: {dropped} oldest message(s) not sent to the model]"));
 
         var stats = new GenerationStats();

@@ -125,6 +125,8 @@ dialog::backdrop{background:#0008}
     <label>Stop strings (comma separated)</label><input id="p-stop">
     <label>Reasoning (thinking models)</label>
     <select id="p-reasoning"><option value="">model default</option><option value="off">off</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="on">on</option></select>
+    <label title="What happens when the conversation is longer than the context window">When the context is full</label>
+    <select id="p-overflow"><option value="dropOldest">drop the oldest turns (default)</option><option value="truncateMiddle">keep start and end, drop the middle</option><option value="rollingWindow">rolling window (answers can go on)</option><option value="stopAtLimit">stop at the limit</option><option value="error">refuse (error)</option></select>
     <label title="Tools of the MCP servers configured in Settings"><input type="checkbox" id="p-mcp" style="width:auto"> Use MCP tools</label>
     <select id="p-mcp-confirm"><option value="ask">Ask before each tool call</option><option value="never">Run tools without asking</option></select>
     <label><input type="checkbox" id="p-json" style="width:auto"> JSON mode</label>
@@ -516,6 +518,7 @@ function genParams() {
   if ($('p-seed').value !== '') p.seed = Number($('p-seed').value);
   p.cache_prompt = $('p-cache').checked;
   if ($('p-reasoning').value) p.reasoning_effort = $('p-reasoning').value;
+  if ($('p-overflow').value !== 'dropOldest') p.context_overflow = $('p-overflow').value;
   const stop = $('p-stop').value.split(',').map(s => s.replace(/\\n/g, '\n')).filter(Boolean); if (stop.length) p.stop = stop;
   const schema = $('p-schema').value.trim();
   if (schema) { try { p.response_format = {type:'json_schema', json_schema:{name:'out', schema: JSON.parse(schema)}}; } catch { alert('JSON schema is not valid JSON'); throw new Error('schema'); } }
@@ -531,6 +534,7 @@ function applyGen(g) {
   $('p-seed').value = g.seed ?? '';
   $('p-stop').value = (g.stop || []).join(',');
   $('p-reasoning').value = g.reasoningEffort || '';
+  $('p-overflow').value = g.contextOverflow || 'dropOldest';
   $('p-json').checked = !!g.jsonMode;
   $('p-schema').value = g.jsonSchema || '';
   if (g.systemPrompt !== undefined) $('p-system').value = g.systemPrompt || '';
@@ -540,7 +544,7 @@ function genForServer() {
   const p = genParams();
   return {temperature:p.temperature, topP:p.top_p, topK:p.top_k, minP:p.min_p, repeatPenalty:p.repeat_penalty,
     frequencyPenalty:p.frequency_penalty, presencePenalty:p.presence_penalty, maxTokens:p.max_tokens ?? -1, seed:p.seed ?? null,
-    stop:p.stop || [], reasoningEffort: $('p-reasoning').value || null, systemPrompt:$('p-system').value || null, jsonMode: $('p-json').checked, jsonSchema: $("p-schema").value.trim() || null, ...advForServer()};
+    stop:p.stop || [], reasoningEffort: $('p-reasoning').value || null, contextOverflow: $('p-overflow').value, systemPrompt:$('p-system').value || null, jsonMode: $('p-json').checked, jsonSchema: $("p-schema").value.trim() || null, ...advForServer()};
 }
 async function refreshPresets() {
   const all = await api('/api/presets');
