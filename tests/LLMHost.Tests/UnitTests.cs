@@ -7,6 +7,7 @@ using Xunit;
 
 namespace LLMHostProject.Tests;
 
+[Trait("Category", "Unit")]
 public class GgufTests
 {
     [Fact]
@@ -53,6 +54,7 @@ public class GgufTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class TextScannerTests
 {
     private static (string content, string reasoning) Run(TextScanner s, params string[] pieces)
@@ -98,6 +100,7 @@ public class TextScannerTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class ReasoningTests
 {
     [Theory]
@@ -138,6 +141,7 @@ public class ReasoningTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class SchemaGrammarTests
 {
     [Fact]
@@ -171,6 +175,7 @@ public class SchemaGrammarTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class ToolCallingTests
 {
     [Theory]
@@ -237,6 +242,7 @@ public class ToolCallingTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class MappingTests
 {
     private static JsonNode J(string s) => JsonNode.Parse(s)!;
@@ -310,6 +316,7 @@ public class MappingTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class FitTests
 {
     [Fact]
@@ -353,6 +360,7 @@ public class FitTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class DocumentTests
 {
     [Fact]
@@ -396,6 +404,7 @@ public class DocumentTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class AnthropicBlockTests
 {
     [Fact]
@@ -417,6 +426,7 @@ public class AnthropicBlockTests
         Assert.Equal("hello", LLMHostProject.Server.ApiServer.OrderTextBlocks(new[] { "hello" }));
 }
 
+[Trait("Category", "Unit")]
 public class ClaudeCodeShapeTests
 {
     [Fact]

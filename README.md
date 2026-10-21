@@ -78,12 +78,13 @@ or the checkbox in Server & Settings.
 ## Tests
 
 ```
-dotnet test tests/LLMHostProject.Tests                                     # unit + API contract tests (no model needed)
-$env:LLMHOST_TEST_MODEL = "C:\path\to\small-chat-model.gguf"; dotnet test tests/LLMHostProject.Tests --filter "Category=Integration"
+dotnet test tests/LLMHost.Tests                                     # unit + API contract tests (no model needed)
+$env:LLMHOST_TEST_MODEL = "C:\path\to\small-chat-model.gguf"; dotnet test tests/LLMHost.Tests --filter "Category=Integration"
 ```
 
 The unit and contract tests cover the GGUF parser, text/think scanner, schema-to-grammar, tool-call formats, OpenAI/Anthropic
 mapping, the memory estimator, document extraction/retrieval, download resume with SHA-256 verification, authentication and
 the HTTP API shapes. The integration tests (generation, prompt cache reuse, parallel batching, stop strings, logprobs) run
 only when `LLMHOST_TEST_MODEL` is set; CI downloads Qwen2.5-0.5B for them (`.github/workflows/ci.yml`).
+Conventions (which kind of test goes where, shared helpers): [tests/README.md](tests/README.md).
 `tests/fixtures/mcp-test-server.ps1` is a tiny stdio MCP server for trying the MCP host by hand.

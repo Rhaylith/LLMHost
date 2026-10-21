@@ -13,6 +13,7 @@ namespace LLMHostProject.Tests;
 /// round-trip through JSON (defaults, presets and chats store them), and be known to the unknown-key check.
 /// A new option that breaks one of these fails here instead of silently being lost.
 /// </summary>
+[Trait("Category", "Unit")]
 public class OptionsPlumbingTests
 {
     public static IEnumerable<object[]> OptionTypes() => new[] { new object[] { typeof(LoadOptions) }, new object[] { typeof(GenerationOptions) } };

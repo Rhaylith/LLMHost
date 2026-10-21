@@ -40,6 +40,7 @@ public sealed class ServerFixture : IAsyncLifetime
     }
 }
 
+[Trait("Category", "Api")]
 public class ApiContractTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;
@@ -203,6 +204,7 @@ public class ApiContractTests : IClassFixture<ServerFixture>
     }
 }
 
+[Trait("Category", "Unit")]
 public class DownloadTests : IDisposable
 {
     private readonly HttpListener _listener = new();
@@ -304,6 +306,7 @@ public class DownloadTests : IDisposable
     }
 }
 
+[Trait("Category", "Unit")]
 public class ParseReferenceTests
 {
     [Theory]

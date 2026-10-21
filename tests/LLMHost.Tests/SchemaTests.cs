@@ -7,6 +7,7 @@ using Xunit;
 
 namespace LLMHostProject.Tests;
 
+[Trait("Category", "Unit")]
 public class MigrationTests
 {
     private static string Temp(string name)
@@ -93,6 +94,7 @@ public class MigrationTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class SettingsValidatorTests
 {
     [Fact]
@@ -123,6 +125,7 @@ public class SettingsValidatorTests
     }
 }
 
+[Trait("Category", "Api")]
 public class SettingsApiValidationTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

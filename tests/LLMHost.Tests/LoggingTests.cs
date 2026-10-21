@@ -5,6 +5,7 @@ using Xunit;
 
 namespace LLMHostProject.Tests;
 
+[Trait("Category", "Unit")]
 public class LogRedactorTests
 {
     [Theory]
@@ -35,6 +36,7 @@ public class LogRedactorTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class FileLogTests
 {
     private static string NewDir() => Path.Combine(TestEnvironment.Home, "logs-test", Guid.NewGuid().ToString("N")[..6]);

@@ -4,6 +4,7 @@ using Xunit;
 
 namespace LLMHostProject.Tests;
 
+[Trait("Category", "Unit")]
 public class CapabilityTests
 {
     private static GgufInfo Read(string file, byte[] bytes) => GgufInfo.Read(GgufBuilder.WriteFile("caps/" + file, bytes));
