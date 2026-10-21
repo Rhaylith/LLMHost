@@ -85,7 +85,7 @@ Goal: multiple cache slots, persist to disk, (llama-server cache: see note).
   a mismatched file is rejected.
 * Risks: unified-KV fragmentation → run `llama_kv_cache_defrag` when `cached/ctx > 0.8`.
 
-#### ✅ §1.2 Vision follow-ups — **L** (`35b1cf0`, `f1467c8`, `68d3505`, `b49c817`, audio: see below)
+#### ✅ §1.2 Vision follow-ups — **L** (`35b1cf0`, `f1467c8`, `68d3505`, `b49c817`, audio: `58d62b4`)
 1. ✅ **Per-image options (S).** `detail: low|high|auto` on `image_url` → max edge (e.g. 512 / 1344) resized in `ImageInput`
    As built: `System.Drawing` (the app is Windows-only); `vision.maxImageEdge` (0 = off) and `vision.lowDetailEdge` (512) in settings; `detail` read from OpenAI chat, Responses and native `image` parts; the CLI `/image` applies the general limit.
 2. ✅ **Encoded-image cache (M).** Hash image bytes (xxhash) → cache the `mtmd` encoded chunk/embeddings per runtime (LRU, N MB);
