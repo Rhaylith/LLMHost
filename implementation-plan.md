@@ -8,6 +8,11 @@ runtime manager and multi-GPU. The plan builds on that.
 
 Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6–10 d · **XL** > 10 d.
 
+**Status convention:** when an item is finished, mark it ✅ with its commit hash where it is described (section 2 table or the
+item heading in section 4), tick it in [todo.md](todo.md), and update the progress line below.
+
+**Progress:** section 2 prerequisites X1–X5 done (5 of 5). All P2 feature items (section 4) still open.
+
 ---
 
 ## 1. Ground truth about the current code (what the plan hooks into)
