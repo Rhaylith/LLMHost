@@ -341,6 +341,8 @@ public class AppSettings
     public bool CheckModelUpdates { get; set; }
     /// <summary>After the first answer of a chat, ask the loaded model for a short title (skipped while it is busy).</summary>
     public bool AutoTitleChats { get; set; } = true;
+    /// <summary>Key combinations that differ from the defaults, by action id (see <see cref="Shortcuts"/>); an empty text switches the shortcut off.</summary>
+    public Dictionary<string, string> Shortcuts { get; set; } = new();
     public bool AutoLoadOnRequest { get; set; } = true;
     /// <summary>Downloads running at the same time; the rest wait in the queue.</summary>
     public int MaxConcurrentDownloads { get; set; } = 2;
@@ -466,7 +468,7 @@ public class AppSettings
     {
         ModelsDirectory = other.ModelsDirectory; ExtraModelsDirectories = other.ExtraModelsDirectories ?? new(); Host = other.Host; Port = other.Port; ApiKey = other.ApiKey; RequireAuth = other.RequireAuth;
         Cors = other.Cors; AnthropicApi = other.AnthropicApi; Backend = other.Backend;
-        CatalogUrl = other.CatalogUrl; CheckModelUpdates = other.CheckModelUpdates; AutoTitleChats = other.AutoTitleChats; HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest;
+        CatalogUrl = other.CatalogUrl; CheckModelUpdates = other.CheckModelUpdates; AutoTitleChats = other.AutoTitleChats; Shortcuts = other.Shortcuts ?? new(); HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest;
         MaxConcurrentDownloads = Math.Clamp(other.MaxConcurrentDownloads, 1, 8);
         LimitToDedicatedGpuMemory = other.LimitToDedicatedGpuMemory;
         Runtime = string.IsNullOrWhiteSpace(other.Runtime) ? "auto" : other.Runtime;

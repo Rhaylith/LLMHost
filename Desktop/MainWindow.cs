@@ -208,6 +208,8 @@ public sealed class MainWindow : Form
             var core = _web.CoreWebView2;
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.IsZoomControlEnabled = true;
+            // the page binds its own shortcuts (Ctrl+N, Ctrl+P, Ctrl+K ...): the browser must not claim them first
+            core.Settings.AreBrowserAcceleratorKeysEnabled = false;
 
             // keep every navigation inside this window, never spawn an external browser window
             core.NewWindowRequested += (_, e) =>

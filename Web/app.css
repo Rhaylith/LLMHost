@@ -88,3 +88,7 @@ dialog::backdrop{background:#0008}
 #ctxbar i{display:block;height:100%;background:var(--ok)}
 #ctxbar.amber i{background:#d9a400}#ctxbar.red i{background:var(--acc)}
 .msg .meta .more-stats{display:none}.msg:hover .meta .more-stats{display:inline}
+kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:12px;font-family:inherit}
+#quickopen-list{max-height:50vh;overflow:auto}
+#quickopen-list .qo{padding:7px 12px;cursor:pointer}
+#quickopen-list .qo.on,#quickopen-list .qo:hover{background:var(--panel2)}

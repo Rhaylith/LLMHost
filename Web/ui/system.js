@@ -28,13 +28,6 @@ async function updateRuntimes() {
   try { const u = await api('/api/runtimes/update', {method:'POST'}); await loadRuntimes(); $('rt-msg').textContent = u.updated.length ? 'Updated: ' + u.updated.join(', ') : 'All installed runtimes are up to date.'; }
   catch (e) { $('rt-msg').textContent = e.message; }
 }
-document.addEventListener('keydown', e => {
-  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'r') {
-    e.preventDefault();
-    document.querySelector('nav button[data-tab="settings"]').click();
-    setTimeout(() => $('runtimes-h').scrollIntoView(), 150);
-  }
-});
 
 async function saveSettings() {
   const s = window._settings;

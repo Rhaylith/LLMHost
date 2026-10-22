@@ -37,6 +37,7 @@ public static class SettingsValidator
         if (!string.IsNullOrWhiteSpace(s.CatalogUrl) &&
             !(Uri.TryCreate(s.CatalogUrl, UriKind.Absolute, out var cu) && cu.Scheme is "http" or "https"))
             e.Add(new("catalogUrl", "Catalog address must be an http(s) URL."));
+        foreach (var (field, message) in LLMHostProject.Core.Shortcuts.Check(s.Shortcuts)) e.Add(new(field, message));
         if (!string.IsNullOrWhiteSpace(s.ModelsDirectory))
         {
             try { Path.GetFullPath(s.ModelsDirectory); }

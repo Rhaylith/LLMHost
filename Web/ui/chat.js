@@ -325,5 +325,5 @@ async function send() {
 }
 $('send').onclick = send;
 $('stop').onclick = () => abort && abort.abort();
-$('input').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+$('input').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); send(); } };
 

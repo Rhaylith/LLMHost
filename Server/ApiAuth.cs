@@ -47,7 +47,7 @@ public static class Scopes
         if (path.StartsWith("/api/v1/models")) return ModelsRead;
         if (path.StartsWith("/api/settings") || path.StartsWith("/api/tokens") || path.StartsWith("/api/runtimes")
             || path.StartsWith("/api/mcp") || path.StartsWith("/api/shutdown")) return read && !path.StartsWith("/api/tokens") && !path.StartsWith("/api/settings") ? ModelsRead : Admin;
-        if (path.StartsWith("/api/chats") || path.StartsWith("/api/chat-folders") || path.StartsWith("/api/context") || path.StartsWith("/api/presets") || path.StartsWith("/api/logs") || path.StartsWith("/api/documents")) return App;
+        if (path.StartsWith("/api/chats") || path.StartsWith("/api/chat-folders") || path.StartsWith("/api/context") || path == "/api/shortcuts" || path.StartsWith("/api/presets") || path.StartsWith("/api/logs") || path.StartsWith("/api/documents")) return App;
         if (path == "/api/status" || path == "/api/hardware") return ModelsRead;
         if (!read && (path.StartsWith("/api/models/directory") || path.StartsWith("/api/models/disk"))) return Admin;     // changes where files live
         if (path.StartsWith("/api/models/") || path.StartsWith("/api/downloads"))

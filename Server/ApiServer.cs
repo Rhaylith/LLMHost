@@ -1382,6 +1382,13 @@ public partial class ApiServer
             });
         });
 
+        // ---- keyboard shortcuts: every action with its default and effective keys (the page binds them)
+        app.MapGet("/api/shortcuts", async ctx =>
+        {
+            var eff = LLMHostProject.Core.Shortcuts.Effective(_host.Settings.Shortcuts);
+            await WriteJson(ctx, LLMHostProject.Core.Shortcuts.Defaults.Select(a => new { a.Id, a.Label, a.Group, @default = a.Keys, keys = eff.GetValueOrDefault(a.Id, "") }));
+        });
+
         // ---- chat folders
         object FolderDto(ChatFolder f) => new { f.Id, f.Name, f.ParentId, f.Order };
         app.MapGet("/api/chat-folders", async ctx => await WriteJson(ctx, _host.ChatFolders.List().Select(FolderDto)));
