@@ -73,7 +73,7 @@ public sealed class ModelRuntime : IDisposable
     public LoadOptions Options { get; }
     public int GpuLayers { get; }
     /// <summary>Generation threads actually used (default = 75% of logical cores).</summary>
-    public int Threads => Hardware.EffectiveThreads(Options.Threads);
+    public int Threads => EffectiveThreads(Options);
     public DateTime LoadedAt { get; } = DateTime.Now;
     public DateTime LastUsed { get; private set; } = DateTime.Now;
     public long Requests => Interlocked.Read(ref _requests);
@@ -102,6 +102,62 @@ public sealed class ModelRuntime : IDisposable
         _mtmd = mtmd; MmprojFile = mmproj; _mediaMarker = marker;
         Identifier = id; Model = model; Options = options; GpuLayers = gpuLayers; _weights = weights; _params = p;
     }
+
+    // ------------------------------------------------------------------ CPU threads
+
+    /// <summary>Number of processors the affinity setting allows (null = no restriction or an unreadable setting).</summary>
+    internal static int? AffinityCount(LoadOptions o)
+    {
+        try { return CpuAffinity.Parse(o.CpuAffinity, CpuTopology.Detect())?.Count; }
+        catch (ArgumentException) { return null; }
+    }
+
+    /// <summary>
+    /// Generation threads: the number asked for, otherwise one per physical core (never more than the processors the affinity allows).
+    /// </summary>
+    public static int EffectiveThreads(LoadOptions o) =>
+        o.Threads > 0 ? o.Threads : Math.Max(1, Math.Min(Hardware.DefaultThreads, AffinityCount(o) ?? int.MaxValue));
+    /// <summary>Generation speed at one thread count.</summary>
+    public record ThreadBenchmarkRow(int Threads, double TokensPerSecond, int Tokens, double Seconds);
+
+    /// <summary>Thread counts worth trying on this machine: half the physical cores, all physical cores, every logical processor (limited by the affinity setting).</summary>
+    public static List<int> DefaultBenchmarkCounts(LoadOptions o)
+    {
+        var topo = CpuTopology.Detect();
+        int cap = AffinityCount(o) ?? topo.LogicalCount;
+        return new[] { topo.PhysicalCores / 2, topo.PhysicalCores, topo.LogicalCount }
+            .Select(n => Math.Clamp(n, 1, Math.Max(1, cap))).Distinct().OrderBy(n => n).ToList();
+    }
+
+    /// <summary>
+    /// Generates <paramref name="tokens"/> tokens at each thread count (changing the thread count of the loaded model's context on the
+    /// fly) and reports the speed, then puts the original setting back. The model must be idle. Meaningful for CPU work only.
+    /// </summary>
+    public async Task<List<ThreadBenchmarkRow>> BenchmarkThreadsAsync(IReadOnlyList<int> counts, int tokens = 64, CancellationToken ct = default)
+    {
+        if (Busy) throw new InvalidOperationException("The model is busy; run the thread test when it is idle.");
+        if (Options.Embeddings || Model.IsEmbedding) throw new InvalidOperationException("The thread test needs a text generation model.");
+        var handle = Context.NativeHandle;
+        int originalThreads = _params.Threads ?? EffectiveThreads(Options), originalBatch = _params.BatchThreads ?? originalThreads;
+        var prompt = BuildFittingPrompt(new() { new ChatMessage("user", "Write a long story about a lighthouse keeper.") }, tokens + 16, out _, out _, "off");
+        // a grammar that never ends keeps the model writing, so every run produces the same number of tokens
+        var g = new GenerationOptions { Temperature = 0, MaxTokens = tokens, CachePrompt = false, ReasoningEffort = "off", Grammar = "root ::= \"ab \" root" };
+        var rows = new List<ThreadBenchmarkRow>();
+        try
+        {
+            foreach (int n in counts.Where(n => n > 0).Distinct())
+            {
+                ct.ThrowIfCancellationRequested();
+                handle.GenerationThreads = n; handle.BatchThreads = n;
+                var stats = new GenerationStats();
+                await CompleteAsync(prompt, g, stats, ct);
+                rows.Add(new ThreadBenchmarkRow(n, Math.Round(stats.TokensPerSecond, 2), stats.CompletionTokens, Math.Round((stats.TotalMs - stats.TimeToFirstTokenMs) / 1000.0, 3)));
+            }
+        }
+        finally { handle.GenerationThreads = originalThreads; handle.BatchThreads = originalBatch; }
+        return rows;
+    }
+
 
     // ------------------------------------------------------------------ loading
 
@@ -195,9 +251,9 @@ public sealed class ModelRuntime : IDisposable
             p.PoolingType = EmbeddingMath.PoolingFor(o.Pooling, model.IsEmbedding, model.Capabilities.Rerank);
         }
         // default: 75% of the logical cores
-        int threads = Hardware.EffectiveThreads(o.Threads);
+        int threads = EffectiveThreads(o);
         p.Threads = threads;
-        p.BatchThreads = o.BatchThreads > 0 ? o.BatchThreads : threads;
+        p.BatchThreads = o.BatchThreads > 0 ? o.BatchThreads : o.Threads > 0 ? threads : Math.Min(Hardware.DefaultBatchThreads, AffinityCount(o) ?? int.MaxValue);
         if (o.RopeFrequencyBase.HasValue) p.RopeFrequencyBase = o.RopeFrequencyBase.Value;
         if (o.RopeFrequencyScale.HasValue) p.RopeFrequencyScale = o.RopeFrequencyScale.Value;
         var k = ParseKv(o.KvCacheTypeK); var v = ParseKv(o.KvCacheTypeV);
@@ -339,6 +395,11 @@ public sealed class ModelRuntime : IDisposable
         // ---- LoRA adapters: found, really adapters, made for this architecture (checked before the big weights are loaded)
         var loras = ResolveLoras(options.Loras, info);
 
+        // CPU affinity: refuse a nonsense list before the big weights are loaded
+        IReadOnlyList<LogicalCpu>? pinned;
+        try { pinned = CpuAffinity.Parse(options.CpuAffinity, CpuTopology.Detect()); }
+        catch (ArgumentException ex) { throw new ModelLoadException("failed", $"CPU affinity: {ex.Message}"); }
+
         // ---- will it fit? (guardrail)
         FitEstimate? estimate = null;
         try { estimate = FitEstimator.Estimate(model, options, gpuBackend: NativeBackend.GpuAvailable, gpuLayersOverride: layers, weightsAlreadyLoaded: sharedLayers != null); }
@@ -420,7 +481,7 @@ public sealed class ModelRuntime : IDisposable
             {
                 var mp = MtmdContextParams.Default();
                 mp.UseGpu = layers > 0;
-                mp.NThreads = Hardware.EffectiveThreads(options.Threads);
+                mp.NThreads = EffectiveThreads(options);
                 marker = mp.MediaMarker ?? marker;
                 mtmd = await MtmdWeights.LoadFromFileAsync(mmprojPath, weights, mp, ct);
                 mmproj = mmprojPath;
@@ -444,6 +505,11 @@ public sealed class ModelRuntime : IDisposable
         try
         {
             rt.ValidateTemplate();
+            if (NativeThreadPolicy.Wanted(options))
+            {
+                NativeThreadPolicy.Set(rt, pinned, options.ThreadPriority);
+                rt.LoadWarnings.Add($"Compute threads: {(pinned != null ? "restricted to " + pinned.Count + " processors (" + CpuAffinity.Format(pinned.Select(c => c.Global)) + ")" : "any processor")}, priority {options.ThreadPriority}.");
+            }
             if (loras.Count > 0) rt.ApplyLoras(loras);
             await rt.RestoreAutoAsync();
         }
@@ -460,7 +526,7 @@ public sealed class ModelRuntime : IDisposable
             var dm = new ModelLibrary().Find(options.DraftModel!)
                      ?? throw new FileNotFoundException($"no local model matches '{options.DraftModel}'");
             if (dm.IsEmbedding) throw new InvalidOperationException("an embedding model cannot be a draft model");
-            draft = await DraftModel.LoadAsync(dm, layers > 0 ? 999 : 0, options.ContextSize, Hardware.EffectiveThreads(options.Threads), ct);
+            draft = await DraftModel.LoadAsync(dm, layers > 0 ? 999 : 0, options.ContextSize, EffectiveThreads(options), ct);
             string? why = DraftModel.CheckVocabulary(target, draft.Weights);
             if (why != null)
             {
@@ -1961,6 +2027,7 @@ public sealed class ModelRuntime : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        NativeThreadPolicy.Release(this);
         _stop.Cancel();
         _wake.Release();
         try { _loop?.Wait(TimeSpan.FromSeconds(10)); } catch { }

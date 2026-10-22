@@ -35,7 +35,7 @@ Every command also works inside the interactive shell with a leading `/` (`/load
 | Execution | **CPU by default**; opt in to GPU (`--gpu`, all layers), auto (fits as many layers as VRAM allows) or a share of the layers (`--gpu 0.5`) per model; explicit layer count; several models loaded at once; idle TTL auto-unload |
 | GPUs (incl. AMD) | Vulkan is the only GPU backend (works on AMD Radeon, and also NVIDIA/Intel); no ROCm/HIP/CUDA install needed. `config backend auto\|vulkan\|cpu` |
 | Parameters | temperature, top-k/p, min-p, typical-p, repeat/frequency/presence penalty, max tokens, seed, stop strings, logit bias, GBNF grammar, JSON mode, JSON-schema constrained output, system prompt; presets |
-| Load options | context length, batch/ubatch, threads, flash attention, mmap/mlock, KV-cache quantization (f16/q8_0/q4_0), RoPE base/scale, main GPU |
+| Load options | context length, batch/ubatch, threads (generation / batch, CPU affinity, priority), flash attention, mmap/mlock, KV-cache quantization (f16/q8_0/q4_0), RoPE base/scale, main GPU |
 | Server | OpenAI API: `/v1/chat/completions` (streaming SSE), `/v1/completions`, `/v1/embeddings`, `/v1/models`; **Anthropic API**: `/v1/messages` (streaming events, tool use, `count_tokens`); tool calling (prompt based), API key (`Authorization` or `x-api-key`), CORS, LAN binding |
 | CLI | streaming chat, history, undo/regenerate, save/resume/export chats, raw completion, embeddings, token counting, logs |
 | Web UI | chat with parameter panel, model manager (load dialog), discover/download, hardware + settings, logs |

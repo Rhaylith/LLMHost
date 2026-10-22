@@ -202,7 +202,11 @@ public static class Hardware
     }
 
     /// <summary>Default inference thread count: 75% of the logical cores (at least 1).</summary>
-    public static int DefaultThreads => Math.Max(1, (int)Math.Round(Environment.ProcessorCount * 0.75));
+    /// <summary>Threads for generation when none is asked for: one per physical core (more threads only add waiting on memory).</summary>
+    public static int DefaultThreads => Math.Max(1, CpuTopology.Detect().PhysicalCores);
+
+    /// <summary>Threads for prompt processing when none is asked for: every logical processor (this work is compute bound).</summary>
+    public static int DefaultBatchThreads => Math.Max(1, CpuTopology.Detect().LogicalCount);
 
     /// <summary>Resolves a user supplied thread count where 0 (or less) means "use the default".</summary>
     public static int EffectiveThreads(int requested) => requested > 0 ? requested : DefaultThreads;

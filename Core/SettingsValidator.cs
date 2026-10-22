@@ -93,6 +93,9 @@ public static class SettingsValidator
         range($"{p}.uBatchSize", o.UBatchSize, 1, 65536, "Micro-batch size");
         range($"{p}.threads", o.Threads, 0, 1024, "Threads");
         range($"{p}.batchThreads", o.BatchThreads, 0, 1024, "Batch threads");
+        oneOf($"{p}.threadPriority", o.ThreadPriority, new[] { "normal", "high", "low" }, "Thread priority");
+        try { CpuAffinity.Parse(o.CpuAffinity, CpuTopology.Detect()); }
+        catch (ArgumentException ex) { e.Add(new($"{p}.cpuAffinity", ex.Message)); }
         range($"{p}.ttlMinutes", o.TtlMinutes, 0, 525_600, "Idle time-to-live");
         if (o.GpuLayers is < 0) range($"{p}.gpuLayers", o.GpuLayers.Value, 0, 10_000, "GPU layers");
         if (o.TensorSplit != null && o.TensorSplit.Any(x => x < 0 || float.IsNaN(x))) range($"{p}.tensorSplit", -1, 0, 1e9, "Tensor split ratios");

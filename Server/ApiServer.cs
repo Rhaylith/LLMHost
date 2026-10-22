@@ -623,6 +623,12 @@ public partial class ApiServer
             {
                 hw.Cpu, hw.LogicalCores, ramTotalBytes = ramTotal, ramAvailableBytes = ramAvail,
                 backend = NativeBackend.Active, systemInfo = NativeBackend.SystemInfo,
+                cpuTopology = new
+                {
+                    logical = CpuTopology.Detect().LogicalCount, physical = CpuTopology.Detect().PhysicalCores, groups = CpuTopology.Detect().Groups,
+                    nodes = CpuTopology.Detect().Nodes.Select(n => new { n.Node, cpus = CpuAffinity.Format(n.Cpus), count = n.Cpus.Count }),
+                    defaultThreads = Hardware.DefaultThreads, defaultBatchThreads = Hardware.DefaultBatchThreads,
+                },
                 gpus = hw.Gpus.Select(g =>
                 {
                     var d = GpuDevices.For(g);
@@ -724,7 +730,7 @@ public partial class ApiServer
                 systemInfo = NativeBackend.SystemInfo,
                 hardware = new
                 {
-                    hw.Cpu, hw.LogicalCores, hw.TotalRamBytes,
+                    hw.Cpu, hw.LogicalCores, physicalCores = CpuTopology.Detect().PhysicalCores, hw.TotalRamBytes,
                     npus = hw.Npus.Select(n => new { n.Name, n.Vendor, n.Architecture, n.Driver, n.Status }),
                     gpus = hw.Gpus.Select(g => new { g.Index, g.Name, g.Vendor, g.VramBytes, g.SharedBytes, g.UsableBytes, g.Integrated, g.Driver }),
                 },
@@ -813,6 +819,23 @@ public partial class ApiServer
             }).ToList() ?? new List<LoraSetting>();
             await r.SetLorasAsync(list);
             await WriteJson(ctx, new { adapters = r.ActiveLoras });
+        });
+
+        // generation speed at several thread counts (the model must be idle); the setting itself is left unchanged
+        app.MapPost("/api/models/benchmark-threads", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var r = _host.Models.Loaded.FirstOrDefault(x => x.Identifier == body["id"]?.GetValue<string>())
+                    ?? throw new FileNotFoundException($"'{body["id"]}' is not loaded");
+            var counts = (body["threads"] as JsonArray)?.Select(x => x!.GetValue<int>()).ToList() ?? ModelRuntime.DefaultBenchmarkCounts(r.Options);
+            int tokens = body["tokens"]?.GetValue<int>() ?? 64;
+            try
+            {
+                var rows = await r.BenchmarkThreadsAsync(counts, Math.Clamp(tokens, 8, 512), ctx.RequestAborted);
+                var best = rows.OrderByDescending(x => x.TokensPerSecond).FirstOrDefault();
+                await WriteJson(ctx, new { rows, best = best?.Threads, current = ModelRuntime.EffectiveThreads(r.Options) });
+            }
+            catch (InvalidOperationException ex) { await WriteError(ctx, 409, ex.Message, "conflict"); }
         });
 
         app.MapPost("/api/models/cache/clear", async ctx =>

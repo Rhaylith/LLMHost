@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor (13 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity (14 of ~50).
 
 ---
 
@@ -291,7 +291,7 @@ Problem: the native library is loaded once per process ([NativeBackend.cs](Infer
 Deviations: **temperature is always `null` / "n/a"** — Windows has no vendor-neutral counter and no vendor library was added (LibreHardwareMonitor was optional in the plan and is not included); the header strip polls instead of using the SSE stream (an `EventSource` cannot send the API key header).
 Verified on this machine (two RX 7900 XTX): CPU / RAM / process figures, GPU 0 load and VRAM, the LUID mapping for every GPU, and that a model loaded on the GPU shows up as more than 100 MB of this process's dedicated GPU memory. The second GPU reports no counters while idle (`null`), as Windows lists none for it. **Correction:** the GPU tests written for §2.4 returned early because the native backend was not yet initialised in the test process, so they had never really run; they initialise it now and pass (planner gives 17 layers for a ratio of 0.5 on 32 blocks, a real SmolVLM GPU load offloads the computed count).
 
-#### §2.6 CPU thread pool, affinity, NUMA — **M**
+#### ✅ §2.6 CPU thread pool, affinity, NUMA — **M**
 * `LoadOptions` additions: `ThreadsBatch` (exists as `BatchThreads`; expose consistently as `threads_batch`), `CpuAffinityMask`
   / `CpuList`, `ThreadPriority (normal|high|low)`, `NumaMode (off|distribute|isolate|numactl)`, `Poll (0–100)`.
 * llama.cpp's own thread pool is created per context: LLamaSharp exposes only `n_threads`. Implement affinity/priority by
@@ -301,6 +301,9 @@ Verified on this machine (two RX 7900 XTX): CPU / RAM / process figures, GPU 0 l
 * Defaults: physical cores for generation, all logical cores for prompt processing (detect via
   `GetLogicalProcessorInformationEx`), replacing the current 75 % heuristic ([Hardware.cs:205](Core/Hardware.cs:205)).
 * UI in Power-User mode; "Test thread count" benchmark button (runs a 128-token generation at 2–3 settings).
+
+**As built:** `Core/CpuTopology.cs` reads the Windows CPU sets (`GetSystemCpuSetInformation`): logical processors, physical cores, processor groups and NUMA nodes, numbered 0..N-1 across groups. `CpuAffinity.Parse` understands `0-7,16`, `node:N`, `physical` (one thread per core) and `all`. Defaults changed: generation threads = physical cores, prompt-processing threads = every logical processor, both limited by the affinity (replaces the 75 % rule). `LoadOptions` gained `CpuAffinity` and `ThreadPriority` (`normal|high|low`); `BatchThreads` already existed. `Inference/NativeThreadPolicy.cs` finds the engine's compute threads by their start address (inside vcomp / ggml / llama / mtmd) and pins them with `SetThreadSelectedCpuSets`, which works across processor groups (the dev machine has 192 logical processors, so `SetThreadAffinityMask` would not have), and sets their priority; a 1 Hz scan catches threads created later, the policy is process-wide (last load wins) and an unload restores default scheduling. Surfaces: load dialog fields (threads, batch threads, affinity, priority), CLI `--batch-threads`, `--cpu-affinity`, `--thread-priority`, validator checks, `cpuTopology` in `GET /api/hardware`, and a **Test threads** button (`POST /api/models/benchmark-threads`, 3 default counts, changes the live context's thread count and restores it).
+Deviations: no `Poll` option and no `llama_numa_init` (LLamaSharp does not expose it); NUMA is handled by pinning to a node (`node:N`) instead, which needs no restart. Generation is memory-bound, so more threads than physical cores seldom helps; the benchmark shows it for the machine at hand. Verified: engine threads of a real SmolVLM load carry exactly the chosen CPU set and are released on unload.
 
 ### §3 Model management
 

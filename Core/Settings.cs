@@ -153,6 +153,13 @@ public class LoadOptions
     public int Threads { get; set; }
     /// <summary>CPU threads for prompt processing. 0 = same as <see cref="Threads"/>.</summary>
     public int BatchThreads { get; set; }
+    /// <summary>
+    /// Restricts the compute threads to some processors: a list such as "0-7,16-23" (machine-wide numbers, see /api/hardware), "node:1" for
+    /// one NUMA node, "physical" for one thread per physical core. Empty = any. Applies to the whole process; the model loaded last wins.
+    /// </summary>
+    public string? CpuAffinity { get; set; }
+    /// <summary>Priority of the compute threads: normal (default), high or low.</summary>
+    public string ThreadPriority { get; set; } = "normal";
     /// <summary>"auto" (default: llama.cpp enables flash attention when the device supports it), "on" or "off".</summary>
     public string FlashAttentionMode { get; set; } = "auto";
     /// <summary>Older settings files: true meant "on". Kept so they still work; <see cref="FlashAttentionMode"/> "off" wins.</summary>

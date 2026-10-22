@@ -204,7 +204,7 @@ public class Shell
               import <file.gguf> [--copy|--move|--link] [--publisher p] [--name n]   add an existing .gguf file to the library
               rm <model>                 delete a downloaded model
             Running
-              load <model> [--cpu|--gpu max|auto|off|0.5] [--gpu-layers N] [--identifier name] [--context-length N] [--ctx N] [--threads N (default 75% of cores)] [--batch N]
+              load <model> [--cpu|--gpu max|auto|off|0.5] [--gpu-layers N] [--identifier name] [--context-length N] [--ctx N] [--threads N (default: physical cores)] [--batch-threads N] [--cpu-affinity 0-7|node:1|physical] [--thread-priority normal|high|low] [--batch N]
                            [--flash] [--no-mmap] [--mlock] [--kv-k q8_0] [--kv-v q8_0] [--no-vision] [--mmproj <file>] [--draft <small model>] [--draft-tokens 6] [--template-file chat.jinja]
                            [--another] [--pooling mean/cls/last/rank/none] [--no-normalize] [--embed-batch N] [--lora "adapter.gguf=0.8;other.gguf"] [--cpu-moe | --n-cpu-moe N] [--moe-experts N] [--override-tensor "regex=CPU;regex2=CPU"]
                            [--id name] [--ttl minutes] [--embeddings]
@@ -749,6 +749,9 @@ public class Shell
         if (a.Value("gpu-layers", "ngl") is { } ngl) o.GpuLayers = int.Parse(ngl);
         if (a.Value("ctx", "context", "context-length") is { } ctx) o.ContextSize = uint.Parse(ctx);
         if (a.Value("threads") is { } th) o.Threads = int.Parse(th);
+        if (a.Value("batch-threads") is { } bth) o.BatchThreads = int.Parse(bth);
+        if (a.Value("cpu-affinity") is { } aff) o.CpuAffinity = aff;
+        if (a.Value("thread-priority") is { } prio) o.ThreadPriority = prio;
         if (a.Value("batch") is { } bt) o.BatchSize = o.UBatchSize = uint.Parse(bt);
         if (a.Value("main-gpu") is { } mg) o.MainGpu = int.Parse(mg);
         if (a.Value("parallel", "max-concurrent") is { } par) o.MaxConcurrent = int.Parse(par);
