@@ -113,7 +113,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P2** Legacy `/api/v0/*` endpoints for older clients (models with state/quant/arch, chat, completions, embeddings)
 - [x] **P2** HTTPS (self-signed or supplied cert), IP allow-list, request size/rate limits
 - [x] **P2** Request/response log viewer with filters and `lms log stream` equivalent; `/metrics` endpoint
-- [ ] **P2** Anthropic API gaps: image blocks, images in tool results, `thinking` blocks, `tool_choice` forcing, `cache_control` accepted/ignored
+- [x] **P2** Anthropic API gaps: image blocks, images in tool results, `thinking` blocks, `tool_choice` forcing, `cache_control` accepted/ignored
 - [ ] **P3** Ollama-compatible endpoints (`/api/chat`, `/api/generate`, `/api/tags`)
 - [ ] **P3** OpenAPI document for management + native APIs
 - [ ] **P3** Plugin system (BlahLLMWrapper "plugins": tool providers, prompt preprocessors, generators; `lms dev/push/clone`) — optional, large

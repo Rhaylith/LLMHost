@@ -232,6 +232,8 @@ public class GenerationOptions
     /// template (enable_thinking switch, Harmony "Reasoning:" line) and, for low / medium, a thinking-token budget.
     /// </summary>
     public string? ReasoningEffort { get; set; }
+    /// <summary>Hard limit of reasoning tokens before thinking is closed (0 = the limit that goes with <see cref="ReasoningEffort"/>). Set by the Anthropic <c>thinking.budget_tokens</c>.</summary>
+    public int ThinkBudgetTokens { get; set; }
     /// <summary>Record the log-probability of every generated token (and the <see cref="TopLogprobs"/> best alternatives).</summary>
     public bool Logprobs { get; set; }
     public int TopLogprobs { get; set; }

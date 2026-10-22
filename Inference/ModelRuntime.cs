@@ -1067,7 +1067,7 @@ public sealed class ModelRuntime : IDisposable
                                     : g.MaxTokens > 0 ? Math.Min(g.MaxTokens, room) : room;
         req.Sampler = BuildSampler(g);
         req.Scanner = new TextScanner(TemplateStops.Count == 0 ? g.Stop : g.Stop.Concat(TemplateStops).Distinct().ToList(), Reasoning.EndsInsideThink(prompt));
-        req.ThinkBudget = Reasoning.Budget(g.ReasoningEffort);
+        req.ThinkBudget = g.ThinkBudgetTokens > 0 ? g.ThinkBudgetTokens : Reasoning.Budget(g.ReasoningEffort);
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
         req.Ct = linked.Token;

@@ -196,6 +196,8 @@ public partial class ApiServer
         // shows in Logs: proves which client reached this server and which model name it asked for
         LogBuffer.Add("anthropic", $"POST /v1/messages from '{ctx.Request.Headers.UserAgent}' asked for model '{body["model"]?.GetValue<string>()}' -> serving '{rt.Identifier}' (stream={body["stream"]?.ToJsonString() ?? "false"}, tools={(body["tools"] as JsonArray)?.Count ?? 0})");
         var g = ReadAnthropicGeneration(body, _host.GenerationDefaultsFor(rt.Model.Id));
+        AnthropicThinking.Apply(body, g);
+        bool wantsCache = AnthropicThinking.WantsCache(body);
         var messages = ReadAnthropicMessages(body, rt.ToolFormat);
         var tools = OpenAiMapping.ReadAnthropicTools(body, rt.ToolFormat);
 
@@ -215,7 +217,7 @@ public partial class ApiServer
             var blocks = new List<object>();
             bool asText = _host.Settings.AnthropicReasoningAsText;
             string thinkPrefix = thinking.Length > 0 && asText ? "<think>\n" + thinking + "\n</think>\n\n" : "";
-            if (thinking.Length > 0 && !asText) blocks.Add(new { type = "thinking", thinking, signature = "" });
+            if (thinking.Length > 0 && !asText) blocks.Add(new { type = "thinking", thinking, signature = AnthropicThinking.Sign(thinking) });
             string stop = StopReason(stats);
             if (tools != null)
             {
@@ -230,7 +232,7 @@ public partial class ApiServer
                 if (calls.Count > 0) stop = "tool_use";
             }
             else blocks.Add(new { type = "text", text = thinkPrefix + text });
-            await WriteJson(ctx, MessageObject(id, rt, blocks, stop, stats));
+            await WriteJson(ctx, MessageObject(id, rt, blocks, stop, stats, wantsCache: wantsCache));
             return;
         }
 
@@ -251,8 +253,10 @@ public partial class ApiServer
         // blocks are opened lazily: optional thinking, then text and/or tool_use blocks
         int blockIndex = -1;
         string? current = null;          // "thinking" | "text" | "tool:<callIndex>"
+        var thinkText = new StringBuilder();
         async Task CloseBlock()
         {
+            if (current == "thinking") await Delta(new { type = "signature_delta", signature = AnthropicThinking.Sign(thinkText.ToString()) });
             if (current != null) await AnthropicEvent(ctx, "content_block_stop", new { type = "content_block_stop", index = blockIndex });
             current = null;
         }
@@ -338,6 +342,7 @@ public partial class ApiServer
                     else
                     {
                         if (current != "thinking") await OpenBlock("thinking", new { type = "thinking", thinking = "" });
+                        thinkText.Append(seg.Text);
                         await Delta(new { type = "thinking_delta", thinking = seg.Text });
                     }
                     continue;
@@ -358,17 +363,31 @@ public partial class ApiServer
         {
             type = "message_delta",
             delta = new { stop_reason = stopReason, stop_sequence = stats.StopSequence },
-            usage = new { output_tokens = stats.CompletionTokens },
+            usage = Usage(stats, false, wantsCache),
         });
         await AnthropicEvent(ctx, "message_stop", new { type = "message_stop" });
     }
 
-    private static object MessageObject(string id, ModelRuntime rt, List<object> content, string? stop, GenerationStats s, bool startOnly = false) => new
+    /// <summary>
+    /// Token usage in Anthropic's terms. Prompt tokens served from our prefix cache are <c>cache_read_input_tokens</c>; when the request asked for
+    /// caching (<c>cache_control</c>) the tokens that had to be evaluated and are now cached are <c>cache_creation_input_tokens</c>, otherwise they are plain input.
+    /// </summary>
+    private static object Usage(GenerationStats s, bool startOnly, bool wantsCache)
+    {
+        int fresh = Math.Max(0, s.PromptTokens - s.CachedTokens);
+        return new
+        {
+            input_tokens = wantsCache ? 0 : fresh, cache_creation_input_tokens = wantsCache ? fresh : 0, cache_read_input_tokens = s.CachedTokens,
+            output_tokens = startOnly ? 1 : s.CompletionTokens,
+        };
+    }
+
+    private static object MessageObject(string id, ModelRuntime rt, List<object> content, string? stop, GenerationStats s, bool startOnly = false, bool wantsCache = false) => new
     {
         id, type = "message", role = "assistant", model = rt.Identifier, content,
         stop_reason = stop,
         stop_sequence = startOnly ? null : s.StopSequence,
-        usage = new { input_tokens = Math.Max(0, s.PromptTokens - s.CachedTokens), cache_read_input_tokens = s.CachedTokens, output_tokens = startOnly ? 1 : s.CompletionTokens },
+        usage = Usage(s, startOnly, wantsCache),
     };
 
 
