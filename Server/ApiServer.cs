@@ -1202,12 +1202,29 @@ public partial class ApiServer
         });
 
         app.MapGet("/api/presets", async ctx => await WriteJson(ctx, _host.Presets.All()));
+        // names, descriptions and a change counter: the page polls the counter to pick up edits made on disk
+        app.MapGet("/api/preset-list", async ctx => await WriteJson(ctx, new
+        {
+            version = _host.Presets.Version,
+            presets = _host.Presets.Files().Select(p => new { p.Name, p.Description, hasSystemPrompt = !string.IsNullOrEmpty(p.SystemPrompt) }),
+        }));
+        app.MapGet("/api/presets/{name}", async ctx =>
+        {
+            var p = _host.Presets.Get((string)ctx.Request.RouteValues["name"]!);
+            if (p == null) await WriteError(ctx, 404, "Preset not found", "not_found"); else await WriteJson(ctx, p);
+        });
         app.MapPut("/api/presets/{name}", async ctx =>
         {
             var body = await ReadBody(ctx);
             var g = body.Deserialize<GenerationOptions>(Json.Options) ?? new GenerationOptions();
-            _host.Presets.Save((string)ctx.Request.RouteValues["name"]!, g);
-            await WriteJson(ctx, new { ok = true });
+            string saved = _host.Presets.Save((string)ctx.Request.RouteValues["name"]!, g, body["description"]?.GetValue<string>());
+            await WriteJson(ctx, new { ok = true, name = saved });
+        });
+        app.MapPost("/api/presets/{name}/duplicate", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            string copy = _host.Presets.Duplicate((string)ctx.Request.RouteValues["name"]!, body["name"]?.GetValue<string>());
+            await WriteJson(ctx, new { name = copy });
         });
         app.MapDelete("/api/presets/{name}", async ctx =>
             await WriteJson(ctx, new { deleted = _host.Presets.Delete((string)ctx.Request.RouteValues["name"]!) }));

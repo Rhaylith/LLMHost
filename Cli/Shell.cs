@@ -986,8 +986,20 @@ public class Shell
                 foreach (var prop in typeof(GenerationOptions).GetProperties().Where(x => x.CanWrite))
                     prop.SetValue(_gen, prop.GetValue(p));
                 Ui.Info($"Loaded preset '{name}'."); return true;
-            case "delete" when name != null:
+            case "delete" or "rm" when name != null:
                 return _host.Presets.Delete(name);
+            case "export" when name != null:
+            {
+                var pf = _host.Presets.Get(name);
+                if (pf == null) { Ui.Error("no such preset"); return false; }
+                string json = System.Text.Json.JsonSerializer.Serialize(pf, Json.Options);
+                string? target = a.Positional.Skip(2).FirstOrDefault();
+                if (target == null) Console.WriteLine(json);
+                else { File.WriteAllText(target, json); Ui.Info($"Wrote {target}."); }
+                return true;
+            }
+            case "duplicate" when name != null:
+                Ui.Info($"Created preset '{_host.Presets.Duplicate(name, a.Positional.Skip(2).FirstOrDefault())}'."); return true;
             default:
                 foreach (var kv in _host.Presets.All())
                     Ui.Info($"  {kv.Key}  (temp {kv.Value.Temperature}, top_p {kv.Value.TopP}, top_k {kv.Value.TopK})");

@@ -53,3 +53,33 @@ loadPreset = function () { const n = $('preset-sel').value; conv.preset = n && w
 document.addEventListener('input', e => { if (e.target.closest?.('#params')) markDiffs(); });
 document.addEventListener('change', e => { if (e.target.id === 'p-model') refreshEffective(); else if (e.target.closest?.('#params')) markDiffs(); });
 setTimeout(refreshEffective, 800);
+
+// ---- presets as files: "modified" state, update / reset, and live refresh when a file changes on disk
+async function updateActivePreset() {
+  if (!conv.preset) { alert('Load a preset first, or use Save with a new name.'); return; }
+  if (!confirm('Overwrite the preset "' + conv.preset + '" with the values of this panel?')) return;
+  try { await api('/api/presets/' + encodeURIComponent(conv.preset), {method: 'PUT', body: genForServer()}); await refreshPresets(); $('preset-sel').value = conv.preset; await refreshEffective(); }
+  catch (e) { alert(e.message); }
+}
+async function resetToPreset() {
+  const p = conv.preset ? window._presets?.[conv.preset] : null;
+  if (p) applyGen(p); else if (effBase) applyGen(effBase);
+  await refreshEffective();
+}
+const _markDiffs = markDiffs;
+markDiffs = function () {
+  _markDiffs();
+  const has = !!conv.preset;
+  $('preset-update').disabled = !has; $('preset-reset').disabled = !has;
+  const note = $('chat-settings-note');
+  if (has && effBase) { try { const g = genForServer(); if (Object.entries(GEN_FIELDS).some(([, k]) => !sameSetting(g[k], effBase[k]))) note.textContent = '● Preset "' + conv.preset + '" modified. ' + note.textContent; } catch (e) {} }
+};
+let presetVersion = null;
+setInterval(async () => {
+  if (document.hidden) return;
+  try {
+    const r = await api('/api/preset-list');
+    if (presetVersion !== null && r.version !== presetVersion) { await refreshPresets(); if (conv.preset && $('preset-sel').querySelector(`option[value="${CSS.escape(conv.preset)}"]`)) $('preset-sel').value = conv.preset; refreshEffective(); }
+    presetVersion = r.version;
+  } catch (e) {}
+}, 3000);

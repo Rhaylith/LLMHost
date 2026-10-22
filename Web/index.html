@@ -102,6 +102,7 @@
     <div class="row"><select id="preset-sel"></select><button class="b sec" onclick="loadPreset()">Load</button></div>
     <div class="row" style="margin-top:6px"><input id="preset-name" placeholder="name"><button class="b sec" onclick="savePreset()">Save</button></div>
     <div id="chat-settings-note" class="dim" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:6px"><button class="b sec" id="preset-update" style="flex:1" title="Overwrite the active preset with the values on this panel" onclick="updateActivePreset()">Update preset</button><button class="b sec" id="preset-reset" style="flex:1" title="Back to the values of the active preset" onclick="resetToPreset()">Reset to preset</button></div>
     <div class="row" style="margin-top:6px"><button class="b sec" style="flex:1" title="Use the values of this chat as the defaults of its model" onclick="saveAsModelDefault()">Save as model default</button><button class="b sec" style="flex:1" title="Drop this chat's changes: back to the preset or default it started from" onclick="resetChatSettings()">Reset</button></div>
   </div>
 </section>

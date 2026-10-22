@@ -11,6 +11,7 @@ public static class AppPaths
 
     public static string SettingsFile => Path.Combine(Root, "settings.json");
     public static string PresetsFile => Path.Combine(Root, "presets.json");
+    public static string PresetsDir => Path.Combine(Root, "presets");
     public static string ModelDefaultsFile => Path.Combine(Root, "model-defaults.json");
     public static string DownloadsFile => Path.Combine(Root, "downloads.json");
     public static string TokensFile => Path.Combine(Root, "tokens.json");
@@ -481,37 +482,6 @@ public class AppSettings
     }
 }
 
-/// <summary>Named bundles of generation parameters + system prompt (BlahLLMWrapper "presets").</summary>
-public class PresetStore
-{
-    private readonly object _gate = new();
-
-    public Dictionary<string, GenerationOptions> All()
-    {
-        lock (_gate) return Migrations.ReadItems<GenerationOptions>(AppPaths.PresetsFile, Migrations.Presets);
-    }
-
-    public void Save(string name, GenerationOptions opts)
-    {
-        lock (_gate)
-        {
-            var all = All();
-            all[name] = opts;
-            Migrations.WriteItems(AppPaths.PresetsFile, Migrations.Presets, all);
-        }
-    }
-
-    public bool Delete(string name)
-    {
-        lock (_gate)
-        {
-            var all = All();
-            if (!all.Remove(name)) return false;
-            Migrations.WriteItems(AppPaths.PresetsFile, Migrations.Presets, all);
-            return true;
-        }
-    }
-}
 
 /// <summary>Image input options (settings.json → <c>vision</c>).</summary>
 public class VisionSettings

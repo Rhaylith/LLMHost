@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts, §4.3 per-chat settings, §4.4 rich rendering, §4.2 split view and compare, untested (26 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts, §4.3 per-chat settings, §4.4 rich rendering, §4.2 split view and compare, untested, §5.1 file-based presets (27 of ~50).
 
 ---
 
@@ -437,7 +437,7 @@ switch branch variant. WebView2: set `AreBrowserAcceleratorKeysEnabled=false` fo
 
 ### §5 Presets
 
-#### §5.1 File-based presets — **M**
+#### ✅ §5.1 File-based presets — **M**
 * Move from one `presets.json` to `presets/<name>.json` (name sanitised; folder watched with `FileSystemWatcher` so edits on
   disk appear live). Schema `{ "schemaVersion":1, "name", "description", "systemPrompt", "inference": { …GenerationOptions… } }`.
   **Load params are excluded** (as in BlahLLMWrapper) — a validator drops/flags `load.*` keys. Migrate the old file (X1).
@@ -445,6 +445,8 @@ switch branch variant. WebView2: set `AreBrowserAcceleratorKeysEnabled=false` fo
   *Save as new*, *Reset to preset*). Chats remember the preset id and field overrides (§4.3).
 * API: `GET/PUT/DELETE /api/presets/{name}` (exist) + `POST /api/presets/{name}/duplicate`; CLI `preset save|load|rm|export`.
 * Tests: round-trip, invalid keys, name sanitisation (no path traversal).
+
+**As built:** `Core/PresetFiles.cs`. Every preset is `presets/<name>.json` (`{schemaVersion, name, description, systemPrompt, inference:{…}}`); `PresetStore` reads the folder on every request, watches it with a `FileSystemWatcher` and bumps `Version` on any change (the page polls `GET /api/preset-list` every 3 s and refreshes its list, so edits on disk appear live). Names are made file-safe (`PresetRules.SafeName`: letters, digits, space, `. _ ( ) -`, no path parts, Windows device names suffixed); only a preset that really exists can be deleted. `PresetRules.Check` validates a document: `load` and every load-only key (the `LoadOptions` properties that generation settings do not have, such as `contextSize`, `gpuLayers`) are dropped and reported, unknown keys are reported and ignored, wrong value types and missing names are refused; unreadable files in the folder are skipped with a log line. The old `presets.json` is split into files on first start and kept as `presets.json.migrated`. API: `GET /api/presets` (name → settings, as before), `GET /api/presets/{name}` (the file document), `PUT` (now also takes `description`), `POST /api/presets/{name}/duplicate`, `DELETE`, `GET /api/preset-list`. CLI: `preset save|load|rm|export <name> [file]|duplicate <name> [new]`. UI: the preset chosen with Load is the chat's active preset (stored per chat, §4.3); fields that differ get a ●, the note says "Preset … modified", and **Update preset** (overwrite the file) and **Reset to preset** sit beside Save (save as new). Deviation: dirty tracking is done in `chatsettings.js` (form compared with the preset) rather than a separate store, and a hand-made file whose `name` differs from its file name is read correctly but deleting it removes `<name>.json`.
 
 #### §5.2 Import/export & sharing — **S** (needs §5.1)
 * Export: download `name.preset.json`. Import: file picker/drag-drop, paste JSON, or URL (`POST /api/presets/import {url}`;

@@ -82,7 +82,7 @@ function genForServer() {
 }
 async function refreshPresets() {
   const all = await api('/api/presets');
-  $('preset-sel').innerHTML = Object.keys(all).map(n => `<option>${esc(n)}</option>`).join('');
+  $('preset-sel').innerHTML = Object.keys(all).map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
   window._presets = all;
 }
 function loadPreset() { const n = $('preset-sel').value; if (n && window._presets[n]) applyGen(window._presets[n]); }
