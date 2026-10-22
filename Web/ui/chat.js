@@ -310,6 +310,7 @@ async function generateReply() {
     if (e.name !== 'AbortError' && last) last.content = (last.content || '') + `\n[error: ${e.message}]`;
   }
   abort = null; $('send').style.display = ''; $('stop').style.display = 'none';
+  if (typeof notifyGenerationDone === 'function' && conv.messages.some(m => m.role === 'assistant' && m.content)) notifyGenerationDone(conv.title);
   stopTps();
   renderMsgs(); refreshStatus();
   if (conv.messages.some(m => m.role === 'assistant' && m.content)) persist().then(maybeAutoTitle);

@@ -166,6 +166,18 @@
     <div id="up-msg" class="dim" style="margin-top:6px"></div>
     <div class="dim" style="margin-top:6px">The feed address is set below (Server &amp; application settings → update feed). A GitHub Releases address (https://api.github.com/repos/&lt;owner&gt;/&lt;repo&gt;/releases) or a releases.json works. Packages are checked against the published SHA-256 (installers also need a valid signature) before anything is replaced; if the new version does not start, the old one is put back.</div>
   </div>
+  <div class="card" id="notify-card"><h2 data-i18n="notify.title">Notifications</h2>
+    <label><input type="checkbox" id="nt-on" style="width:auto"> <span data-i18n="notify.enabled">Show notifications</span></label>
+    <div class="grid2" style="margin-top:6px">
+      <label><input type="checkbox" id="nt-dl" style="width:auto"> <span data-i18n="notify.downloads">A download finished or failed</span></label>
+      <label><input type="checkbox" id="nt-model" style="width:auto"> <span data-i18n="notify.model">A model that took a while is loaded</span></label>
+      <label><input type="checkbox" id="nt-gen" style="width:auto"> <span data-i18n="notify.generation">An answer is ready while the window is in the background</span></label>
+      <label><input type="checkbox" id="nt-upd" style="width:auto"> <span data-i18n="notify.update">An update is available</span></label>
+      <label><input type="checkbox" id="nt-min" style="width:auto"> <span data-i18n="notify.only_min">Only when the window is minimised or not in front</span></label>
+      <div><label><span data-i18n="notify.slow">Count a model load as slow after (seconds)</span></label><input type="number" id="nt-secs" min="0" style="max-width:100px"></div>
+    </div>
+    <div class="row" style="margin-top:8px"><button class="b sec" type="button" onclick="notifyTest()" data-i18n="notify.test">Send a test notification</button><button class="b sec" type="button" id="nt-perm" onclick="notifyPermission()" style="display:none" data-i18n="notify.allow">Allow notifications in this browser</button></div>
+  </div>
   <div class="card" id="appearance-card"><h2 data-i18n="h.appearance">Appearance</h2>
     <div class="grid2">
       <div><label data-i18n="appearance.theme">Theme</label><select id="ap-theme"><option value="system" data-i18n="appearance.system">Follow Windows</option><option value="light" data-i18n="appearance.light">Light</option><option value="dark" data-i18n="appearance.dark">Dark</option></select></div>
@@ -538,6 +550,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/system.js"></script>
 <script src="/ui/help.js"></script>
 <script src="/ui/theme.js"></script>
+<script src="/ui/notifications.js"></script>
 <script src="/ui/updates.js"></script>
 <script src="/ui/hardware.js"></script>
 <script src="/ui/onboarding.js"></script>

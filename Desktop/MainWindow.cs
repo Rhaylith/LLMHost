@@ -130,7 +130,7 @@ public sealed class MainWindow : Form
         _tray.DoubleClick += (_, _) => ShowFromTray();
         _tray.BalloonTipClicked += (_, _) =>
         {
-            if (_update != null) _ = OfferInstallAsync(_update); else ShowFromTray();
+            if (_balloon == null && _update != null) _ = OfferInstallAsync(_update); else OnBalloonClicked();
         };
     }
 
@@ -206,7 +206,6 @@ public sealed class MainWindow : Form
         if (u != null)
         {
             _updateItem.Text = $"Update available: {u.Version} (click to install)";
-            _tray.ShowBalloonTip(8000, "LLMHost update available", $"Version {u.Version} is available (you have {UpdateChecker.CurrentVersion}). Click to install it.", ToolTipIcon.Info);
             if (interactive) await OfferInstallAsync(u);
         }
         else if (interactive)
@@ -214,6 +213,35 @@ public sealed class MainWindow : Form
     }
 
     // ------------------------------------------------------------------ web view
+
+    // ---- notifications: shown from the tray when the window is minimised, hidden or not in front
+    private NotificationEvent? _balloon;
+
+    private void OnNotification(NotificationEvent e)
+    {
+        try
+        {
+            BeginInvoke(() =>
+            {
+                var s = AppSettings.Current.Notifications;
+                bool inFront = Visible && WindowState != FormWindowState.Minimized && ContainsFocus;
+                if (inFront && s.OnlyWhenMinimised && e.Kind != "test") return;
+                _balloon = e;
+                _tray.ShowBalloonTip(6000, e.Title, e.Body, e.Kind.EndsWith("failed") ? ToolTipIcon.Warning : ToolTipIcon.Info);
+            });
+        }
+        catch { }
+    }
+
+    /// <summary>A click on the notification brings the window back and opens the view it is about.</summary>
+    private async void OnBalloonClicked()
+    {
+        var e = _balloon; _balloon = null;
+        ShowFromTray();
+        if (e == null) return;
+        if (e.Kind == "update" && _update != null) { _ = OfferInstallAsync(_update); return; }
+        try { await _web.CoreWebView2.ExecuteScriptAsync($"typeof openView === 'function' && openView({System.Text.Json.JsonSerializer.Serialize(e.View)})"); } catch { }
+    }
 
     // ---- theme: the page draws itself, the window frame and the browser's own parts (scroll bars, form controls) follow too
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
@@ -253,6 +281,9 @@ public sealed class MainWindow : Form
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
             ApplyTheme();
             AppSettings.Saved += OnSettingsSaved;
+            // web notifications of the page (permission is ours to give: this is our own page); everything else goes through the tray below
+            core.PermissionRequested += (_, e) => { if (e.PermissionKind == CoreWebView2PermissionKind.Notifications) e.State = CoreWebView2PermissionState.Allow; };
+            NotificationHub.Published += OnNotification;
 
             // keep every navigation inside this window, never spawn an external browser window
             core.NewWindowRequested += (_, e) =>

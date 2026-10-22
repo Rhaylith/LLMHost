@@ -1741,6 +1741,24 @@ public partial class ApiServer
             _ = Task.Run(async () => { await Task.Delay(500); _host.Shutdown.TrySetResult(); });          // the updater waits for this process to end
         });
 
+        // ---- notifications: events for whoever shows them (the page polls; clients may add "generation" and "test")
+        app.MapGet("/api/notifications", async ctx =>
+        {
+            long since = long.TryParse(Q(ctx, "since"), out var s) ? s : 0;
+            var (last, events) = NotificationHub.Since(since);
+            await WriteJson(ctx, new { last, settings = _host.Settings.Notifications, events });
+        });
+        app.MapPost("/api/notifications", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            string kind = body["kind"]?.GetValue<string>() ?? "";
+            if (kind is not ("generation" or "test")) throw new ArgumentException("A client may only report 'generation' or 'test'.");
+            string view = body["view"]?.GetValue<string>() is "chat" or "models" or "discover" or "settings" ? body["view"]!.GetValue<string>() : "chat";
+            string Cut(string? t, int n) => (t ?? "").Length > n ? t![..n] : t ?? "";
+            var e = NotificationHub.Publish(kind, Cut(body["title"]?.GetValue<string>(), 80), Cut(body["body"]?.GetValue<string>(), 200), view);
+            await WriteJson(ctx, new { published = e != null, id = e?.Id });
+        });
+
         // ---- chat folders
         object FolderDto(ChatFolder f) => new { f.Id, f.Name, f.ParentId, f.Order };
         app.MapGet("/api/chat-folders", async ctx => await WriteJson(ctx, _host.ChatFolders.List().Select(FolderDto)));

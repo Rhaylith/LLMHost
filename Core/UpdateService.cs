@@ -14,6 +14,7 @@ public static class UpdateService
     public static string CurrentVersion =>
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+')[0] ?? "1.0.0";
 
+    private static string? _announced;
     public static UpdateInfo? Latest { get; private set; }
     public static DateTime? LastChecked { get; private set; }
     public static string? LastError { get; private set; }
@@ -56,6 +57,7 @@ public static class UpdateService
                 catch { /* without a hash the package can be downloaded by hand but not installed from the app */ }
             }
             Latest = new UpdateInfo(best.Version, asset?.Url ?? feed, best.Notes, asset, best.Prerelease, best.Published);
+            if (_announced != best.Version) { _announced = best.Version; NotificationHub.Publish("update", "Update available", $"LLMHost {best.Version} is available (you have {CurrentVersion}).", "settings"); }
             return Latest;
         }
         catch (Exception ex) { LastChecked = DateTime.UtcNow; LastError = ex.Message; Latest = null; return null; }

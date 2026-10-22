@@ -114,9 +114,11 @@ public class ModelManager : IDisposable
             if (allowDuplicate && options.Identifier == null && Get(id) != null) id = NextFreeIdentifier(Path.GetFileNameWithoutExtension(model.FileName));
             existing = Get(id);
             if (existing != null) return existing;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             var progress = new Progress<float>(p => LoadProgress?.Invoke(id, p));
             var rt = await ModelRuntime.LoadAsync(model, options, id, progress, ct);
             rt.LoadedBy = loadedBy;
+            if (clock.Elapsed.TotalSeconds >= AppSettings.Current.Notifications.LoadSeconds) NotificationHub.Publish("model", "Model loaded", $"{id} is ready ({clock.Elapsed.TotalSeconds:0} s).", "chat");
             lock (_gate) _loaded[id] = rt;
             Changed?.Invoke();
             return rt;

@@ -385,6 +385,7 @@ public class DownloadManager
             job.State = DownloadState.Completed;
             job.Verified = job.Parts.All(p => !string.IsNullOrEmpty(p.Sha256) && p.Checked);
             RememberOrigin(job);
+            NotificationHub.Publish("download", "Download finished", job.FileName, "models");
             LogBuffer.Add("download", $"Completed {job.Repo}/{job.FileName}" + (job.Verified ? " (SHA-256 verified)" : ""));
         }
         catch (OperationCanceledException)
@@ -398,6 +399,7 @@ public class DownloadManager
             job.Note = null;
             job.Error = g.Message;
             LogBuffer.Add("download", $"Needs access {job.Repo}: {g.Message}");
+            NotificationHub.Publish("download-failed", "Download needs access", $"{job.FileName}: {g.Message}", "discover");
         }
         catch (Exception ex)
         {
@@ -405,6 +407,7 @@ public class DownloadManager
             job.Note = null;
             job.Error = ex.Message;
             LogBuffer.Add("download", $"Failed {job.Repo}/{job.FileName}: {ex.Message}");
+            NotificationHub.Publish("download-failed", "Download failed", $"{job.FileName}: {ex.Message}", "discover");
         }
         finally
         {

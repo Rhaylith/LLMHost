@@ -139,7 +139,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P2** Color themes (light/dark/system) and interface language selection + localisation
 - [x] **P2** First-run onboarding: hardware survey, recommended models, choose models folder
 - [x] **P2** In-app auto-update and release channels; installer (MSIX/MSI) and self-contained single-file publish
-- [ ] **P2** Notifications on download/load completion
+- [x] **P2** Notifications on download/load completion
 - [ ] **P3** Accessibility pass, responsive/mobile layout
 
 ## 10. Quality, safety & operations
