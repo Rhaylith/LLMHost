@@ -1501,12 +1501,51 @@ public class Shell
         return await DaemonCommandAsync(new Args(args.ToArray()));
     }
 
+    /// <summary>log stream --source request [--json] [--filter text] — API requests as they happen (this process, or the running daemon).</summary>
+    private async Task<bool> RequestStreamAsync(Args a, CancellationToken ct, (DaemonInfo Info, JsonElement Status)? daemon)
+    {
+        bool json = a.Flag("json"); string? filter = a.Value("filter");
+        void Show(RequestEntry e)
+        {
+            if (filter != null && !(e.Path + " " + e.Model + " " + e.Token + " " + e.Error).Contains(filter, StringComparison.OrdinalIgnoreCase)) return;
+            Console.WriteLine(json ? JsonSerializer.Serialize(e, Json.Compact)
+                : $"{e.Time:HH:mm:ss} {e.Status} {e.Method,-4} {e.Path} {e.Model} {e.DurationMs:0}ms in={e.InputTokens} out={e.OutputTokens}{(e.Error != null ? " " + e.Error : "")}");
+        }
+        if (daemon == null)
+        {
+            RequestLog.Added += Show;
+            try { await Task.Delay(Timeout.Infinite, ct); } catch (OperationCanceledException) { }
+            RequestLog.Added -= Show;
+            return true;
+        }
+        using var http = new HttpClient { BaseAddress = new Uri(daemon.Value.Info.Url), Timeout = TimeSpan.FromSeconds(10) };
+        if (!string.IsNullOrEmpty(daemon.Value.Info.Token)) http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", daemon.Value.Info.Token);
+        var seen = new HashSet<string>();
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var doc = System.Text.Json.Nodes.JsonNode.Parse(await http.GetStringAsync("/api/requests?limit=100", ct))!;
+                foreach (var n in doc["requests"]!.AsArray().Reverse())
+                {
+                    var e = n.Deserialize<RequestEntry>(Json.Options)!;
+                    if (seen.Add(e.Id)) Show(e);
+                }
+                await Task.Delay(700, ct);
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex) { Ui.Error(ex.Message); await Task.Delay(2000, ct); }
+        }
+        return true;
+    }
+
     /// <summary>log stream [--local] — follows the log of the running daemon (or of this process).</summary>
     private async Task<bool> LogStreamAsync(Args a)
     {
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
         var daemon = a.Flag("local") ? null : await Daemon.ProbeAsync();
+        if (a.Value("source") == "request") return await RequestStreamAsync(a, cts.Token, daemon);
         if (daemon == null)
         {
             Ui.Info(Ui.Dim("Streaming this process's log (Ctrl+C to stop)."));

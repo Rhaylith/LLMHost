@@ -39,7 +39,8 @@ public static class Scopes
         path = path.ToLowerInvariant();
         bool read = method.Equals("GET", StringComparison.OrdinalIgnoreCase) || method.Equals("HEAD", StringComparison.OrdinalIgnoreCase);
         if (path.StartsWith("/v1/embeddings") || path.StartsWith("/api/v0/embeddings")) return Embeddings;
-        if (path == "/api/tls/cert") return null;                                // a public certificate is not a secret
+        if (path == "/api/tls/cert") return null;
+        if (path == "/metrics") return ModelsRead;                                // a public certificate is not a secret
         if (path.StartsWith("/api/v0/models")) return ModelsRead;
         if (path.StartsWith("/api/v0/")) return Chat;
         if (path.StartsWith("/v1/models")) return ModelsRead;
@@ -149,6 +150,19 @@ public class ApiAuth
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(a), Encoding.UTF8.GetBytes(b));
 
     /// <summary>0 = allowed, 401 = no / unknown token, 403 = token lacks the permission.</summary>
+    /// <summary>Who a request is from, for the request log: "ui", "key" (the single API key), a token's name, or null when no secret was sent.</summary>
+    public string? Identity(HttpRequest req)
+    {
+        string secret = req.Headers.Authorization.ToString();
+        secret = secret.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? secret[7..].Trim() : "";
+        if (secret.Length == 0) secret = req.Headers["x-api-key"].ToString();
+        if (secret.Length == 0) return null;
+        if (Eq(secret, UiToken)) return "ui";
+        if (!string.IsNullOrEmpty(_host.Settings.ApiKey) && Eq(secret, _host.Settings.ApiKey)) return "key";
+        string h = Hash(secret);
+        lock (_gate) return Load().FirstOrDefault(x => Eq(x.Hash, h))?.Name ?? "unknown";
+    }
+
     public int Authorize(HttpRequest req, out string message)
     {
         message = "";

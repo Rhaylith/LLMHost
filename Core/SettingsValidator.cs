@@ -71,6 +71,7 @@ public static class SettingsValidator
             OneOf("logging.native", s.Logging.Native, new[] { "debug", "info", "warn", "error", "off" }, "Native log level");
             Range("logging.retainDays", s.Logging.RetainDays, 0, 3650, "Log retention (days)");
             Range("logging.maxFileMb", s.Logging.MaxFileMb, 1, 1024, "Log file size (MB)");
+            Range("logging.requestLogSize", s.Logging.RequestLogSize, 10, 100000, "Request log size");
         }
         if (s.PromptCache == null) e.Add(new("promptCache", "Missing."));
         else Range("promptCache.maxDiskMb", s.PromptCache.MaxDiskMb, 0, 10_000_000, "Prompt cache disk limit (MB)");

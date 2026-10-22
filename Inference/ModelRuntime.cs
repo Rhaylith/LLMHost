@@ -928,6 +928,8 @@ public sealed class ModelRuntime : IDisposable
 
     private sealed class GenRequest
     {
+        /// <summary>The API request that asked for this generation (its token counts are added when it finishes).</summary>
+        public readonly RequestEntry? Log = RequestLog.Current.Value;
         public LLamaToken[] Tokens = Array.Empty<LLamaToken>();
         public string Prompt = "";
         public IReadOnlyList<byte[]>? Images;
@@ -1695,6 +1697,7 @@ public sealed class ModelRuntime : IDisposable
         r.Stats.DraftTokens = r.DraftProposed;
         r.Stats.DraftAccepted = r.DraftAccepted;
         r.Stats.TotalMs = r.Sw.Elapsed.TotalMilliseconds;
+        r.Log?.AddTokens(r.Stats.PromptTokens, r.Generated);
         r.Stats.StopSequence = r.Scanner.MatchedStop;
         r.Stats.FinishReason = !r.HitStop && !r.Eos && r.Generated >= r.MaxTokens ? "length" : "stop";
         try { r.Sampler.Dispose(); } catch { }

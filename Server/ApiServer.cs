@@ -77,6 +77,28 @@ public partial class ApiServer
             Microsoft.Extensions.Hosting.WindowsServiceLifetimeHostBuilderExtensions.UseWindowsService(builder.Host);
         var app = builder.Build();
 
+        // the request log: model routes only (the window's own polling would drown them)
+        app.Use(async (ctx, next) =>
+        {
+            bool logged = ctx.Request.Path.StartsWithSegments("/v1") || ctx.Request.Path.StartsWithSegments("/api/v1") || ctx.Request.Path.StartsWithSegments("/api/v0");
+            if (!logged) { await next(); return; }
+            var cfg = _host.Settings;
+            var entry = new RequestEntry { Method = ctx.Request.Method, Path = ctx.Request.Path.Value ?? "", Ip = ctx.Connection.RemoteIpAddress?.ToString(), Token = Auth.Identity(ctx.Request) };
+            RequestLog.Current.Value = entry;
+            RequestLog.Capacity = cfg.Logging.RequestLogSize;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            Stream? real = null; CaptureStream? capture = null;
+            if (cfg.Logging.LogBodies) { real = ctx.Response.Body; capture = new CaptureStream(real); ctx.Response.Body = capture; }
+            try { await next(); }
+            finally
+            {
+                entry.Status = ctx.Response.StatusCode;
+                entry.DurationMs = Math.Round(clock.Elapsed.TotalMilliseconds, 1);
+                if (capture != null) { entry.ResponseBody = RequestLog.Clean(capture.Text()); ctx.Response.Body = real!; }
+                RequestLog.Add(entry);
+            }
+        });
+
         app.Use(async (ctx, next) =>
         {
             var cfg = _host.Settings;
@@ -138,6 +160,11 @@ public partial class ApiServer
                 if (peek != null)
                 {
                     if (ttl == null && peek["ttl"] is JsonValue tv && tv.TryGetValue<int>(out var tb)) ttl = tb;
+                    if (RequestLog.Current.Value is { } le)
+                    {
+                        le.Model = peek["model"]?.GetValue<string>(); le.Stream = peek["stream"] is JsonValue sv && sv.TryGetValue<bool>(out var sb) && sb;
+                        if (cfg.Logging.LogBodies) le.RequestBody = RequestLog.Clean(peek.ToJsonString());
+                    }
                     string? tooMuch = RequestCaps.Check(peek, lim.MaxChoices, lim.MaxTokens);
                     if (tooMuch != null) { await WriteError(ctx, 400, tooMuch, "invalid_request_error"); return; }
                 }
@@ -196,6 +223,7 @@ public partial class ApiServer
 
     internal static Task WriteError(HttpContext ctx, int status, string message, string type)
     {
+        if (RequestLog.Current.Value is { } cur) cur.Error ??= message;
         if (ctx.Request.Path.StartsWithSegments("/v1/messages"))
         {
             string t = status switch { 401 => "authentication_error", 404 => "not_found_error", >= 500 => "api_error", _ => "invalid_request_error" };
@@ -1594,6 +1622,45 @@ public partial class ApiServer
             ctx.Response.ContentType = "application/x-pem-file";
             ctx.Response.Headers.ContentDisposition = "attachment; filename=\"llmhost.pem\"";
             await ctx.Response.WriteAsync(TlsCerts.ExportPem(_cert));
+        });
+
+        // ---- request log (model routes), live feed, and Prometheus metrics
+        object RequestDto(RequestEntry e, bool full = false) => full ? e : new { e.Id, e.Time, e.Method, e.Path, e.Status, e.DurationMs, e.Model, e.Token, e.Ip, e.InputTokens, e.OutputTokens, e.Stream, e.Error };
+        app.MapGet("/api/requests", async ctx =>
+        {
+            DateTime? since = DateTime.TryParse(Q(ctx, "since"), null, System.Globalization.DateTimeStyles.RoundtripKind, out var sd) ? sd : null;
+            var list = RequestLog.Query(Q(ctx, "model"), Q(ctx, "status"), since, Q(ctx, "q"), int.TryParse(Q(ctx, "limit"), out var lim) ? lim : 200);
+            await WriteJson(ctx, new { total = RequestLog.Count, bodiesLogged = _host.Settings.Logging.LogBodies, requests = list.Select(e => RequestDto(e)) });
+        });
+        app.MapGet("/api/requests/stream", async ctx =>
+        {
+            SseHeaders(ctx);
+            await ctx.Response.WriteAsync(": connected\n\n"); await ctx.Response.Body.FlushAsync();
+            var queue = System.Threading.Channels.Channel.CreateBounded<RequestEntry>(new System.Threading.Channels.BoundedChannelOptions(100) { FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest });
+            void On(RequestEntry e) => queue.Writer.TryWrite(e);
+            RequestLog.Added += On;
+            try { await foreach (var e in queue.Reader.ReadAllAsync(ctx.RequestAborted)) await Sse(ctx, RequestDto(e)); }
+            catch (OperationCanceledException) { }
+            finally { RequestLog.Added -= On; }
+        });
+        app.MapGet("/api/requests/{id}", async ctx =>
+        {
+            var e = RequestLog.Get((string)ctx.Request.RouteValues["id"]!);
+            if (e == null) await WriteError(ctx, 404, "Request not found (it may have left the log)", "not_found"); else await WriteJson(ctx, e);
+        });
+        app.MapDelete("/api/requests", async ctx => { RequestLog.Clear(); await WriteJson(ctx, new { cleared = true }); });
+        app.MapGet("/metrics", async ctx =>
+        {
+            if (!_host.Settings.MetricsPublic)
+            {
+                int denied = Auth.Authorize(ctx.Request, out string why);
+                if (denied != 0) { await WriteError(ctx, denied, why, denied == 401 ? "invalid_api_key" : "insufficient_permissions"); return; }
+            }
+            var live = HardwareMonitor.Shared.Latest(TimeSpan.FromSeconds(5));
+            ctx.Response.ContentType = "text/plain; version=0.0.4; charset=utf-8";
+            await ctx.Response.WriteAsync(Metrics.Render(
+                _host.Models.Loaded.Select(r => (r.Identifier, r.ActiveRequests, r.QueuedRequests, r.CachedTokenCount)),
+                live.Gpus.Where(g => g.ProcessDedicatedBytes.HasValue).Select(g => (g.Index.ToString(), g.ProcessDedicatedBytes!.Value))));
         });
 
         // ---- chat folders

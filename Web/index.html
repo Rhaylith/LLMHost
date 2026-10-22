@@ -16,6 +16,7 @@
   <button data-tab="discover">Discover</button>
   <button data-tab="settings">Server &amp; Settings</button>
   <button data-tab="help">Help</button>
+  <button data-tab="requests">Requests</button>
   <button data-tab="logs">Logs</button>
   <div id="hwlive" class="dim" style="margin-left:auto;display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer" title="Live load: processor, memory, GPU (click for details)">
     <span id="hwlive-text">…</span><canvas id="hwlive-spark" width="90" height="20"></canvas>
@@ -210,7 +211,7 @@
       <div><label>Max concurrent downloads</label><input type="number" id="s-maxdl" min="1" max="8"></div>
       <div><label>Update feed URL (JSON with version, url, notes; blank = none)</label><input id="s-feed" placeholder="https://example.com/llmhost/latest.json"></div>
       <div><label>Staff-picks list URL (catalog.json format; blank = built-in list only)</label><input id="s-catalog" placeholder="https://example.com/llmhost/catalog.json"></div>
-      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0" title="Once a day, compares your downloaded models with Hugging Face"><input type="checkbox" id="s-modelupd" style="width:auto"> Check downloaded models for newer versions daily</label><label style="margin:6px 0" title="After the first answer, the loaded model suggests a short title (skipped while it is busy)"><input type="checkbox" id="s-autotitle" style="width:auto"> Name new chats automatically</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0" title="Once a day, compares your downloaded models with Hugging Face"><input type="checkbox" id="s-modelupd" style="width:auto"> Check downloaded models for newer versions daily</label><label style="margin:6px 0" title="After the first answer, the loaded model suggests a short title (skipped while it is busy)"><input type="checkbox" id="s-autotitle" style="width:auto"> Name new chats automatically</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-logbodies" style="width:auto"> Keep request and response bodies in the Requests view <span class="dim">(your prompts; redacted, 8 KB each)</span></label><label style="margin:6px 0"><input type="checkbox" id="s-metricspub" style="width:auto"> Serve /metrics without an API token</label><label style="margin:6px 0"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
       <div><label>Load guardrail (refuse loads that exceed memory)</label><select id="s-guard"><option value="off">off</option><option value="balanced">balanced</option><option value="strict">strict</option></select></div>
       <div><label>&nbsp;</label><label style="margin:6px 0" title="Integrated GPUs then stop borrowing system RAM"><input type="checkbox" id="s-dedicated" style="width:auto"> Limit offload to dedicated GPU memory</label></div>
       <div><label>&nbsp;</label><label style="margin:6px 0" title="Open the prompt-template section of the load dialog by default"><input type="checkbox" id="s-showtpl" style="width:auto"> Always show the prompt template when loading</label></div>
@@ -370,6 +371,15 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
   </div>
 </section>
 
+<section id="requests" class="col"><h2>Requests</h2>
+  <div class="row" style="flex-wrap:wrap;gap:8px">
+    <input id="rq-model" placeholder="model" style="width:140px"><input id="rq-status" placeholder="status (200, 4xx, error)" style="width:150px"><input id="rq-q" placeholder="search" style="width:160px">
+    <label class="dim"><input type="checkbox" id="rq-live" checked style="width:auto"> live</label>
+    <button class="b sec" onclick="loadRequests()">Refresh</button><button class="b sec" onclick="clearRequests()">Clear</button>
+    <span class="dim" id="rq-info"></span>
+  </div>
+  <div id="rq-list" style="overflow:auto;flex:1;margin-top:8px"></div>
+</section>
 <section id="logs" class="col"><h2>Logs</h2><pre class="log" id="logbox" style="flex:1"></pre></section>
 </main>
 
@@ -490,6 +500,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/render.js"></script>
 <script src="/ui/chats.js"></script>
 <script src="/ui/chatsettings.js"></script>
+<script src="/ui/requests.js"></script>
 <script src="/ui/presetshare.js"></script>
 <script src="/ui/panes.js"></script>
 <script src="/ui/shortcuts.js"></script>

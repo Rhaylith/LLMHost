@@ -33,6 +33,10 @@ public class LoggingSettings
     public int RetainDays { get; set; } = 14;
     /// <summary>A log file is rolled over when it reaches this size.</summary>
     public int MaxFileMb { get; set; } = 10;
+    /// <summary>Keep the (redacted, 8 KB) request and response bodies in the request log. Off by default: they contain your prompts.</summary>
+    public bool LogBodies { get; set; }
+    /// <summary>How many recent API requests the request log keeps.</summary>
+    public int RequestLogSize { get; set; } = 2000;
 }
 
 /// <summary>Strips secrets (bearer tokens, API keys, Hugging Face tokens) from text before it is shown or written.</summary>
