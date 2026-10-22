@@ -115,3 +115,16 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 details.think{color:var(--dim);border-left:2px solid var(--line);padding-left:10px;margin:4px 0 8px}
 details.think>summary{cursor:pointer;font-style:italic}
 details.think .think-body{white-space:pre-wrap;font-style:italic;margin-top:4px}
+/* split view / compare */
+#chat.compare #conv,#chat.compare #params{display:none}
+#panes{flex:1;min-width:0;flex-direction:column;height:100%}
+#panes-grid{flex:1;min-height:0;display:grid;gap:8px;padding:8px}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.pane.focus{border-color:var(--acc2)}
+.pane-head{display:flex;gap:4px;padding:6px}.pane-head select{flex:1;min-width:0}.pane-head input{width:68px}
+.pane-sys{margin:0 6px 4px;width:calc(100% - 12px);box-sizing:border-box}
+.pane-msgs{flex:1;min-height:0;overflow:auto;padding:4px 10px}
+.pane-foot{padding:2px 10px;font-size:12px;min-height:16px}
+#panes-diff{padding:0 12px;font-size:12px}#panes-diff table{margin:0 auto}
+#panes-composer{display:flex;gap:8px;padding:8px 12px;border-top:1px solid var(--line)}
+#panes-composer textarea{flex:1;resize:none}

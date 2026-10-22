@@ -26,13 +26,27 @@
 <!-- ======================== CHAT ======================== -->
 <section id="chat" class="on">
   <div id="chats">
-    <div class="row"><button class="b" style="flex:1" onclick="newChat()">+ New chat</button><button class="b sec" title="New folder" onclick="newFolder()">📁</button><button class="b sec" title="Import chats (this app, or a ChatGPT export)" onclick="importChats()">⇪</button></div>
+    <div class="row"><button class="b" style="flex:1" onclick="newChat()">+ New chat</button><button class="b sec" title="New folder" onclick="newFolder()">📁</button><button class="b sec" title="Import chats (this app, or a ChatGPT export)" onclick="importChats()">⇪</button><button class="b sec" id="compare-btn" title="Split view: several models or settings side by side, one prompt to all" onclick="toggleCompare()">⫴</button></div>
     <input id="chat-search" placeholder="Search chats…" style="margin:8px 0">
     <div id="chat-bulk" class="row" style="display:none;margin-bottom:6px"><span class="dim" style="flex:1"></span><button class="b red" onclick="bulkDelete()">Delete</button><button class="b sec" onclick="clearSelection()">✕</button></div>
     <div id="chatlist"></div>
     <input type="file" id="chat-import-file" accept=".json,application/json" hidden>
   </div>
   <div id="ctxmenu"></div>
+  <div id="panes" style="display:none">
+    <div id="panes-grid"></div>
+    <div id="panes-diff"></div>
+    <div id="panes-composer">
+      <textarea id="panes-input" rows="2" placeholder="Send one prompt to every pane… (Enter to send, Shift+Enter for newline)"></textarea>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label class="dim" style="white-space:nowrap"><input type="checkbox" id="panes-all" checked style="width:auto"> send to all</label>
+        <button class="b" id="panes-send" onclick="paneSend()">Send</button>
+        <button class="b red" id="panes-stop" style="display:none" onclick="paneStop()">Stop</button>
+        <button class="b sec" id="add-pane" onclick="addPane()" title="Add a pane (up to 4)">+ pane</button>
+        <button class="b sec" onclick="toggleCompare(false)" title="Back to the normal chat">Close</button>
+      </div>
+    </div>
+  </div>
   <div id="conv">
     <div id="msgs"></div>
     <div id="attachments"></div>
@@ -445,6 +459,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/render.js"></script>
 <script src="/ui/chats.js"></script>
 <script src="/ui/chatsettings.js"></script>
+<script src="/ui/panes.js"></script>
 <script src="/ui/shortcuts.js"></script>
 <script src="/ui/models.js"></script>
 <script src="/ui/discover.js"></script>

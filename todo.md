@@ -83,7 +83,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** Chat with documents: attach `.pdf`, `.docx`, `.txt` (+ `.md`); put the whole file in context when it fits, otherwise chunk + embed + retrieve (RAG) with citations
 - [x] **P1** Image / file attachments in chat (needs vision support)
 - [x] **P2** Chat folders (nested, drag-and-drop), duplicate chat (with attachments), search across chats, rename, auto titles, bulk delete, import/export (JSON/Markdown/text)
-- [ ] **P2** Split view: two chats/models side by side, send simultaneously (relies on parallel requests); multi-model compare
+- [x] **P2** Split view: two chats/models side by side, send simultaneously (relies on parallel requests); multi-model compare
 - [x] **P2** Per-chat settings panel (model, system prompt, params) with "save as preset / as default"
 - [x] **P2** Rich rendering: full Markdown, syntax highlighting + copy, LaTeX, tables, collapsible reasoning
 - [x] **P2** Live token counter / context-usage bar; per-message stats (tok/s, TTFT, stop reason, load time)

@@ -48,6 +48,17 @@ public class UiPageTests : IClassFixture<ServerFixture>
         Assert.Contains("trust: false", js);                                           // KaTeX: no \href / \includegraphics from model output
         Assert.Contains("window.renderSelfTest", js);
     }
+
+    [Fact]
+    public async Task TheSplitViewHasItsMarkupAndScript()
+    {
+        string page = await Page();
+        foreach (var id in new[] { "panes", "panes-grid", "panes-input", "panes-all", "panes-send", "panes-stop", "panes-diff", "add-pane", "compare-btn" })
+            Assert.Contains($"id=\"{id}\"", page);
+        foreach (var fn in new[] { "function toggleCompare", "function streamPane", "function paneSend", "function keepPane", "function drawDiff", "MAX_PANES = 4" })
+            Assert.Contains(fn, page);
+        Assert.Contains("#chat.compare #conv", await _f.Http.GetStringAsync("/ui/app.css"));
+    }
     [Fact]
     public async Task EveryScriptAndTheStylesheetAreServed()
     {
