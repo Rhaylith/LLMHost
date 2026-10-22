@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace LLMHostProject.Core;
 
-public record GpuInfo(int Index, string Name, string Vendor, long VramBytes, bool Integrated, string Driver, long SharedBytes = 0)
+public record GpuInfo(int Index, string Name, string Vendor, long VramBytes, bool Integrated, string Driver, long SharedBytes = 0, long Luid = 0)
 {
     /// <summary>Memory the GPU can use for a model: dedicated VRAM, plus shared system memory for integrated GPUs.</summary>
     public long UsableBytes => VramBytes + (Integrated ? SharedBytes : 0);
@@ -43,11 +43,11 @@ public static class Hardware
                 using (var g = new ManagementObjectSearcher("select Name, DriverVersion from Win32_VideoController"))
                     foreach (var o in g.Get()) drivers[o["Name"]?.ToString() ?? ""] = o["DriverVersion"]?.ToString() ?? "";
                 int idx = 0;
-                foreach (var (name, vendorId, vram, shared) in dxgi)
+                foreach (var (name, vendorId, vram, shared, luid) in dxgi)
                 {
                     string vendor = vendorId switch { 0x1002 => "AMD", 0x10DE => "NVIDIA", 0x8086 => "Intel", _ => Vendor(name) };
                     bool integrated = IsIntegrated(name, vram);
-                    gpus.Add(new GpuInfo(idx++, name, vendor, vram, integrated, drivers.GetValueOrDefault(name, ""), shared));
+                    gpus.Add(new GpuInfo(idx++, name, vendor, vram, integrated, drivers.GetValueOrDefault(name, ""), shared, luid));
                 }
             }
             else
@@ -159,9 +159,9 @@ public static class Hardware
         [PreserveSig] int EnumAdapters1(uint index, [MarshalAs(UnmanagedType.Interface)] out IDXGIAdapter1 adapter);
     }
 
-    private static List<(string Name, uint VendorId, long Vram, long Shared)> EnumerateDxgi()
+    private static List<(string Name, uint VendorId, long Vram, long Shared, long Luid)> EnumerateDxgi()
     {
-        var list = new List<(string, uint, long, long)>();
+        var list = new List<(string, uint, long, long, long)>();
         try
         {
             var iid = typeof(IDXGIFactory1).GUID;
@@ -169,7 +169,7 @@ public static class Hardware
             for (uint i = 0; factory.EnumAdapters1(i, out var adapter) == 0; i++)
             {
                 if (adapter.GetDesc1(out var d) == 0 && (d.Flags & 2) == 0)   // skip DXGI_ADAPTER_FLAG_SOFTWARE
-                    list.Add((d.Description, d.VendorId, (long)d.DedicatedVideoMemory.ToUInt64(), (long)d.SharedSystemMemory.ToUInt64()));
+                    list.Add((d.Description, d.VendorId, (long)d.DedicatedVideoMemory.ToUInt64(), (long)d.SharedSystemMemory.ToUInt64(), d.AdapterLuid));
                 Marshal.ReleaseComObject(adapter);
             }
             Marshal.ReleaseComObject(factory);

@@ -638,6 +638,45 @@ public partial class ApiServer
             });
         });
 
+        // ---- live load: one reading, or a stream with one reading per second
+        // unavailable counters are sent as explicit nulls, so a client always sees the same fields
+        var withNulls = new JsonSerializerOptions(Json.Options) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never };
+        object LiveDto(LiveSnapshot s) => JsonSerializer.SerializeToNode(new
+        {
+            time = s.Time, cpuPercent = s.CpuPercent,
+            ramTotalBytes = s.RamTotalBytes, ramAvailableBytes = s.RamAvailableBytes, ramUsedBytes = s.RamTotalBytes - s.RamAvailableBytes,
+            process = new { workingSetBytes = s.ProcessWorkingSetBytes, privateBytes = s.ProcessPrivateBytes },
+            gpus = s.Gpus.Select(g => new
+            {
+                g.Index, g.Name, utilization = g.Utilization, dedicatedUsedBytes = g.DedicatedUsedBytes, dedicatedTotalBytes = g.DedicatedTotalBytes,
+                sharedUsedBytes = g.SharedUsedBytes, processDedicatedBytes = g.ProcessDedicatedBytes, processSharedBytes = g.ProcessSharedBytes,
+                temperatureC = g.TemperatureC,
+            }),
+            // what each loaded model was expected to need on the GPU / in system memory, next to what the process really holds
+            models = _host.Models.Loaded.Select(r => new
+            {
+                id = r.Identifier, estimatedGpuBytes = r.Estimate?.GpuBytes, estimatedCpuBytes = r.Estimate?.CpuBytes, weightSharers = r.WeightSharers,
+            }),
+            notes = s.Notes,
+        }, withNulls)!;
+        app.MapGet("/api/hardware/live", async ctx => await WriteJson(ctx, LiveDto(HardwareMonitor.Shared.Latest())));
+        app.MapGet("/api/hardware/stream", async ctx =>
+        {
+            SseHeaders(ctx);
+            var ct = ctx.RequestAborted;
+            var queue = System.Threading.Channels.Channel.CreateBounded<LiveSnapshot>(new System.Threading.Channels.BoundedChannelOptions(2)
+            { FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest });
+            void OnSample(LiveSnapshot s) => queue.Writer.TryWrite(s);
+            HardwareMonitor.Shared.Sampled += OnSample;
+            using var subscription = HardwareMonitor.Shared.Subscribe();
+            try
+            {
+                await foreach (var s in queue.Reader.ReadAllAsync(ct)) await Sse(ctx, LiveDto(s));
+            }
+            catch (OperationCanceledException) { }
+            finally { HardwareMonitor.Shared.Sampled -= OnSample; }
+        });
+
         // ---- runtime (llama.cpp build) manager
         object RuntimeDto(RuntimeInfo r) => new
         {

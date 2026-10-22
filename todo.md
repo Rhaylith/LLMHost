@@ -60,7 +60,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** Accurate "will it fit?" estimate (weights + KV cache + compute buffers + MoE, iGPU shared memory) with pre-load warning and the "limit offload to dedicated GPU memory" guardrail
 - [x] **P2** GPU offload expressed as a ratio (`--gpu max|auto|0.0–1.0`, `gpu` in the native API, a slider in the UI) in addition to a raw layer count
 - [ ] **P2** Switch backend (CPU ↔ Vulkan) at runtime by hosting each backend in its own worker process (native lib is process-wide today)
-- [ ] **P2** Live hardware monitor (GPU/CPU utilisation, VRAM/RAM, temperature)
+- [x] **P2** Live hardware monitor (GPU/CPU utilisation, VRAM/RAM; GPU temperature is reported as n/a, no vendor-neutral source on Windows)
 - [ ] **P2** CPU thread pool settings (`threads`, `threads_batch`, affinity/priority), NUMA
 - [ ] **P3** Offline-operation audit (no network calls except Hugging Face when the user asks; no telemetry) and a documented system-requirements page
 

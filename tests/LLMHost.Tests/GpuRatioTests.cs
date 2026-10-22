@@ -94,6 +94,7 @@ public class GpuRatioTests
     [Fact]
     public void ThePlannerUsesTheRatioOfTheModelsOwnLayerCount()
     {
+        NativeBackend.Initialize();
         if (!NativeBackend.GpuAvailable) return;                          // without a GPU backend nothing is offloaded
         var model = Model(32, "plan32.gguf");
         var info = GgufInfo.Read(model.Path);
@@ -131,6 +132,7 @@ public class GpuRatioIntegrationTests
     [VlmFact]
     public async Task ALoadWithARatioOffloadsThatManyLayers()
     {
+        NativeBackend.Initialize();
         if (!NativeBackend.GpuAvailable) return;
         var model = new ModelLibrary().Find(Environment.GetEnvironmentVariable("LLMHOST_TEST_VLM")!)!;
         int blocks = (int)GgufInfo.Read(model.Path).BlockCount;

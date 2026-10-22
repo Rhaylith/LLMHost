@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio (12 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor (13 of ~50).
 
 ---
 
@@ -277,7 +277,7 @@ Problem: the native library is loaded once per process ([NativeBackend.cs](Infer
 * Acceptance: load Qwen-0.5B on CPU and (concurrently) Vulkan in one running instance; kill a worker → host stays up; no
   latency regression > 5 % vs. in-process.
 
-#### §2.3 Live hardware monitor — **M**
+#### ✅ §2.3 Live hardware monitor — **M**
 * Sampler thread (1 Hz while any UI/SSE client listens, 0 otherwise): CPU % (PDH `\Processor Information(_Total)\% Processor
   Utility`), RAM (existing `MemoryStatus`), process working set, per-GPU dedicated/shared memory used and engine utilisation via
   PDH counters `\GPU Engine(*)\Utilization Percentage` and `\GPU Adapter Memory(*)\Dedicated Usage` (works for AMD/NVIDIA/Intel;
@@ -286,6 +286,10 @@ Problem: the native library is loaded once per process ([NativeBackend.cs](Infer
 * `GET /api/hardware/live` (snapshot) and `GET /api/hardware/stream` (SSE). UI: small sparkline panel in the header and a
   full panel in Settings → Hardware; per-loaded-model VRAM estimate vs. actual.
 * Tests: counter-name parser unit tests; endpoint returns schema even when counters are missing.
+
+**As built:** `Core/HardwareMonitor.cs`. CPU load from the Windows counter `Processor Information\% Processor Utility` (falls back to `Processor\% Processor Time`); memory from `MemoryStatus`; this process's working set / private bytes; per GPU the engine load, adapter memory and this process's GPU memory. The GPU numbers come from the WMI views of the same counters (`Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine / GPUAdapterMemory / GPUProcessMemory`) rather than raw PDH wildcards: simpler and still vendor-neutral (AMD / NVIDIA / Intel). Counter instances such as `pid_1234_luid_0x00000000_0x0000F5A3_phys_0_eng_0_engtype_3D` are parsed (`GpuCounterName`) and matched to a GPU through the adapter LUID that DXGI reports (`GpuInfo.Luid`, new); processes are summed per engine and the busiest engine is the adapter's load, like the task manager. `HardwareMonitor.Shared` samples once a second **only while something is subscribed**; a plain request takes a fresh reading when the last one is older than 0.9 s. API: `GET /api/hardware/live` (always the same fields; unavailable counters are explicit `null`s, `notes` explains why) and `GET /api/hardware/stream` (SSE, one reading per second, sampling stops when the client leaves). The reading also lists each loaded model's estimated GPU / system-memory need, next to this process's real GPU memory. UI: a live strip with a CPU / GPU sparkline in the top bar (polls every 2 s while the page is visible) and a "Live load" card in Settings with bars per resource, the VRAM of this app and the estimates of loaded models.
+Deviations: **temperature is always `null` / "n/a"** — Windows has no vendor-neutral counter and no vendor library was added (LibreHardwareMonitor was optional in the plan and is not included); the header strip polls instead of using the SSE stream (an `EventSource` cannot send the API key header).
+Verified on this machine (two RX 7900 XTX): CPU / RAM / process figures, GPU 0 load and VRAM, the LUID mapping for every GPU, and that a model loaded on the GPU shows up as more than 100 MB of this process's dedicated GPU memory. The second GPU reports no counters while idle (`null`), as Windows lists none for it. **Correction:** the GPU tests written for §2.4 returned early because the native backend was not yet initialised in the test process, so they had never really run; they initialise it now and pass (planner gives 17 layers for a ratio of 0.5 on 32 blocks, a real SmolVLM GPU load offloads the computed count).
 
 #### §2.6 CPU thread pool, affinity, NUMA — **M**
 * `LoadOptions` additions: `ThreadsBatch` (exists as `BatchThreads`; expose consistently as `threads_batch`), `CpuAffinityMask`
