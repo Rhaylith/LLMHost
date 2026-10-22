@@ -1,0 +1,39 @@
+# Builds, tests and publishes a release when a version tag (v1.2.3, v1.3.0-beta.1) is pushed.
+# Pre-release tags (with a dash) are marked as pre-releases, which only the "beta" update channel sees.
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Test (unit and API tests; the model tests need local model files and are skipped)
+        run: dotnet test tests/LLMHost.Tests -c Release --filter "Category!=Integration"
+      - name: Package
+        shell: pwsh
+        env:
+          SIGN_CERT_PFX: ${{ secrets.SIGN_CERT_PFX }}
+          SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
+        run: pwsh build/publish.ps1 -Version ("${{ github.ref_name }}" -replace '^v','')
+      - name: Installer (MSI, per user)
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          $v = ("${{ github.ref_name }}" -replace '^v','') -replace '-.*$',''
+          wix build installer/Package.wxs -d Version=$v -d SourceDir=bin/publish/win-x64 -o artifacts/LLMHost-$v-win-x64.msi
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem artifacts -File | Where-Object Name -ne 'SHA256SUMS' | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content artifacts/SHA256SUMS -Encoding ascii
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true

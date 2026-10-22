@@ -50,6 +50,7 @@ public static class SettingsValidator
             OneOf("network.tls.mode", t.Mode, new[] { "off", "selfSigned", "file" }, "HTTPS mode"); Range("network.tls.port", t.Port, 1, 65535, "HTTPS port");
             if (t.Mode == "file" && string.IsNullOrWhiteSpace(t.CertPath)) e.Add(new("network.tls.certPath", "A certificate file is required in file mode."));
         }
+        if (s.Update == null) e.Add(new("update", "Missing.")); else OneOf("update.channel", s.Update.Channel, new[] { "stable", "beta" }, "Update channel");
         OneOf("uiMode", s.UiMode, new[] { "user", "power", "developer" }, "Interface mode");
         OneOf("uiTheme", s.UiTheme, new[] { "light", "dark", "system" }, "Theme");
         if (!string.IsNullOrWhiteSpace(s.UiAccent) && !System.Text.RegularExpressions.Regex.IsMatch(s.UiAccent, @"^#[0-9a-fA-F]{6}$")) e.Add(new("uiAccent", "The accent colour must look like #1f5fd6."));

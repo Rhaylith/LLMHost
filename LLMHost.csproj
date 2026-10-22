@@ -29,6 +29,9 @@
   <ItemGroup>
     <!-- the test project lives below this folder: keep its sources out of the application -->
     <Compile Remove="tests\**" />
+    <Compile Remove="Updater\**" />
+    <EmbeddedResource Remove="Updater\**" />
+    <None Remove="Updater\**" />
     <EmbeddedResource Remove="tests\**" />
     <None Remove="tests\**" />
     <InternalsVisibleTo Include="LLMHost.Tests" />
@@ -43,4 +46,11 @@
     <EmbeddedResource Include="Web\locales\*.json" LogicalName="ui/locales/%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- the updater program travels with the application: built and published into an "updater" folder next to llmhost.exe -->
+  <Target Name="BuildUpdater" AfterTargets="Build" Condition="'$(BuildingUpdater)' != 'true'">
+    <Exec Command="dotnet build &quot;$(MSBuildProjectDirectory)\Updater\LLMHost.Updater.csproj&quot; -c $(Configuration) -o &quot;$(OutDir)updater&quot; -p:BuildingUpdater=true -v q -nologo" />
+  </Target>
+  <Target Name="PublishUpdater" AfterTargets="Publish" Condition="'$(BuildingUpdater)' != 'true'">
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectDirectory)\Updater\LLMHost.Updater.csproj&quot; -c $(Configuration) -o &quot;$(PublishDir)updater&quot; -p:BuildingUpdater=true -v q -nologo" />
+  </Target>
 </Project>

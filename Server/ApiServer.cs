@@ -1719,6 +1719,28 @@ public partial class ApiServer
         });
         app.MapPost("/api/onboarding/reset", async ctx => { _host.Settings.OnboardingDone = false; _host.Settings.Save(); await WriteJson(ctx, new { done = false }); });
 
+        // ---- application updates: channel, check, install (download, verify, hand over to the updater program)
+        object UpdateDto() => new
+        {
+            current = UpdateService.CurrentVersion, channel = _host.Settings.Update.Channel, feedConfigured = !string.IsNullOrWhiteSpace(_host.Settings.UpdateFeedUrl),
+            latest = UpdateService.Latest == null ? null : new { UpdateService.Latest.Version, UpdateService.Latest.Notes, UpdateService.Latest.Prerelease, UpdateService.Latest.Published, url = UpdateService.Latest.Url,
+                asset = UpdateService.Latest.Asset == null ? null : new { UpdateService.Latest.Asset.Name, UpdateService.Latest.Asset.Size, verified = UpdateService.Latest.Asset.Sha256 != null }, canInstall = UpdateService.Latest.Asset?.Sha256 != null },
+            lastChecked = UpdateService.LastChecked, lastError = UpdateService.LastError,
+        };
+        app.MapGet("/api/update", async ctx => await WriteJson(ctx, UpdateDto()));
+        app.MapGet("/api/update/status", async ctx => await WriteJson(ctx, UpdateDto()));
+        app.MapPost("/api/update/check", async ctx => { await UpdateService.CheckAsync(ctx.RequestAborted); await WriteJson(ctx, UpdateDto()); });
+        app.MapPost("/api/update/install", async ctx =>
+        {
+            var u = UpdateService.Latest ?? throw new InvalidOperationException("There is no update to install: check for updates first.");
+            if (u.Asset == null || u.Asset.Sha256 == null) throw new InvalidOperationException("This update has no package that can be verified; download it from " + u.Url);
+            string package = await UpdateService.DownloadAsync(u.Asset, ct: ctx.RequestAborted);
+            var mode = Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() ? UpdateService.RunMode.Service : LLMHostProject.Cli.Daemon.Read() != null ? UpdateService.RunMode.Daemon : UpdateService.RunMode.Window;
+            UpdateService.StartUpdater(UpdateService.BuildPlan(package, u.Version, mode));
+            await WriteJson(ctx, new { started = true, version = u.Version });
+            _ = Task.Run(async () => { await Task.Delay(500); _host.Shutdown.TrySetResult(); });          // the updater waits for this process to end
+        });
+
         // ---- chat folders
         object FolderDto(ChatFolder f) => new { f.Id, f.Name, f.ParentId, f.Order };
         app.MapGet("/api/chat-folders", async ctx => await WriteJson(ctx, _host.ChatFolders.List().Select(FolderDto)));
@@ -1769,16 +1791,6 @@ public partial class ApiServer
         app.MapDelete("/api/tokens/{id}", async ctx =>
             await WriteJson(ctx, new { revoked = Auth.Revoke((string)ctx.Request.RouteValues["id"]!) }));
 
-        app.MapGet("/api/update", async ctx => await WriteJson(ctx, new
-        {
-            current = LLMHostProject.Desktop.UpdateChecker.CurrentVersion, enabled = _host.Settings.CheckUpdates, feed = _host.Settings.UpdateFeedUrl,
-            latest = LLMHostProject.Desktop.UpdateChecker.Latest, lastChecked = LLMHostProject.Desktop.UpdateChecker.LastChecked, error = LLMHostProject.Desktop.UpdateChecker.LastError,
-        }));
-        app.MapPost("/api/update/check", async ctx =>
-        {
-            var u = await LLMHostProject.Desktop.UpdateChecker.CheckAsync(ctx.RequestAborted);
-            await WriteJson(ctx, new { current = LLMHostProject.Desktop.UpdateChecker.CurrentVersion, latest = u, error = LLMHostProject.Desktop.UpdateChecker.LastError });
-        });
 
         // open PowerShell + Claude Code wired to this server and the chosen (loaded) model
         app.MapPost("/api/launch/claude-code", async ctx =>

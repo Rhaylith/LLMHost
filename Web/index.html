@@ -160,6 +160,12 @@
   <input id="set-search" placeholder="Search all settings (ignores the mode)…" data-i18n-placeholder="ph.search_all_settings_ignores_the" style="max-width:420px;margin-bottom:8px">
   <h2 data-i18n="h.hardware">Hardware</h2>
   <div class="card" id="hw"></div>
+  <div class="card" id="update-card"><h2>Updates</h2>
+    <div class="row"><span>Version <b id="up-current"></b></span><label class="dim" style="margin-left:12px">Channel <select id="up-channel"><option value="stable">stable</option><option value="beta">beta (pre-releases)</option></select></label>
+      <button class="b sec" onclick="checkUpdate()">Check now</button><button class="b" id="up-install" style="display:none" onclick="installUpdate()">Download and install</button></div>
+    <div id="up-msg" class="dim" style="margin-top:6px"></div>
+    <div class="dim" style="margin-top:6px">The feed address is set below (Server &amp; application settings → update feed). A GitHub Releases address (https://api.github.com/repos/&lt;owner&gt;/&lt;repo&gt;/releases) or a releases.json works. Packages are checked against the published SHA-256 (installers also need a valid signature) before anything is replaced; if the new version does not start, the old one is put back.</div>
+  </div>
   <div class="card" id="appearance-card"><h2 data-i18n="h.appearance">Appearance</h2>
     <div class="grid2">
       <div><label data-i18n="appearance.theme">Theme</label><select id="ap-theme"><option value="system" data-i18n="appearance.system">Follow Windows</option><option value="light" data-i18n="appearance.light">Light</option><option value="dark" data-i18n="appearance.dark">Dark</option></select></div>
@@ -532,6 +538,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/system.js"></script>
 <script src="/ui/help.js"></script>
 <script src="/ui/theme.js"></script>
+<script src="/ui/updates.js"></script>
 <script src="/ui/hardware.js"></script>
 <script src="/ui/onboarding.js"></script>
 <script src="/ui/features.js"></script>

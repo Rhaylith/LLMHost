@@ -130,7 +130,7 @@ public sealed class MainWindow : Form
         _tray.DoubleClick += (_, _) => ShowFromTray();
         _tray.BalloonTipClicked += (_, _) =>
         {
-            if (_update != null) OpenUrl(_update.Url); else ShowFromTray();
+            if (_update != null) _ = OfferInstallAsync(_update); else ShowFromTray();
         };
     }
 
@@ -175,6 +175,24 @@ public sealed class MainWindow : Form
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
     }
 
+    /// <summary>Asks to install the update when the feed gave a verifiable package, otherwise to open the download page.</summary>
+    private async Task OfferInstallAsync(UpdateInfo u)
+    {
+        bool canInstall = u.Asset?.Sha256 != null;
+        string ask = $"Version {u.Version} is available (you have {UpdateChecker.CurrentVersion}).\n\n{u.Notes}\n\n" + (canInstall ? "Download and install it now? LLMHost will close and start again." : "Open the download page?");
+        if (MessageBox.Show(this, ask, "LLMHost update", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+        if (!canInstall) { OpenUrl(u.Url); return; }
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            string package = await UpdateService.DownloadAsync(u.Asset!);
+            var mode = LLMHostProject.Cli.Daemon.Read() != null ? UpdateService.RunMode.Daemon : UpdateService.RunMode.Window;
+            UpdateService.StartUpdater(UpdateService.BuildPlan(package, u.Version, mode));
+            _quitting = true; Close();
+        }
+        catch (Exception ex) { Cursor = Cursors.Default; MessageBox.Show(this, "The update was not installed:\n" + ex.Message, "LLMHost update"); }
+    }
+
     private async Task CheckForUpdatesAsync(bool interactive)
     {
         if (string.IsNullOrWhiteSpace(AppSettings.Current.UpdateFeedUrl))
@@ -187,10 +205,9 @@ public sealed class MainWindow : Form
         _update = u;
         if (u != null)
         {
-            _updateItem.Text = $"Update available: {u.Version} (open download page)";
-            _tray.ShowBalloonTip(8000, "LLMHost update available", $"Version {u.Version} is available (you have {UpdateChecker.CurrentVersion}). Click to open the download page.", ToolTipIcon.Info);
-            if (interactive && MessageBox.Show(this, $"Version {u.Version} is available (you have {UpdateChecker.CurrentVersion}).\n\n{u.Notes}\n\nOpen the download page?",
-                    "LLMHost update", MessageBoxButtons.YesNo) == DialogResult.Yes) OpenUrl(u.Url);
+            _updateItem.Text = $"Update available: {u.Version} (click to install)";
+            _tray.ShowBalloonTip(8000, "LLMHost update available", $"Version {u.Version} is available (you have {UpdateChecker.CurrentVersion}). Click to install it.", ToolTipIcon.Info);
+            if (interactive) await OfferInstallAsync(u);
         }
         else if (interactive)
             MessageBox.Show(this, UpdateChecker.LastError != null ? "Could not check for updates:\n" + UpdateChecker.LastError : $"You have the latest version ({UpdateChecker.CurrentVersion}).", "LLMHost");

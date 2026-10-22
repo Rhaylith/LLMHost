@@ -116,6 +116,31 @@ public class Shell
         }
     }
 
+    /// <summary>update check | install — looks for a newer version on the configured feed; install downloads, verifies and hands over to the updater.</summary>
+    private async Task<bool> UpdateVerbAsync(Args a)
+    {
+        string sub = a.Positional.FirstOrDefault() ?? "check";
+        if (sub is not ("check" or "install")) { Ui.Error("usage: update check | install", ExitCodes.Usage); return false; }
+        var u = await UpdateService.CheckAsync();
+        if (u == null)
+        {
+            if (UpdateService.LastError != null) { Ui.Error("Could not check for updates: " + UpdateService.LastError, UpdateService.LastError.StartsWith("No update feed") ? ExitCodes.Usage : ExitCodes.Unreachable); return false; }
+            Out.Result(new { current = UpdateService.CurrentVersion, updateAvailable = false });
+            Ui.Info($"You have the latest version ({UpdateService.CurrentVersion}, channel {_host.Settings.Update.Channel}).");
+            return true;
+        }
+        Out.Result(new { current = UpdateService.CurrentVersion, updateAvailable = true, version = u.Version, prerelease = u.Prerelease, canInstall = u.Asset?.Sha256 != null, url = u.Url });
+        Ui.Info($"Version {u.Version}{(u.Prerelease ? " (pre-release)" : "")} is available (you have {UpdateService.CurrentVersion}).{(u.Notes != null ? "\n" + u.Notes : "")}");
+        if (sub == "check") return true;
+        if (u.Asset?.Sha256 == null) { Ui.Error("This update has no package that can be verified; download it from " + u.Url, ExitCodes.Usage); return false; }
+        string package = await UpdateService.DownloadAsync(u.Asset, new Progress<double>(p => Console.Error.Write($"\rdownloading {p * 100:0}%  ")));
+        Console.Error.WriteLine();
+        UpdateService.StartUpdater(UpdateService.BuildPlan(package, u.Version, Daemon.Read() != null ? UpdateService.RunMode.Daemon : UpdateService.RunMode.Window));
+        Ui.Info("The updater is running; this program closes now.");
+        Environment.Exit(0);
+        return true;
+    }
+
     // ===================================================================== link / login / clone / push / dev
 
     private static readonly string[] LinkVerbs = { "enable", "disable", "status", "set-device-name", "set-preferred-device", "pair", "peers", "unpair", "permissions" };
@@ -226,6 +251,7 @@ public class Shell
             case "get": case "download": case "pull": return await GetAsync(a);
             case "clone": return await GetAsync(a);                                  // alias of get: clone <user/model>
             case "login": return await LoginAsync(a);
+            case "update": return await UpdateVerbAsync(a);
             case "link": return await LinkVerbAsync(a);
             case "push": return NotApplicable("push", "there is no hub to publish to; share a preset file with 'preset export' instead");
             case "dev": return NotApplicable("dev", "there is no plugin system to develop for");
@@ -240,7 +266,6 @@ public class Shell
             case "mcp": return await McpCommandAsync(a);
             case "daemon": return await DaemonCommandAsync(a);
             case "claude": case "claude-code": return await ClaudeCodeCommandAsync(a);
-            case "update": return await UpdateCommandAsync();
             case "version": Ui.Info("llmhost " + LLMHostProject.Desktop.UpdateChecker.CurrentVersion); return true;
             case "rm": case "delete": return Remove(a);
             case "load": return await LoadAsync(a);
@@ -585,15 +610,6 @@ public class Shell
         return ok;
     }
 
-    private async Task<bool> UpdateCommandAsync()
-    {
-        Ui.Info($"This is llmhost {LLMHostProject.Desktop.UpdateChecker.CurrentVersion}.");
-        if (string.IsNullOrWhiteSpace(_host.Settings.UpdateFeedUrl)) { Ui.Info("No update feed is configured (config updatefeed <url>)."); return true; }
-        var u = await LLMHostProject.Desktop.UpdateChecker.CheckAsync();
-        if (u != null) Ui.Info(Ui.Green("Update available: ") + $"{u.Version}  {u.Url}" + (u.Notes != null ? "\n  " + u.Notes : ""));
-        else Ui.Info(LLMHostProject.Desktop.UpdateChecker.LastError != null ? Ui.Red("Update check failed: ") + LLMHostProject.Desktop.UpdateChecker.LastError : "You are up to date.");
-        return true;
-    }
 
     /// <summary>claude [folder] [--model id] [--server url] — PowerShell + Claude Code wired to the running server.</summary>
     private async Task<bool> ClaudeCodeCommandAsync(Args a)

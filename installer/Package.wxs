@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Per-user installer (no administrator needed): %LOCALAPPDATA%\Programs\LLMHost, Start menu shortcut, removes cleanly.
+  User data stays in %USERPROFILE%\.llmhost and is never touched by install, update or removal.
+  Build:  wix build installer\Package.wxs -d Version=1.2.0 -d SourceDir=bin\publish\win-x64 -o LLMHost.msi
+  The WebView2 runtime (evergreen) is a prerequisite of the window; Windows 11 and current Windows 10 have it. The app tells you when it is missing.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="LLMHost" Manufacturer="LLMHost" Version="$(Version)" UpgradeCode="6A88FB98-EBD7-4890-B355-D42A136F152B" Scope="perUser">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of LLMHost is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsSub" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="LLMHost" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="StartMenuDir" Name="LLMHost" />
+    </StandardDirectory>
+
+    <Files Include="$(SourceDir)\**" Directory="INSTALLFOLDER" />
+
+    <!-- (WiX 4 puts the files above and this component into its default feature) -->
+    <Component Id="StartMenuShortcut" Directory="StartMenuDir" Guid="2D8E3F10-6C2B-4B7E-9B35-0A9C1B5D7E41">
+      <Shortcut Id="AppShortcut" Name="LLMHost" Target="[INSTALLFOLDER]llmhost.exe" WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveStartMenuDir" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\LLMHost" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+  </Package>
+</Wix>

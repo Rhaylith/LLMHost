@@ -384,6 +384,8 @@ public class AppSettings
     public bool CheckUpdates { get; set; }
     /// <summary>URL of a small JSON document {"version","url","notes"} announcing the latest release. None by default.</summary>
     public string? UpdateFeedUrl { get; set; }
+    /// <summary>Update channel and checks of downloaded packages (see <see cref="UpdateSettings"/>).</summary>
+    public UpdateSettings Update { get; set; } = new();
     /// <summary>"auto", "bundled:&lt;variant&gt;" or "user:&lt;name&gt;" (see 'runtime list'). Applied at start-up.</summary>
     public string Runtime { get; set; } = "auto";
     /// <summary>Re-check URL-installed runtimes for newer builds when the server starts.</summary>
@@ -502,6 +504,7 @@ public class AppSettings
         AutoUpdateRuntimes = other.AutoUpdateRuntimes;
         MinimizeToTray = other.MinimizeToTray; CheckUpdates = other.CheckUpdates; DebugRequests = other.DebugRequests; AnthropicReasoningAsText = other.AnthropicReasoningAsText;
         UpdateFeedUrl = string.IsNullOrWhiteSpace(other.UpdateFeedUrl) ? null : other.UpdateFeedUrl.Trim();
+        Update = other.Update ?? new();
         LoadGuardrail = other.LoadGuardrail is "off" or "strict" ? other.LoadGuardrail : "balanced";
         VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); PromptCache = other.PromptCache ?? new(); Vision = other.Vision ?? new(); AlwaysShowTemplate = other.AlwaysShowTemplate; Rag = other.Rag ?? new(); DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
         Save();
@@ -557,4 +560,13 @@ public class JitSettings
     public int MaxLoadedModels { get; set; }
     /// <summary>lru (least recently used first) | oldest (loaded longest ago first).</summary>
     public string EvictOrder { get; set; } = "lru";
+}
+
+/// <summary>Updating the application (settings.json → <c>update</c>); the address of the feed is <c>updateFeedUrl</c>.</summary>
+public class UpdateSettings
+{
+    /// <summary>stable (releases only) or beta (pre-releases too).</summary>
+    public string Channel { get; set; } = "stable";
+    /// <summary>An installer (.msi / .exe) must carry a valid Authenticode signature; a .zip must match the SHA-256 the feed publishes.</summary>
+    public bool RequireSignature { get; set; } = true;
 }
