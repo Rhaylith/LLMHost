@@ -44,8 +44,9 @@ public partial class ApiServer
             if (body["identifier"]?.GetValue<string>() is { Length: > 0 } ident) opts.Identifier = ident;
             if (body["parallel"] is JsonValue pv && pv.TryGetValue<int>(out var pn)) opts.MaxConcurrent = pn;
             if (body["ttl"] is JsonValue tv && tv.TryGetValue<int>(out var tn)) opts.TtlMinutes = Math.Max(0, tn / 60);
+            bool another = body["allow_duplicate"] is JsonValue ad && ad.TryGetValue<bool>(out var adv) && adv;
             var sw = Stopwatch.StartNew();
-            var rt = await _host.Models.LoadAsync(model, opts, ctx.RequestAborted);
+            var rt = await _host.Models.LoadAsync(model, opts, ctx.RequestAborted, another);
             var result = new JsonObject
             {
                 ["type"] = rt.Model.IsEmbedding || rt.Options.Embeddings ? "embedding" : "llm",

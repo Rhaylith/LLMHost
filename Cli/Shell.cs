@@ -205,7 +205,7 @@ public class Shell
             Running
               load <model> [--cpu|--gpu max|auto|off|0.5] [--gpu-layers N] [--identifier name] [--context-length N] [--ctx N] [--threads N (default 75% of cores)] [--batch N]
                            [--flash] [--no-mmap] [--mlock] [--kv-k q8_0] [--kv-v q8_0] [--no-vision] [--mmproj <file>] [--draft <small model>] [--draft-tokens 6] [--template-file chat.jinja]
-                           [--lora "adapter.gguf=0.8;other.gguf"] [--cpu-moe | --n-cpu-moe N] [--moe-experts N] [--override-tensor "regex=CPU;regex2=CPU"]
+                           [--another] [--lora "adapter.gguf=0.8;other.gguf"] [--cpu-moe | --n-cpu-moe N] [--moe-experts N] [--override-tensor "regex=CPU;regex2=CPU"]
                            [--id name] [--ttl minutes] [--embeddings]
                            [--gpus 0,1] [--split 3,1] [--split-mode layer|row|none]   multi-GPU: devices (priority order), shares, mode
                            [--parallel N]   requests generated at the same time (continuous batching, default 4)
@@ -808,7 +808,7 @@ public class Shell
         try
         {
             using var cts = new CancellationTokenSource();
-            var rt = await _host.Models.LoadAsync(query, o, cts.Token);
+            var rt = await _host.Models.LoadAsync(query, o, cts.Token, a.Flag("another"));
             Console.WriteLine();
             string layers = rt.GpuLayers >= 999 ? "all layers" : $"{rt.GpuLayers} layers";
             Ui.Info(Ui.Green("Loaded ") + $"{rt.Identifier} in {sw.Elapsed.TotalSeconds:0.0}s — " +
@@ -1612,7 +1612,7 @@ public class Args
     public List<string> Positional { get; } = new();
     private readonly Dictionary<string, string?> _opts = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> Booleans = new(StringComparer.OrdinalIgnoreCase)
-        { "cpu", "cpu-moe", "no-flash", "no-mmap", "mlock", "embeddings", "bg", "y", "lan", "no-vision", "no-mmproj", "move", "link", "copy", "skip-fit-check", "force", "daemon", "service", "json", "all", "follow", "f", "local" };
+        { "cpu", "cpu-moe", "another", "no-flash", "no-mmap", "mlock", "embeddings", "bg", "y", "lan", "no-vision", "no-mmproj", "move", "link", "copy", "skip-fit-check", "force", "daemon", "service", "json", "all", "follow", "f", "local" };
 
     public Args(string[] args)
     {

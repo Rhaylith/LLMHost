@@ -648,7 +648,7 @@ public partial class ApiServer
                 },
                 loaded = _host.Models.Loaded.Select(r => new
                 {
-                    id = r.Identifier, file = r.Model.FileName, r.GpuLayers,
+                    id = r.Identifier, file = r.Model.FileName, modelId = r.Model.Id, weightSharers = r.WeightSharers, r.GpuLayers,
                     device = r.GpuLayers > 0 ? "gpu" : "cpu", vision = r.SupportsVision, capabilities = r.Capabilities.ToApi(), threads = r.Threads, contextSize = r.ContextSize, cachedTokens = r.CachedTokenCount, cacheSlots = r.CacheSlots.Select(s => new { s.Id, s.Tokens, s.Active }), draftModel = r.DraftModelId, draftProposed = r.DraftProposedTotal, draftAccepted = r.DraftAcceptedTotal,
                     sizeBytes = r.Model.SizeBytes, r.Requests, r.Busy, lastUsed = r.LastUsed,
                     reasoning = r.ReasoningStyle.ToString().ToLowerInvariant(), supportsReasoning = r.SupportsReasoning,
@@ -810,7 +810,8 @@ public partial class ApiServer
             var body = await ReadBody(ctx);
             string model = body["model"]?.GetValue<string>() ?? throw new ArgumentException("'model' is required");
             var opts = body["options"]?.Deserialize<LoadOptions>(Json.Options) ?? _host.Settings.DefaultLoad.Clone();
-            var rt = await _host.Models.LoadAsync(model, opts, ctx.RequestAborted);
+            bool another = body["allowDuplicate"] is JsonValue ad && ad.TryGetValue<bool>(out var adv) && adv;
+            var rt = await _host.Models.LoadAsync(model, opts, ctx.RequestAborted, another);
             await WriteJson(ctx, ModelEntry(rt));
         });
 

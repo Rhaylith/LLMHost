@@ -22,6 +22,8 @@ public class FitEstimate
     public long DraftBytes { get; set; }
     /// <summary>LoRA adapter files that are applied on top of the model.</summary>
     public long AdapterBytes { get; set; }
+    /// <summary>Weights this load shares with an instance that is already loaded (not counted again).</summary>
+    public long SharedWeightsBytes { get; set; }
     /// <summary>Sum of everything that lands on GPUs / in system memory.</summary>
     public long GpuBytes { get; set; }
     public long CpuBytes { get; set; }
@@ -45,7 +47,7 @@ public class FitEstimate
     public string Describe()
     {
         string f(long b) => Hardware.FormatBytes(b);
-        var parts = new List<string> { $"weights {f(WeightsBytes)}", $"KV cache {f(KvCacheBytes)}", $"compute {f(ComputeBytes)}" };
+        var parts = new List<string> { SharedWeightsBytes > 0 ? $"weights shared with a loaded instance ({f(SharedWeightsBytes)})" : $"weights {f(WeightsBytes)}", $"KV cache {f(KvCacheBytes)}", $"compute {f(ComputeBytes)}" };
         if (ProjectorBytes > 0) parts.Add($"vision projector {f(ProjectorBytes)}");
         if (DraftBytes > 0) parts.Add($"draft model {f(DraftBytes)}");
         if (AdapterBytes > 0) parts.Add($"LoRA adapters {f(AdapterBytes)}");
@@ -142,7 +144,7 @@ public static class FitEstimator
     }
 
     public static FitEstimate Estimate(LocalModel model, LoadOptions o, HardwareInfo? hw = null, int? gpuLayersOverride = null,
-        bool? gpuBackend = null, uint? contextOverride = null)
+        bool? gpuBackend = null, uint? contextOverride = null, bool weightsAlreadyLoaded = false)
     {
         hw ??= Hardware.Detect();
         var settings = AppSettings.Current;
@@ -179,6 +181,14 @@ public static class FitEstimator
         }
         long weights = layerBytes.Sum() + outputBytes + embedBytes + otherBytes;
         est.WeightsBytes = weights;
+        if (weightsAlreadyLoaded)
+        {
+            // another instance holds these weights in memory already: this one only adds its context, cache and compute buffers
+            est.SharedWeightsBytes = weights;
+            est.WeightsBytes = 0; weights = 0;
+            Array.Clear(layerBytes); Array.Clear(layerHost);
+            outputBytes = embedBytes = otherBytes = 0;
+        }
 
         // ---- projector
         long proj = 0;

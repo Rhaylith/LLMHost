@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters (8 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances (9 of ~50).
 
 ---
 
@@ -204,7 +204,7 @@ Verified on Qwen3-30B-A3B-Q4_K_M (17 GB): the expert-count override shows up in 
 Deviations: adapters are not shown under their base model in My Models (only in the load dialog); no per-request LoRA (as planned); download/import reuse the normal flows (an imported adapter is picked up automatically).
 Verified with synthetic rank-4 adapters written by the tests (`LoraBuilder`) on SmolVLM-256M: strength 0 gives the plain output, strength 4 changes it, swapping and removing adapters at runtime works and restores the original output, a swapped model does not reuse the old prompt cache, a wrong-architecture adapter is refused. Not tested with a real trained adapter.
 
-#### §1.8 Multiple instances of the same model — **M**
+#### ✅ §1.8 Multiple instances of the same model — **M**
 * `ModelManager.LoadAsync` already supports `options.Identifier`, but `Get(id)` returning an existing instance and the
   `/v1/models` listing assume 1 per model. Work: (a) never dedupe by file, only by identifier; (b) auto-suffix identifiers
   (`name`, `name:2`) when requested with `allowDuplicate`; (c) share mmapped weights between instances — keep a
@@ -214,6 +214,10 @@ Verified with synthetic rank-4 adapters written by the tests (`LoraBuilder`) on 
 * Fit check must count only the incremental cost (context + compute buffers) for a shared-weights instance.
 * UI: "Load another instance" in the loaded-models list with distinct context size / params; CLI `load --identifier`.
 * Tests: two instances with different context sizes answer in parallel; unloading one keeps the other.
+
+**As built:** loading an already loaded model with another identifier was already possible; what was missing is now there. `ModelManager.LoadAsync(…, allowDuplicate: true)` names a new instance `name:2`, `name:3` … (an explicit identifier that is taken is refused). Instances **share their weights**: `ModelRuntime.WeightsKey` (file, GPU layers, main GPU, split, mmap/mlock, MoE and tensor overrides) selects a ref-counted `LLamaWeights` in a static pool; a second instance only creates its own context, cache and projector, and the last instance to go frees the weights (`WeightSharers`, `/api/status.weightSharers`). The fit check for such a load counts no weights (`FitEstimator … weightsAlreadyLoaded`, `SharedWeightsBytes`). Routing: `ModelManager.Instances` / `ResolveAsync` — `name:2` addresses that instance only, the pool name `name` (or library id / file name) goes to the least busy instance (`LeastLoaded`: running + waiting requests, ties to the longest idle). A load that fails after the weights were acquired now releases them. API `POST /api/models/load {allowDuplicate:true}` and `/api/v1/models/load {allow_duplicate:true}`; CLI `load --another`; UI "+ instance" button in the loaded list (opens the load dialog with its own context size and settings).
+Deviations: instances with different weight placement (other GPU layers, mmap …) do not share and load separately (as expected); `/v1/models` lists every instance under its identifier rather than grouping them.
+Verified on SmolVLM-256M: two instances with different context sizes (1024 / 2048) share one set of weights, answer in parallel with identical greedy output; unloading one keeps the other working and the weights are freed with the last one; routing by pool name picks the idle instance while the other is busy; `name:2` is honoured explicitly.
 
 #### §1.11 `logprobs` / `n` — **S** (close-out)
 Verify existing OpenAI chat/completions implementation against the spec (bytes arrays, `top_logprobs` ≤ 20, streaming chunk

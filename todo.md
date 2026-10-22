@@ -47,7 +47,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P2** Context-overflow policies (truncate middle, rolling window, stop at limit, error) per request; the default stays "drop oldest turns"
 - [x] **P2** MoE controls (number of experts, force expert weights onto CPU / tensor buffer overrides)
 - [x] **P2** LoRA adapter loading (per model, with a strength; swap at runtime; synthetic adapters tested, no real trained adapter yet)
-- [ ] **P2** Multiple instances of the same model (distinct identifiers/contexts)
+- [x] **P2** Multiple instances of the same model (distinct identifiers/contexts; they share the weights)
 - [ ] **P2** `logprobs` / `top_logprobs`, `n > 1` choices
 - [ ] **P2** Embedding model options (pooling, normalisation, batching); reranking
 - [ ] **P3** Harden the schema→GBNF converter (`$defs` cycles, `pattern`, numeric bounds, `additionalProperties`, string length)

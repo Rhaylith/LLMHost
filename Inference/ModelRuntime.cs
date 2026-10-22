@@ -212,6 +212,67 @@ public sealed class ModelRuntime : IDisposable
         return p;
     }
 
+    // ------------------------------------------------------------------ shared weights (several instances of one model)
+
+    private sealed class SharedWeights
+    {
+        public LLamaWeights Weights = null!;
+        public int Refs;
+        public int Layers;
+        public GpuPlan? Plan;
+    }
+
+    private static readonly Dictionary<string, SharedWeights> SharedPool = new();
+    private string? _sharedKey;
+
+    /// <summary>
+    /// Two loads share their weights (a second instance then only pays for its own context and cache) when everything that decides
+    /// how the weights are placed is identical.
+    /// </summary>
+    internal static string WeightsKey(LocalModel model, LoadOptions o, int layers) => string.Join("|",
+        Path.GetFullPath(model.Path).ToLowerInvariant(), model.SizeBytes, layers, o.MainGpu, o.SplitMode,
+        string.Join(",", o.GpuDevices ?? new List<int>()), string.Join(",", o.TensorSplit ?? new List<float>()),
+        o.UseMmap, o.UseMlock, o.MoeExpertCount,
+        string.Join(";", TensorOverrides.Effective(o).Select(t => t.Pattern + "=" + t.Buffer)));
+
+    private static int? PeekShared(string key)
+    {
+        lock (SharedPool) return SharedPool.TryGetValue(key, out var s) ? s.Layers : null;
+    }
+
+    private static SharedWeights? AcquireShared(string key)
+    {
+        lock (SharedPool)
+        {
+            if (!SharedPool.TryGetValue(key, out var s)) return null;
+            s.Refs++;
+            return s;
+        }
+    }
+
+    private static void RegisterShared(string key, LLamaWeights weights, int layers, GpuPlan? plan)
+    {
+        lock (SharedPool) SharedPool[key] = new SharedWeights { Weights = weights, Refs = 1, Layers = layers, Plan = plan };
+    }
+
+    /// <summary>Gives up one use of shared weights; the last user frees them. Returns false when the key is unknown.</summary>
+    private static void ReleaseShared(string key, LLamaWeights weights)
+    {
+        bool free = false;
+        lock (SharedPool)
+        {
+            if (SharedPool.TryGetValue(key, out var s) && ReferenceEquals(s.Weights, weights))
+            {
+                if (--s.Refs <= 0) { SharedPool.Remove(key); free = true; }
+            }
+            else free = true;                        // not registered (should not happen): nobody else can be using it
+        }
+        if (free) weights.Dispose();
+    }
+
+    /// <summary>How many loaded instances use the weights of this model right now (for tests and the status page).</summary>
+    public int WeightSharers { get { lock (SharedPool) return _sharedKey != null && SharedPool.TryGetValue(_sharedKey, out var s) ? s.Refs : 1; } }
+
     public static async Task<ModelRuntime> LoadAsync(LocalModel model, LoadOptions options, string identifier,
         IProgress<float>? progress, CancellationToken ct)
     {
@@ -248,6 +309,11 @@ public sealed class ModelRuntime : IDisposable
             warnings.Add($"Using {options.MoeExpertCount} of {info.ExpertUsedCount} experts per token instead of the model's default of {info.ExpertUsedCount}: faster, but answers may get worse.");
         int layers = PlanGpuLayers(model, options, info);
 
+        // a second instance of a model that is already loaded reuses its weights and only pays for its own context
+        string sharedKey = WeightsKey(model, options, layers);
+        int? sharedLayers = PeekShared(sharedKey);
+        if (sharedLayers != null) layers = sharedLayers.Value;
+
         // the native library is process wide: report (do not switch) when the model prefers another runtime
         if (!string.IsNullOrWhiteSpace(options.Runtime) && !options.Runtime.Equals("auto", StringComparison.OrdinalIgnoreCase))
         {
@@ -264,7 +330,7 @@ public sealed class ModelRuntime : IDisposable
 
         // ---- will it fit? (guardrail)
         FitEstimate? estimate = null;
-        try { estimate = FitEstimator.Estimate(model, options, gpuBackend: NativeBackend.GpuAvailable, gpuLayersOverride: layers); }
+        try { estimate = FitEstimator.Estimate(model, options, gpuBackend: NativeBackend.GpuAvailable, gpuLayersOverride: layers, weightsAlreadyLoaded: sharedLayers != null); }
         catch (Exception ex) { LogBuffer.Add("load", $"Memory estimate unavailable: {ex.Message}"); }
         if (estimate != null)
         {
@@ -283,7 +349,17 @@ public sealed class ModelRuntime : IDisposable
         ModelParams p = null!;
         GpuPlan? plan = null;
         var sw = Stopwatch.StartNew();
-        for (int attempt = 0; ; attempt++)
+        var shared = sharedLayers != null ? AcquireShared(sharedKey) : null;
+        if (shared != null)
+        {
+            // same weights as a running instance: only the context (cache, compute buffers) is new
+            weights = shared.Weights; layers = shared.Layers; plan = shared.Plan;
+            p = BuildParams(model, options, layers, embeddingsMode, plan);
+            LogBuffer.Add("load", $"Loading another instance of {model.FileName} (weights shared, ctx={p.ContextSize})");
+            try { context = weights.CreateContext(p); }
+            catch (Exception ex) { ReleaseShared(sharedKey, weights); throw Explain(model, ex, RecentNativeLog(), layers); }
+        }
+        else for (int attempt = 0; ; attempt++)
         {
             if (attempt > 0)
             {
@@ -318,6 +394,7 @@ public sealed class ModelRuntime : IDisposable
                 throw Explain(model, ex, logs, layers);
             }
         }
+        if (shared == null) RegisterShared(sharedKey, weights!, layers, plan);
         LogBuffer.Add("load", $"Loaded {model.FileName} in {sw.Elapsed.TotalSeconds:0.0}s");
 
         // multimodal projector: enables image input
@@ -348,13 +425,18 @@ public sealed class ModelRuntime : IDisposable
         if (!string.IsNullOrWhiteSpace(options.DraftModel) && !isEmbedding)
             draft = await LoadDraftAsync(options, weights!, layers, warnings, ct);
         var rt = new ModelRuntime(identifier, model, options, layers, weights!, p, mtmd, mmproj, marker) { _ctx = context };
+        rt._sharedKey = sharedKey;
         rt._draft = draft;
         rt.LoadWarnings.AddRange(warnings);
         rt.Estimate = estimate;
         rt.Plan = plan;
-        rt.ValidateTemplate();
-        if (loras.Count > 0) rt.ApplyLoras(loras);
-        await rt.RestoreAutoAsync();
+        try
+        {
+            rt.ValidateTemplate();
+            if (loras.Count > 0) rt.ApplyLoras(loras);
+            await rt.RestoreAutoAsync();
+        }
+        catch { rt.Dispose(); throw; }                       // do not leak the weights (or a reference to shared ones)
         return rt;
     }
 
@@ -1709,7 +1791,7 @@ public sealed class ModelRuntime : IDisposable
             _draft?.Dispose();
             _ctx?.Dispose();
             _mtmd?.Dispose();
-            _weights.Dispose();
+            if (_sharedKey != null) ReleaseShared(_sharedKey, _weights); else _weights.Dispose();
         }
         finally { _ctxGate.Release(); }
     }

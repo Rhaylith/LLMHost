@@ -35,7 +35,7 @@ public class ModelManager : IDisposable
         lock (_gate) return _loaded.TryGetValue(id, out var r) ? r : null;
     }
 
-    public async Task<ModelRuntime> LoadAsync(string modelQuery, LoadOptions? options = null, CancellationToken ct = default)
+    public async Task<ModelRuntime> LoadAsync(string modelQuery, LoadOptions? options = null, CancellationToken ct = default, bool allowDuplicate = false)
     {
         var model = Library.Find(modelQuery)
                     ?? throw new FileNotFoundException($"No local model matches '{modelQuery}'. Use 'models' to list downloaded models.");
@@ -43,12 +43,21 @@ public class ModelManager : IDisposable
         options = (options ?? Defaults.LoadFor(model.Id) ?? AppSettings.Current.DefaultLoad).Clone();
         string id = options.Identifier ?? Path.GetFileNameWithoutExtension(model.FileName);
 
+        // asking for another instance of a loaded model: name it automatically ("name:2", "name:3"...)
+        if (allowDuplicate && Get(id) != null)
+        {
+            if (options.Identifier != null)
+                throw new InvalidOperationException($"'{id}' is already loaded. Choose another identifier, or leave it out to get an automatic one.");
+            id = NextFreeIdentifier(id);
+        }
+
         var existing = Get(id);
         if (existing != null) return existing;
 
         await _loadGate.WaitAsync(ct);
         try
         {
+            if (allowDuplicate && options.Identifier == null && Get(id) != null) id = NextFreeIdentifier(Path.GetFileNameWithoutExtension(model.FileName));
             existing = Get(id);
             if (existing != null) return existing;
             var progress = new Progress<float>(p => LoadProgress?.Invoke(id, p));
@@ -58,6 +67,44 @@ public class ModelManager : IDisposable
             return rt;
         }
         finally { _loadGate.Release(); }
+    }
+
+    /// <summary>The pool name of an instance: its identifier without a trailing ":2", ":3"...</summary>
+    public static string PoolName(string identifier)
+    {
+        int colon = identifier.LastIndexOf(':');
+        return colon > 0 && colon < identifier.Length - 1 && identifier[(colon + 1)..].All(char.IsDigit) ? identifier[..colon] : identifier;
+    }
+
+    private string NextFreeIdentifier(string baseId)
+    {
+        for (int n = 2; ; n++)
+        {
+            string candidate = $"{baseId}:{n}";
+            if (Get(candidate) == null) return candidate;
+        }
+    }
+
+    /// <summary>The least busy of several instances of the same model (fewest running + waiting requests; ties go to the longest idle one).</summary>
+    public static ModelRuntime LeastLoaded(IEnumerable<ModelRuntime> instances) =>
+        instances.OrderBy(r => r.ActiveRequests + r.QueuedRequests).ThenBy(r => r.LastUsed).First();
+
+    /// <summary>
+    /// Loaded instances a request for <paramref name="requested"/> may use: one named exactly (also "name:2" for that single instance),
+    /// otherwise every instance of the model called that (by pool name, library id or file name).
+    /// </summary>
+    public List<ModelRuntime> Instances(string requested)
+    {
+        var loaded = Loaded;
+        // "name:2" addresses that one instance
+        if (PoolName(requested) != requested)
+            return loaded.Where(r => r.Identifier.Equals(requested, StringComparison.OrdinalIgnoreCase)).ToList();
+        // "name" addresses the whole pool: the first instance and every "name:N"
+        var pool = loaded.Where(r => PoolName(r.Identifier).Equals(requested, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (pool.Count > 0) return pool;
+        return loaded.Where(r => r.Model.Id.Equals(requested, StringComparison.OrdinalIgnoreCase)
+                                 || r.Model.FileName.Equals(requested, StringComparison.OrdinalIgnoreCase)
+                                 || Path.GetFileNameWithoutExtension(r.Model.FileName).Equals(requested, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
     public bool Unload(string id)
@@ -86,10 +133,8 @@ public class ModelManager : IDisposable
         var loaded = Loaded;
         if (!string.IsNullOrWhiteSpace(requested))
         {
-            var hit = loaded.FirstOrDefault(r => r.Identifier.Equals(requested, StringComparison.OrdinalIgnoreCase))
-                      ?? loaded.FirstOrDefault(r => r.Model.Id.Equals(requested, StringComparison.OrdinalIgnoreCase)
-                                                    || r.Model.FileName.Equals(requested, StringComparison.OrdinalIgnoreCase));
-            if (hit != null) return hit;
+            var instances = Instances(requested);
+            if (instances.Count > 0) return LeastLoaded(instances);
         }
         else
         {

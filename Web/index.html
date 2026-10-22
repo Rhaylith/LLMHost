@@ -910,7 +910,7 @@ async function refreshModels() {
   $('mdir').textContent = status.modelsDirectory;
   $('loaded').innerHTML = status.loaded.length ? `<table><tr><th>Model</th><th>Device</th><th>GPU layers</th><th>Threads</th><th>Context</th><th>Size</th><th>Requests</th><th></th></tr>` +
     status.loaded.map(m => `<tr><td>${esc(m.id)} ${m.vision ? '<span class="tag">vision</span>' : ''}</td><td class="ok">${m.device.toUpperCase()}</td><td>${m.gpuLayers >= 999 ? 'all' : m.gpuLayers}</td><td>${m.threads}</td><td>${m.contextSize}</td><td>${fmt(m.sizeBytes)}</td><td>${m.requests}</td>
-      <td style="white-space:nowrap">${m.isEmbedding ? '' : `<button class="b sec" title="Open PowerShell with Claude Code using this model" onclick='launchClaudeCode(${JSON.stringify(m.id)})'>Claude Code</button> `}<button class="b sec" onclick="unload('${esc(m.id)}')">Eject</button></td></tr>`).join('') + '</table>' : '<span class="dim">Nothing loaded.</span>';
+      <td style="white-space:nowrap">${m.isEmbedding ? '' : `<button class="b sec" title="Open PowerShell with Claude Code using this model" onclick='launchClaudeCode(${JSON.stringify(m.id)})'>Claude Code</button> `}<button class="b sec" title="Load a second instance of this model (shares the weights; own context and settings)" onclick='loadAnother(${JSON.stringify(m.modelId)})'>+ instance</button> <button class="b sec" onclick="unload('${esc(m.id)}')">Eject</button></td></tr>`).join('') + '</table>' : '<span class="dim">Nothing loaded.</span>';
   const local = await api('/api/models/local');
   $('local').innerHTML = local.length ? `<table><tr><th>Model</th><th>Arch</th><th>Quant</th><th>Context</th><th>Size</th><th></th></tr>` +
     local.map(m => `<tr><td>${esc(m.id)} ${m.isEmbedding ? '<span class="tag">embedding</span>' : ''}${m.supportsVision ? '<span class="tag">vision</span>' : ''}</td><td>${esc(m.architecture)}</td><td>${esc(m.quantization)}</td><td>${m.contextLength || ''}</td><td>${fmt(m.sizeBytes)}</td>
@@ -1058,7 +1058,9 @@ async function loadDrafts(id) {
   if (wanted && ![...sel.options].some(o => o.value === wanted)) sel.innerHTML += `<option value="${esc(wanted)}">${esc(wanted)}</option>`;
   sel.value = wanted;
 }
+async function loadAnother(modelId) { await openLoad(modelId, false); window._another = true; $('loaddlg-title').textContent = 'Load another instance'; $('l-id').placeholder = 'blank = automatic name (name:2, name:3 ...)'; }
 async function openLoad(id, emb, mode = 'load') {
+  window._another = false;
   const lc = status?.hardware?.logicalCores;
   if (lc) $('l-threads-label').textContent = `CPU threads (0 = default: ${Math.max(1, Math.round(lc * 0.75))} of ${lc} cores)`;
   // start from this model's saved defaults, falling back to the global ones
@@ -1094,7 +1096,7 @@ async function doLoad(force) {
   $('l-go').disabled = true; $('l-force').style.display = 'none'; $('l-msg').className = 'dim';
   $('l-msg').textContent = 'Loading… this can take a while for large models';
   try {
-    const r = await api('/api/models/load', {method:'POST', body:{model: loadTarget, options}});
+    const r = await api('/api/models/load', {method:'POST', body:{model: loadTarget, options, allowDuplicate: !!window._another}});
     $('loaddlg').close();
     const warn = (status?.loaded || []).find(m => m.id === r.id)?.warnings;
     if (r.warnings?.length) alert(r.warnings.join('\n'));
