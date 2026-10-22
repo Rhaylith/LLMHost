@@ -67,6 +67,11 @@ public partial class ApiServer
             }
             try { await next(); }
             catch (OperationCanceledException) { }
+            catch (GatedModelException g) when (!ctx.Response.HasStarted)
+            {
+                // structured, so a client can offer "open on Hugging Face" and a retry
+                await WriteJson(ctx, new { error = new { message = g.Message, type = "gated", code = "gated", repo = g.Repo, accessUrl = g.AccessUrl } }, 403);
+            }
             catch (Exception ex) when (!ctx.Response.HasStarted)
             {
                 LogBuffer.Add("server", $"{ctx.Request.Method} {ctx.Request.Path}: {ex.Message}");
@@ -592,7 +597,8 @@ public partial class ApiServer
 
     private static object JobDto(DownloadJob j) => new
     {
-        j.Id, j.Repo, j.FileName, state = j.State.ToString().ToLowerInvariant(),
+        j.Id, j.Repo, j.FileName, state = j.State == DownloadState.NeedsAccess ? "needs-access" : j.State.ToString().ToLowerInvariant(),
+        accessUrl = j.State == DownloadState.NeedsAccess ? $"https://huggingface.co/{j.Repo}" : null,
         bytesDone = Interlocked.Read(ref j.BytesDone), j.TotalBytes, progress = j.Progress,
         bytesPerSecond = j.BytesPerSecond, j.Error, j.FinalPath, j.Note, j.Verified, j.Attempt,
     };
@@ -915,16 +921,20 @@ public partial class ApiServer
         // card data + README of a Hugging Face repository (cached 24 h)
         app.MapGet("/api/models/card", async ctx =>
         {
-            try
+            var c = await HuggingFace.GetCardAsync(Q(ctx, "repo"), ctx.RequestAborted, Q(ctx, "refresh") == "1");
+            await WriteJson(ctx, new
             {
-                var c = await HuggingFace.GetCardAsync(Q(ctx, "repo"), ctx.RequestAborted, Q(ctx, "refresh") == "1");
-                await WriteJson(ctx, new
-                {
-                    c.Repo, c.License, licenseKind = c.LicenseInfo.Kind, licenseWarning = c.LicenseInfo.Warning, c.Tags, c.Pipeline,
-                    c.Downloads, c.Likes, c.LastModified, c.Gated, c.BaseModel, c.Readme, capabilities = c.Capabilities.ToApi(), fetched = c.FetchedUtc,
-                });
-            }
-            catch (GatedModelException g) { await WriteError(ctx, 403, g.Message, "gated"); }
+                c.Repo, c.License, licenseKind = c.LicenseInfo.Kind, licenseWarning = c.LicenseInfo.Warning, c.Tags, c.Pipeline,
+                c.Downloads, c.Likes, c.LastModified, c.Gated, c.BaseModel, c.Readme, capabilities = c.Capabilities.ToApi(), fetched = c.FetchedUtc,
+            });
+        });
+
+        // who a token belongs to (the posted one, or the saved one when none is posted)
+        app.MapPost("/api/hf/whoami", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var a = await HuggingFace.WhoAmIAsync(body["token"]?.GetValue<string>(), ctx.RequestAborted);
+            await WriteJson(ctx, new { a.Valid, a.Name, a.FullName, a.Type, a.Error });
         });
 
         // architecture table of a downloaded model, read from its GGUF header

@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using LLMHostProject.Core;
@@ -85,7 +86,7 @@ public static partial class HuggingFace
         {
             using var resp = await Http.SendAsync(Request($"https://huggingface.co/api/models/{repo}"), ct);
             if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
-                throw new GatedModelException(repo);
+                throw new GatedModelException(repo, HuggingFace.HasToken);
             resp.EnsureSuccessStatusCode();
             using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
             var e = doc.RootElement;
@@ -122,5 +123,38 @@ public class GatedModelException : Exception
 {
     public string Repo { get; }
     public string AccessUrl => $"https://huggingface.co/{Repo}";
-    public GatedModelException(string repo) : base($"'{repo}' requires accepting its licence on Hugging Face.") => Repo = repo;
+    public GatedModelException(string repo, bool hasToken = true) : base(hasToken
+        ? $"'{repo}' is gated: accept its licence on Hugging Face (with the account the token belongs to), then retry."
+        : $"'{repo}' needs a Hugging Face account: set a token in Settings and accept the licence on Hugging Face, then retry.") => Repo = repo;
+}
+
+/// <summary>Result of asking Hugging Face who a token belongs to.</summary>
+public record HfAccount(bool Valid, string? Name, string? FullName, string? Type, string? Error);
+
+public static partial class HuggingFace
+{
+    private static string? ConfiguredToken => AppSettings.Current.HuggingFaceToken ?? Environment.GetEnvironmentVariable("HF_TOKEN");
+    /// <summary>Whether requests to Hugging Face carry a token at the moment.</summary>
+    public static bool HasToken => !string.IsNullOrWhiteSpace(ConfiguredToken);
+
+    /// <summary>Validates a token (the configured one when <paramref name="token"/> is null) with <c>/api/whoami-v2</c>.</summary>
+    public static async Task<HfAccount> WhoAmIAsync(string? token = null, CancellationToken ct = default)
+    {
+        token = string.IsNullOrWhiteSpace(token) ? ConfiguredToken : token.Trim();
+        if (string.IsNullOrWhiteSpace(token)) return new(false, null, null, null, "No token is set.");
+        using var req = new HttpRequestMessage(HttpMethod.Get, "https://huggingface.co/api/whoami-v2");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        try
+        {
+            using var resp = await Http.SendAsync(req, ct);
+            if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+                return new(false, null, null, null, "Hugging Face does not accept this token (invalid or revoked).");
+            resp.EnsureSuccessStatusCode();
+            using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            var e = doc.RootElement;
+            string? S(string n) => e.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            return new(true, S("name"), S("fullname"), S("type"), null);
+        }
+        catch (HttpRequestException ex) { return new(false, null, null, null, "Could not reach Hugging Face: " + ex.Message); }
+    }
 }

@@ -218,7 +218,7 @@ dialog::backdrop{background:#0008}
       <div><label>API key (blank = none)</label><input id="s-apikey"></div>
       <div><label>GPU backend</label><select id="s-backend"><option>auto</option><option>vulkan</option><option>cpu</option></select></div>
       <div><label>Models directory</label><input id="s-modelsdir"></div>
-      <div><label>Hugging Face token</label><input id="s-hftoken" type="password"></div>
+      <div><label>Hugging Face token (stored encrypted for your Windows account)</label><div class="row"><input id="s-hftoken" type="password"><button class="b sec" type="button" onclick="checkHfToken()">Check</button></div><div id="hf-who" class="dim"></div></div>
       <div><label>Max concurrent downloads</label><input type="number" id="s-maxdl" min="1" max="8"></div>
       <div><label>Update feed URL (JSON with version, url, notes; blank = none)</label><input id="s-feed" placeholder="https://example.com/llmhost/latest.json"></div>
       <div><label>Staff-picks list URL (catalog.json format; blank = built-in list only)</label><input id="s-catalog" placeholder="https://example.com/llmhost/catalog.json"></div>
@@ -497,7 +497,7 @@ async function api(path, opt = {}) {
   if (r.status === 401) { const k = prompt('This server requires an API key:'); if (k) { apiKey = k; localStorage.setItem('apikey', k); return api(path, opt); } }
   if (opt.raw) return r;
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(j.error?.message || r.statusText); e.errors = j.errors; throw e; }
+  if (!r.ok) { const e = new Error(j.error?.message || r.statusText); e.errors = j.errors; e.code = j.error?.code; e.repo = j.error?.repo; e.accessUrl = j.error?.accessUrl; throw e; }
   return j;
 }
 
@@ -1220,6 +1220,22 @@ function mdLite(md) {
        .replace(/<!--[\s\S]*?-->/g, '');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<pre>' + blocks[i] + '</pre>');
 }
+// ---------------------------------------------------------------- gated models and the Hugging Face token
+function openExternal(url) { if (/^https:\/\/huggingface\.co\//.test(url || '')) window.open(url, '_blank', 'noopener,noreferrer'); }
+function errHtml(e, retry) {
+  if (e.code !== 'gated') return `<span class="err">${esc(e.message)}</span>`;
+  return `<div class="card"><b>This model requires accepting a licence on Hugging Face</b><div class="dim" style="margin:6px 0">${esc(e.message)}</div>
+    <button class="b" onclick='openExternal(${JSON.stringify(e.accessUrl)})'>Open on Hugging Face</button>
+    <button class="b sec" onclick='${retry}'>Retry</button></div>`;
+}
+async function checkHfToken() {
+  const out = $('hf-who'); out.className = 'dim'; out.textContent = 'Checking…';
+  try {
+    const r = await api('/api/hf/whoami', {method:'POST', body:{token: $('s-hftoken').value || null}});
+    out.className = r.valid ? 'ok' : 'err';
+    out.textContent = r.valid ? `Signed in as ${r.name}${r.fullName ? ' (' + r.fullName + ')' : ''}` : r.error;
+  } catch (e) { out.className = 'err'; out.textContent = e.message; }
+}
 function openDrawer(html) { $('drawer-body').innerHTML = html; $('drawer').style.display = 'block'; }
 function closeDrawer() { $('drawer').style.display = 'none'; }
 async function showCard(repo) {
@@ -1231,7 +1247,7 @@ async function showCard(repo) {
       <div class="dim" style="margin:6px 0">${c.downloads.toLocaleString()} downloads · ${c.likes} likes${c.lastModified ? ' · updated ' + esc(c.lastModified.slice(0, 10)) : ''}${c.baseModel ? ' · base: ' + esc(c.baseModel) : ''}${c.pipeline ? ' · ' + esc(c.pipeline) : ''}</div>
       <div class="row"><button class="b" onclick='showFiles(${JSON.stringify(c.repo)}); closeDrawer()'>Files and quants</button></div>
       <div class="readme">${c.readme ? mdLite(c.readme) : '<span class="dim">This repository has no README.</span>'}</div>`);
-  } catch (e) { openDrawer(`<span class="err">${esc(e.message)}</span>`); }
+  } catch (e) { openDrawer(errHtml(e, 'showCard(' + JSON.stringify(repo).replace(/"/g, "&quot;") + ')')); }
 }
 async function showLocalInfo(id) {
   openDrawer('<span class="dim">Loading…</span>');
@@ -1298,7 +1314,7 @@ async function showFiles(repo) {
       `<tr><td>${esc(x.quant)}</td><td>${fmt(x.sizeBytes)}</td><td>${esc(x.fileName)}${x.isSplit ? ' <span class="tag">split</span>' : ''}${x.vision ? ` <span class="tag">vision +${fmt(x.mmprojBytes)}</span>` : ''}</td>
        <td>${x.fitsGpu ? '<span class="ok">fits GPU</span>' : x.fitsRam ? '<span class="dim">fits RAM</span>' : '<span class="err">too large</span>'}</td>
        <td><button class="b" onclick='dl(${JSON.stringify(repo)}, ${JSON.stringify(x.fileName)})'>Download</button></td></tr>`).join('') + '</table>';
-  } catch (e) { $('results').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  } catch (e) { $('results').innerHTML = errHtml(e, 'showFiles(' + JSON.stringify(repo).replace(/"/g, "&quot;") + ')'); }
 }
 async function dl(repo, file, quant) {
   try { await api('/api/downloads', {method:'POST', body:{repo, file, quant}}); refreshDownloads(); }
@@ -1311,13 +1327,14 @@ let lastJobStates = {};
 function downloadCard(j) {
   const pct = (j.progress * 100).toFixed(1);
   const speed = j.state === 'downloading' && j.bytesPerSecond > 0 && j.totalBytes ? ` · ${fmt(j.bytesPerSecond)}/s · ${eta((j.totalBytes - j.bytesDone) / j.bytesPerSecond)}` : '';
-  const color = j.state === 'completed' ? 'var(--ok)' : (j.state === 'failed' || j.state === 'cancelled') ? 'var(--acc)' : 'var(--acc2)';
+  const color = j.state === 'completed' ? 'var(--ok)' : (j.state === 'failed' || j.state === 'cancelled' || j.state === 'needs-access') ? 'var(--acc)' : 'var(--acc2)';
   const btn = [];
   if (isActive(j)) btn.push(`<button class="b sec" onclick="pauseDl('${j.id}')">Pause</button><button class="b red" onclick="cancelDl('${j.id}')">Cancel</button>`);
-  if (j.state === 'paused' || j.state === 'failed' || j.state === 'cancelled') btn.push(`<button class="b" onclick="resumeDl('${j.id}')">${j.state === 'paused' ? 'Resume' : 'Retry'}</button>`);
+  if (j.state === 'needs-access') btn.push(`<button class="b" onclick='openExternal(${JSON.stringify(j.accessUrl)})'>Open on Hugging Face</button>`);
+  if (j.state === 'paused' || j.state === 'failed' || j.state === 'cancelled' || j.state === 'needs-access') btn.push(`<button class="b" onclick="resumeDl('${j.id}')">${j.state === 'paused' ? 'Resume' : 'Retry'}</button>`);
   if (!isActive(j)) btn.push(`<button class="b sec" title="Remove from the list (partial data kept unless you cancel and remove)" onclick="removeDl('${j.id}')">✕</button>`);
   return `<div class="card"><div class="row"><b style="flex:1;word-break:break-all">${esc(j.repo)} / ${esc(j.fileName)}</b>
-    <span class="${j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'err' : 'dim'}">${j.state}${isOpen(j) && j.totalBytes ? ' ' + pct + '%' : ''}</span>${btn.join('')}</div>
+    <span class="${j.state === 'completed' ? 'ok' : (j.state === 'failed' || j.state === 'needs-access') ? 'err' : 'dim'}">${j.state === 'needs-access' ? 'needs access' : j.state}${isOpen(j) && j.totalBytes ? ' ' + pct + '%' : ''}</span>${btn.join('')}</div>
     <div class="bar" style="margin:6px 0"><i style="width:${pct}%;background:${color}"></i></div>
     <div class="dim">${fmt(j.bytesDone)} / ${j.totalBytes ? fmt(j.totalBytes) : '?'}${speed}${j.verified ? ' · <span class="ok">SHA-256 verified</span>' : ''}
       ${j.note ? ' · ' + esc(j.note) : ''} ${j.error ? '<span class="err">' + esc(j.error) + '</span>' : ''}</div></div>`;

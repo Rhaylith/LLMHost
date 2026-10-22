@@ -378,6 +378,7 @@ public class AppSettings
                 string text = File.ReadAllText(AppPaths.SettingsFile);
                 var s = JsonSerializer.Deserialize<AppSettings>(text, Json.Options) ?? new();
                 KeepUnknownKeys(text);
+                s.OpenToken();
                 foreach (var err in SettingsValidator.Validate(s))
                     LogBuffer.Add("settings", $"Invalid value in settings.json - {err.Field}: {err.Message}");
                 return s;
@@ -406,13 +407,34 @@ public class AppSettings
         catch { }
     }
 
+    /// <summary>
+    /// Turns the token read from settings.json into plain text. A token found in clear text (written by an older version) is
+    /// protected right away by saving the file again; one that cannot be opened (another Windows user) is dropped with a log line.
+    /// </summary>
+    internal void OpenToken()
+    {
+        if (string.IsNullOrEmpty(HuggingFaceToken)) return;
+        if (SecretStore.IsProtected(HuggingFaceToken))
+        {
+            HuggingFaceToken = SecretStore.Unprotect(HuggingFaceToken);
+            if (HuggingFaceToken == null) LogBuffer.Add("settings", "The saved Hugging Face token could not be decrypted (it belongs to another Windows user); enter it again.");
+        }
+        else
+        {
+            try { Save(); LogBuffer.Add("settings", "The Hugging Face token was stored in clear text; it is now encrypted for this Windows user."); } catch { }
+        }
+    }
+
     public void Save()
     {
         lock (Gate)
         {
             AppPaths.EnsureCreated();
             SchemaVersion = Migrations.CurrentVersion(Migrations.Settings);
-            Migrations.WriteAtomic(AppPaths.SettingsFile, JsonSerializer.Serialize(this, Json.Options));
+            var node = JsonSerializer.SerializeToNode(this, Json.Options)!.AsObject();
+            if (node["huggingFaceToken"] is System.Text.Json.Nodes.JsonValue tv && tv.TryGetValue<string>(out var plain) && !string.IsNullOrEmpty(plain) && !SecretStore.IsProtected(plain))
+                node["huggingFaceToken"] = SecretStore.Protect(plain);               // never written in clear text
+            Migrations.WriteAtomic(AppPaths.SettingsFile, node.ToJsonString(Json.Options));
         }
     }
 

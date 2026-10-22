@@ -168,6 +168,8 @@ public static partial class HuggingFace
     private static async Task CollectAsync(string url, List<RepoFile> into, CancellationToken ct)
     {
         using var resp = await Http.SendAsync(Request(url), ct);
+        if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            throw new GatedModelException(Regex.Match(url, @"/api/models/([^/]+/[^/]+)").Groups[1].Value, HasToken);
         if (!resp.IsSuccessStatusCode)
             throw new HttpRequestException($"Hugging Face returned {(int)resp.StatusCode} for {url}", null, resp.StatusCode);
         using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);

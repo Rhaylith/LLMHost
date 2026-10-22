@@ -6,7 +6,8 @@ using LLMHostProject.Core;
 
 namespace LLMHostProject.Models;
 
-public enum DownloadState { Queued, Downloading, Paused, Completed, Failed, Cancelled }
+/// <summary>NeedsAccess: Hugging Face refused the file because the repository is gated (licence not accepted / no token).</summary>
+public enum DownloadState { Queued, Downloading, Paused, Completed, Failed, Cancelled, NeedsAccess }
 
 /// <summary>One file of a download (a model shard, or the multimodal projector).</summary>
 public class DownloadPart
@@ -168,7 +169,7 @@ public class DownloadManager
         if (!_jobs.TryGetValue(id, out var j)) return false;
         lock (_gate)
         {
-            if (j.State is not (DownloadState.Paused or DownloadState.Failed or DownloadState.Cancelled)) return false;
+            if (j.State is not (DownloadState.Paused or DownloadState.Failed or DownloadState.Cancelled or DownloadState.NeedsAccess)) return false;
             j.State = DownloadState.Queued; j.Error = null; j.Note = null; j.Attempt = 0;
         }
         Persist();
@@ -208,7 +209,7 @@ public class DownloadManager
     {
         int n = 0;
         foreach (var j in _jobs.Values)
-            if (j.State is DownloadState.Completed or DownloadState.Failed or DownloadState.Cancelled && _jobs.TryRemove(j.Id, out _)) n++;
+            if (j.State is DownloadState.Completed or DownloadState.Failed or DownloadState.Cancelled or DownloadState.NeedsAccess && _jobs.TryRemove(j.Id, out _)) n++;
         Persist();
         return n;
     }
@@ -367,6 +368,13 @@ public class DownloadManager
             job.Note = null;
             job.State = job.PauseRequested ? DownloadState.Paused : DownloadState.Cancelled;
         }
+        catch (GatedModelException g)
+        {
+            job.State = DownloadState.NeedsAccess;
+            job.Note = null;
+            job.Error = g.Message;
+            LogBuffer.Add("download", $"Needs access {job.Repo}: {g.Message}");
+        }
         catch (Exception ex)
         {
             job.State = DownloadState.Failed;
@@ -424,9 +432,7 @@ public class DownloadManager
             return;
         }
         if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
-            throw new InvalidOperationException(
-                $"{(int)resp.StatusCode} from the server: this file needs authentication. Set a Hugging Face token " +
-                "(Settings, or 'config hftoken <token>') and accept the model's license on huggingface.co if it is gated.");
+            throw new GatedModelException(job.Repo, HuggingFace.HasToken);
         resp.EnsureSuccessStatusCode();
 
         bool resumed = resp.StatusCode == System.Net.HttpStatusCode.PartialContent && have > 0;
