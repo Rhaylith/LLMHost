@@ -41,6 +41,7 @@ public sealed class ServerFixture : IAsyncLifetime
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class ApiContractTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

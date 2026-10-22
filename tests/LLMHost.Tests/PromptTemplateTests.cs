@@ -116,6 +116,7 @@ public class PromptTemplateUnitTests
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class PromptTemplateApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

@@ -126,6 +126,7 @@ public class SettingsValidatorTests
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class SettingsApiValidationTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

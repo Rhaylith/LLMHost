@@ -9,6 +9,7 @@ using Xunit;
 namespace LLMHostProject.Tests;
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class LegacyModelsApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

@@ -6,6 +6,7 @@ namespace LLMHostProject.Tests;
 
 /// <summary>The check for missing and unused translation keys (what a CI job would run).</summary>
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class LocaleTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

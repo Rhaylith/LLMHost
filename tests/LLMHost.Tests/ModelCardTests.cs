@@ -81,6 +81,7 @@ public class ModelCardTests
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class ModelInfoApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

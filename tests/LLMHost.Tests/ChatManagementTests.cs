@@ -120,6 +120,7 @@ public class ChatTransferTests
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class ChatManagementApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

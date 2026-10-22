@@ -4,6 +4,7 @@ namespace LLMHostProject.Tests;
 
 /// <summary>Cheap guards for the single-file web UI: it is edited by scripts, and a bad edit once left stray text before the doctype.</summary>
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class UiPageTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

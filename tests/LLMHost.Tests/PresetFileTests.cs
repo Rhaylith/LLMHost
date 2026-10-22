@@ -180,6 +180,7 @@ public class PresetMigrationTests
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class PresetApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

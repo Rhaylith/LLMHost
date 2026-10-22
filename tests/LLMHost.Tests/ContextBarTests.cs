@@ -7,6 +7,7 @@ using Xunit;
 namespace LLMHostProject.Tests;
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class MessageStatsApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

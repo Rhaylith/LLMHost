@@ -18,6 +18,7 @@ public class InterfaceModeSettingsTests
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class InterfaceModePageTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

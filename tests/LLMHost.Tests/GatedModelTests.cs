@@ -122,6 +122,7 @@ public class GatedDownloadTests : IDisposable
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class HfWhoAmIApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

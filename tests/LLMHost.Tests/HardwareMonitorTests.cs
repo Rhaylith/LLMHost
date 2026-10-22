@@ -80,6 +80,7 @@ public class GpuCounterNameTests
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class HardwareLiveApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

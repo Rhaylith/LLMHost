@@ -6,6 +6,7 @@ using Xunit;
 namespace LLMHostProject.Tests;
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class ThemeContrastTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

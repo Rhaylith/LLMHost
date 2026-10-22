@@ -63,6 +63,7 @@ public class ModelUpdateCompareTests
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class ModelUpdateApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

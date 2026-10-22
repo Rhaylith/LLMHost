@@ -97,6 +97,7 @@ public class ShortcutTests
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class ShortcutApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;

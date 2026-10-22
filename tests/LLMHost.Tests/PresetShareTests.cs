@@ -163,6 +163,7 @@ public class PresetShareTests : IDisposable
 }
 
 [Trait("Category", "Api")]
+[Collection("Settings")]
 public class PresetShareApiTests : IClassFixture<ServerFixture>
 {
     private readonly ServerFixture _f;
