@@ -24,6 +24,22 @@ public partial class ApiServer
     public bool Running => _app != null;
 
     public ApiAuth Auth { get; }
+    private readonly RequestRateLimiter _limiter = new();
+    private IpAllowList? _allow;
+    private string _allowKey = "";
+    private System.Security.Cryptography.X509Certificates.X509Certificate2? _cert;
+    /// <summary>Address of the HTTPS listener when HTTPS is on.</summary>
+    public string? HttpsUrl { get; private set; }
+
+    private bool AllowedClient(System.Net.IPAddress? ip)
+    {
+        var s = _host.Settings;
+        var entries = s.Network.AllowedNetworks is { Count: > 0 } a ? a : IpAllowList.DefaultFor(_bindHost).ToList();
+        string key = string.Join(",", entries);
+        if (_allow == null || key != _allowKey) { try { _allow = new IpAllowList(entries); } catch (ArgumentException) { _allow = new IpAllowList(new[] { "loopback" }); } _allowKey = key; }
+        return _allow.Allows(ip);
+    }
+    private string _bindHost = "127.0.0.1";
 
     public ApiServer(AppHost host) { _host = host; Auth = new ApiAuth(host); }
 
@@ -34,12 +50,29 @@ public partial class ApiServer
     {
         if (_app != null) return;
         var s = _host.Settings;
-        Url = $"http://{bindHost ?? s.Host}:{port ?? s.Port}";
+        _bindHost = bindHost ?? s.Host;
+        Url = $"http://{_bindHost}:{port ?? s.Port}";
+        var tls = s.Network.Tls;
+        if (tls.Mode is "selfSigned" or "file")
+        {
+            _cert = TlsCerts.FromSettings(tls);
+            HttpsUrl = $"https://{_bindHost}:{tls.Port}";
+        }
 
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
-        builder.WebHost.UseUrls(Url);
-        builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 256L * 1024 * 1024);
+        if (_cert == null) builder.WebHost.UseUrls(Url);
+        builder.WebHost.ConfigureKestrel(k =>
+        {
+            k.Limits.MaxRequestBodySize = Math.Max(s.Network.Limits.MaxBodyMb, s.Network.Limits.MaxUploadMb) * 1024L * 1024;     // the per-route size is applied by the middleware
+            if (s.Network.Limits.MaxConnections > 0) k.Limits.MaxConcurrentConnections = s.Network.Limits.MaxConnections;
+            if (_cert != null)
+            {
+                var ip = _bindHost is "localhost" ? System.Net.IPAddress.Loopback : System.Net.IPAddress.TryParse(_bindHost, out var parsed) ? parsed : System.Net.IPAddress.Any;
+                k.Listen(ip, port ?? s.Port);
+                k.Listen(ip, tls.Port, o => o.UseHttps(_cert));
+            }
+        });
         if (Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService())
             Microsoft.Extensions.Hosting.WindowsServiceLifetimeHostBuilderExtensions.UseWindowsService(builder.Host);
         var app = builder.Build();
@@ -47,6 +80,13 @@ public partial class ApiServer
         app.Use(async (ctx, next) =>
         {
             var cfg = _host.Settings;
+            // who may connect at all: checked before anything else, with a log line for every refusal
+            if (!AllowedClient(ctx.Connection.RemoteIpAddress))
+            {
+                LogBuffer.Add("server", $"Refused {ctx.Connection.RemoteIpAddress} (not in the allowed networks): {ctx.Request.Method} {ctx.Request.Path}");
+                await WriteError(ctx, 403, "This address is not allowed to use the server.", "forbidden");
+                return;
+            }
             if (cfg.Cors)
             {
                 ctx.Response.Headers["Access-Control-Allow-Origin"] = "*";
@@ -64,22 +104,51 @@ public partial class ApiServer
                     await WriteError(ctx, denied, why, denied == 401 ? "invalid_api_key" : "insufficient_permissions");
                     return;
                 }
+                // rate limits: per API token and per client address; the app's own window is exempt
+                string bearer = ctx.Request.Headers.Authorization.ToString().Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase).Trim();
+                if (bearer != Auth.UiToken)
+                {
+                    var rl = cfg.Network.Limits;
+                    string ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+                    if (!_limiter.TryAcquire("ip:" + ip, rl.RequestsPerMinutePerIp, out int wait)
+                        || (bearer.Length > 0 && !_limiter.TryAcquire("tok:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(bearer)))[..16], rl.RequestsPerMinutePerToken, out wait)))
+                    {
+                        ctx.Response.Headers["Retry-After"] = wait.ToString();
+                        await WriteError(ctx, 429, $"Too many requests; try again in {wait} s.", "rate_limit_exceeded");
+                        return;
+                    }
+                }
             }
-            // per-request idle time: x-llmhost-ttl header, or a "ttl" field in the JSON body of the model routes (seconds)
+            // request size per route class, then the model routes' own checks: idle time (x-llmhost-ttl / "ttl") and the caps on n and max_tokens
+            var lim = cfg.Network.Limits;
+            bool upload = ctx.Request.Path.StartsWithSegments("/api/documents") || ctx.Request.Path.StartsWithSegments("/api/models/import") || ctx.Request.Path.StartsWithSegments("/v1/audio");
+            if (ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } sizeFeature)
+                sizeFeature.MaxRequestBodySize = (upload ? lim.MaxUploadMb : lim.MaxBodyMb) * 1024L * 1024;
             int? ttl = int.TryParse(ctx.Request.Headers["x-llmhost-ttl"].ToString(), out var th) ? th : null;
-            if (ttl == null && ctx.Request.Method == "POST" && (ctx.Request.Path.StartsWithSegments("/v1") || ctx.Request.Path.StartsWithSegments("/api/v1"))
-                && (ctx.Request.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) ?? false) && ctx.Request.ContentLength is > 0 and <= 2_000_000)
+            if (ctx.Request.Method == "POST" && (ctx.Request.Path.StartsWithSegments("/v1") || ctx.Request.Path.StartsWithSegments("/api/v1"))
+                && (ctx.Request.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) ?? false) && ctx.Request.ContentLength is > 0 and <= 8_000_000)
             {
                 ctx.Request.EnableBuffering();
+                JsonObject? peek = null;
                 using (var sr = new StreamReader(ctx.Request.Body, Encoding.UTF8, false, 4096, leaveOpen: true))
                 {
-                    try { if (JsonNode.Parse(await sr.ReadToEndAsync()) is JsonObject o && o["ttl"] is JsonValue tv && tv.TryGetValue<int>(out var tb)) ttl = tb; } catch { }
+                    try { peek = JsonNode.Parse(await sr.ReadToEndAsync()) as JsonObject; } catch { }
                 }
                 ctx.Request.Body.Position = 0;
+                if (peek != null)
+                {
+                    if (ttl == null && peek["ttl"] is JsonValue tv && tv.TryGetValue<int>(out var tb)) ttl = tb;
+                    string? tooMuch = RequestCaps.Check(peek, lim.MaxChoices, lim.MaxTokens);
+                    if (tooMuch != null) { await WriteError(ctx, 400, tooMuch, "invalid_request_error"); return; }
+                }
             }
             ModelManager.RequestTtl.Value = ttl;
             try { await next(); }
             catch (OperationCanceledException) { }
+            catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException bh) when (!ctx.Response.HasStarted)
+            {
+                await WriteError(ctx, bh.StatusCode, bh.StatusCode == 413 ? $"The request is larger than this server allows ({cfg.Network.Limits.MaxBodyMb} MB; uploads {cfg.Network.Limits.MaxUploadMb} MB)." : bh.Message, bh.StatusCode == 413 ? "request_too_large" : "invalid_request_error");
+            }
             catch (GatedModelException g) when (!ctx.Response.HasStarted)
             {
                 // structured, so a client can offer "open on Hugging Face" and a retry
@@ -1516,6 +1585,15 @@ public partial class ApiServer
             }
             else throw new ArgumentException("target must be 'preset' or 'modelDefault'.");
             await WriteJson(ctx, EffectiveDto(c, c.Settings?.Preset, c.Model));
+        });
+
+        // the public certificate of the HTTPS listener (PEM), for clients that should trust a self-signed server
+        app.MapGet("/api/tls/cert", async ctx =>
+        {
+            if (_cert == null) { await WriteError(ctx, 404, "HTTPS is not enabled.", "not_found"); return; }
+            ctx.Response.ContentType = "application/x-pem-file";
+            ctx.Response.Headers.ContentDisposition = "attachment; filename=\"llmhost.pem\"";
+            await ctx.Response.WriteAsync(TlsCerts.ExportPem(_cert));
         });
 
         // ---- chat folders

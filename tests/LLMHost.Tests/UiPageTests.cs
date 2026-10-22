@@ -25,7 +25,7 @@ public class UiPageTests : IClassFixture<ServerFixture>
     {
         string html = await _f.Http.GetStringAsync("/");
         foreach (var tag in System.Text.RegularExpressions.Regex.Matches(html, @"(?:src|href)=""([^""]+)""").Select(m => m.Groups[1].Value))
-            Assert.StartsWith("/ui/", tag);                                           // every script and style sheet is local
+            Assert.True(tag.StartsWith("/ui/") || tag == "/api/tls/cert", tag);        // every script and style sheet is local
         foreach (var (file, marker) in new[] { ("marked.js", "marked"), ("purify.js", "DOMPurify"), ("hljs.js", "hljs"), ("katex.js", "katex"), ("katex.css", "KaTeX_Main"), ("hljs-theme.css", ".hljs-keyword"), ("render.js", "renderMarkdown") })
         {
             string body = await _f.Http.GetStringAsync("/ui/" + file);

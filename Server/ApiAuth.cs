@@ -39,6 +39,7 @@ public static class Scopes
         path = path.ToLowerInvariant();
         bool read = method.Equals("GET", StringComparison.OrdinalIgnoreCase) || method.Equals("HEAD", StringComparison.OrdinalIgnoreCase);
         if (path.StartsWith("/v1/embeddings") || path.StartsWith("/api/v0/embeddings")) return Embeddings;
+        if (path == "/api/tls/cert") return null;                                // a public certificate is not a secret
         if (path.StartsWith("/api/v0/models")) return ModelsRead;
         if (path.StartsWith("/api/v0/")) return Chat;
         if (path.StartsWith("/v1/models")) return ModelsRead;

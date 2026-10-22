@@ -157,6 +157,18 @@
   <h2>Hardware</h2>
   <div class="card" id="hw"></div>
   <div class="card" id="hwlive-card"><h2>Live load</h2><div id="hwlive-body" class="dim">Reading…</div></div>
+  <div class="card" id="net-card"><h2>Network and limits</h2>
+    <div class="dim">Changes to the address list, limits and HTTPS apply after restarting the server (the list and request limits apply at once).</div>
+    <div class="grid2">
+      <div><label>Allowed networks (one per line: loopback, private, any, 192.168.1.0/24 …; blank = this machine, plus the LAN when it listens on the network)</label><textarea id="n-allow" rows="3"></textarea></div>
+      <div><label>HTTPS</label><select id="n-tls"><option value="off">off</option><option value="selfSigned">self-signed certificate</option><option value="file">certificate file</option></select>
+        <label>HTTPS port</label><input type="number" id="n-tls-port"><label>Certificate file (.pfx or .pem; file mode)</label><input id="n-tls-cert"><label>Private key (.pem) / .pfx password</label><div class="row"><input id="n-tls-key"><input id="n-tls-pass" type="password"></div>
+        <div class="dim">With a self-signed certificate, clients can trust <a href="/api/tls/cert">the public certificate</a>.</div></div>
+      <div><label>Largest request (MB) / upload (MB)</label><div class="row"><input type="number" id="n-body" min="1"><input type="number" id="n-upload" min="1"></div></div>
+      <div><label>Most connections (0 = no limit)</label><input type="number" id="n-conn" min="0"></div>
+      <div><label>Requests per minute per token / per address (0 = no limit)</label><div class="row"><input type="number" id="n-rl-tok" min="0"><input type="number" id="n-rl-ip" min="0"></div></div>
+      <div><label>Caps: most choices (n) / most tokens (0 = no cap)</label><div class="row"><input type="number" id="n-cap-n" min="0"><input type="number" id="n-cap-t" min="0"></div></div>
+    </div></div>
   <div class="card" id="jit-card"><h2>Loading on demand</h2>
     <div class="dim">When a request names a model that is not loaded, it is loaded for that request. Models you load by hand are never unloaded automatically.</div>
     <div class="grid2">

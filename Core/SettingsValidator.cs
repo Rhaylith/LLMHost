@@ -37,6 +37,19 @@ public static class SettingsValidator
         if (!string.IsNullOrWhiteSpace(s.CatalogUrl) &&
             !(Uri.TryCreate(s.CatalogUrl, UriKind.Absolute, out var cu) && cu.Scheme is "http" or "https"))
             e.Add(new("catalogUrl", "Catalog address must be an http(s) URL."));
+        if (s.Network == null) e.Add(new("network", "Missing."));
+        else
+        {
+            try { _ = new IpAllowList(s.Network.AllowedNetworks ?? new()); } catch (ArgumentException ex) { e.Add(new("network.allowedNetworks", ex.Message)); }
+            var l = s.Network.Limits ?? new LimitSettings();
+            Range("network.limits.maxBodyMb", l.MaxBodyMb, 1, 4096, "Largest request"); Range("network.limits.maxUploadMb", l.MaxUploadMb, 1, 4096, "Largest upload");
+            Range("network.limits.maxConnections", l.MaxConnections, 0, 100_000, "Most connections");
+            Range("network.limits.requestsPerMinutePerToken", l.RequestsPerMinutePerToken, 0, 1_000_000, "Rate limit per token"); Range("network.limits.requestsPerMinutePerIp", l.RequestsPerMinutePerIp, 0, 1_000_000, "Rate limit per address");
+            Range("network.limits.maxChoices", l.MaxChoices, 0, 1000, "Most choices"); Range("network.limits.maxTokens", l.MaxTokens, 0, 10_000_000, "Most tokens");
+            var t = s.Network.Tls ?? new TlsSettings();
+            OneOf("network.tls.mode", t.Mode, new[] { "off", "selfSigned", "file" }, "HTTPS mode"); Range("network.tls.port", t.Port, 1, 65535, "HTTPS port");
+            if (t.Mode == "file" && string.IsNullOrWhiteSpace(t.CertPath)) e.Add(new("network.tls.certPath", "A certificate file is required in file mode."));
+        }
         if (s.Jit == null) e.Add(new("jit", "Missing."));
         else { Range("jit.defaultTtlMinutes", s.Jit.DefaultTtlMinutes, 0, 525_600, "Default idle time"); Range("jit.maxLoadedModels", s.Jit.MaxLoadedModels, 0, 64, "Most loaded models"); OneOf("jit.evictOrder", s.Jit.EvictOrder, new[] { "lru", "oldest" }, "Eviction order"); }
         foreach (var (field, message) in LLMHostProject.Core.Shortcuts.Check(s.Shortcuts)) e.Add(new(field, message));
