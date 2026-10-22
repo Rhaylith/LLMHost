@@ -116,7 +116,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P2** Anthropic API gaps: image blocks, images in tool results, `thinking` blocks, `tool_choice` forcing, `cache_control` accepted/ignored
 - [ ] **P3** Ollama-compatible endpoints (`/api/chat`, `/api/generate`, `/api/tags`)
 - [ ] **P3** OpenAPI document for management + native APIs
-- [ ] **P3** Plugin system (BlahLLMWrapper "plugins": tool providers, prompt preprocessors, generators; `lms dev/push/clone`) — optional, large
+- [x] **P3** Plugin system (BlahLLMWrapper "plugins": tool providers, prompt preprocessors, generators; `lms dev/push/clone`) — optional, large
 - [ ] **P3** Client SDKs (Python/TypeScript) — existing OpenAI/Anthropic SDKs already work; first-party wrappers optional
 
 ## 7. CLI (parity with `lms`)

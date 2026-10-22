@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts, §4.3 per-chat settings, §4.4 rich rendering, §4.2 split view and compare, §5.1 file-based presets, §5.2 preset import and export, §6.1 JIT policy, §6.2 legacy API, §6.3 HTTPS, allow-list, limits, §6.4 request log and metrics, §6.5 Anthropic gaps, §7.3 CLI output and exit codes, §7.1 link verbs (35 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts, §4.3 per-chat settings, §4.4 rich rendering, §4.2 split view and compare, §5.1 file-based presets, §5.2 preset import and export, §6.1 JIT policy, §6.2 legacy API, §6.3 HTTPS, allow-list, limits, §6.4 request log and metrics, §6.5 Anthropic gaps, §7.3 CLI output and exit codes, §7.1 link verbs, §7.2 login and clone (36 of ~50).
 
 ---
 
@@ -539,10 +539,12 @@ Do the plumbing and tests now; implement bodies in §8.1.
 
 **As built:** `link enable | disable | status | set-device-name <name> | set-preferred-device <device>` call `/api/link/*` on the running daemon (or this process's server). Until §8.1 exists the server answers every `/api/link/*` request with **501 `link_unavailable`**, and the verbs then print "Linking devices is not available in this build." and exit with **code 2**, so scripts can tell the feature is absent; a missing value or an unknown sub-verb is a usage error (also 2). Tested through `RunCommandAsync` (exit code and message). The code landed together with §7.3 (`ac3210b`) because the verbs share the dispatcher and the exit-code plumbing.
 
-#### §7.2 `login` / `push` / `clone` / `dev` — **S** (decision item)
+#### ✅ §7.2 `login` / `push` / `clone` / `dev` — **S** (decision item)
 These only make sense with a hub or plugin system, both P3. Plan: reserve the verbs, implement **`login`** for Hugging Face
 (`login --hf-token` stores the encrypted token, shares storage with §3.3) and **`clone <user/model>`** as alias of `get`;
 `push`/`dev` are documented as not applicable (exit code 2 with explanation). Revisit when §5 P3 Hub-style publish is scheduled.
+
+**As built (decision taken as planned):** `login --hf-token <token>` (or a bare token, or `HF_TOKEN`) checks the token with Hugging Face (`whoami-v2`), stores it with the same DPAPI-encrypted storage as §3.3 and prints the account name; a rejected token exits 4, an unreachable Hugging Face 5, `--force` stores it without the check. `clone <user/model>` is an alias of `get`. `push` and `dev` are reserved: they print why they do not apply (no hub to publish to, no plugin system) and exit 2. Tested: exit codes of the reserved verbs and the missing-token usage error (the check against the real Hugging Face is not run in tests). Code landed with §7.3 (`ac3210b`).
 
 #### ✅ §7.3 Machine-readable output & exit codes — **M**
 * Global flags `--json`, `--quiet/-q`, `--no-color`, `--verbose`; `--json` prints one JSON document (or JSON-lines for
