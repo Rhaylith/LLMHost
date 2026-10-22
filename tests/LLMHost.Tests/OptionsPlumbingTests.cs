@@ -38,6 +38,7 @@ public class OptionsPlumbingTests
         if (type == typeof(List<float>)) return new List<float> { 0.5f, 0.5f };
         if (type == typeof(Dictionary<int, float>)) return new Dictionary<int, float> { [3] = 1.5f };
         if (type == typeof(List<TensorOverrideSetting>)) return new List<TensorOverrideSetting> { new() { Pattern = "exps", Buffer = "CPU" }, new() { Pattern = "out", Buffer = "CPU" } };
+        if (type == typeof(List<LoraSetting>)) return new List<LoraSetting> { new() { Id = "adapter-a.gguf", Scale = 0.5f }, new() { Id = "adapter-b.gguf", Scale = 1.5f } };
         if (type == typeof(LLMHostProject.Inference.PromptTemplateSettings))
             return new LLMHostProject.Inference.PromptTemplateSettings
             {

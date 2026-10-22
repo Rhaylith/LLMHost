@@ -20,6 +20,8 @@ public class FitEstimate
     public long ProjectorBytes { get; set; }
     /// <summary>Speculative-decoding draft model (weights + its own cache), when one is configured.</summary>
     public long DraftBytes { get; set; }
+    /// <summary>LoRA adapter files that are applied on top of the model.</summary>
+    public long AdapterBytes { get; set; }
     /// <summary>Sum of everything that lands on GPUs / in system memory.</summary>
     public long GpuBytes { get; set; }
     public long CpuBytes { get; set; }
@@ -46,6 +48,7 @@ public class FitEstimate
         var parts = new List<string> { $"weights {f(WeightsBytes)}", $"KV cache {f(KvCacheBytes)}", $"compute {f(ComputeBytes)}" };
         if (ProjectorBytes > 0) parts.Add($"vision projector {f(ProjectorBytes)}");
         if (DraftBytes > 0) parts.Add($"draft model {f(DraftBytes)}");
+        if (AdapterBytes > 0) parts.Add($"LoRA adapters {f(AdapterBytes)}");
         string where = string.Join("; ", Devices.Select(d => $"{d.Name}: {f(d.NeedBytes)} of {f(d.BudgetBytes)}"));
         return string.Join(" + ", parts) + (where.Length > 0 ? " → " + where : "");
     }
@@ -192,6 +195,14 @@ public static class FitEstimator
         }
         est.DraftBytes = draftBytes;
         proj += draftBytes;
+        long adapterBytes = 0;
+        if (o.Loras is { Count: > 0 } && !(o.Embeddings || model.IsEmbedding))
+        {
+            var lib = new ModelLibrary();
+            foreach (var l in o.Loras) if (lib.FindAdapter(l.Id) is { } ad) adapterBytes += ad.SizeBytes;
+        }
+        est.AdapterBytes = adapterBytes;
+        proj += adapterBytes;
         // ---- KV cache per layer
         long kvHeads = info.HeadCountKv > 0 ? info.HeadCountKv : Math.Max(1, info.HeadCount);
         long kDim = info.KeyLength > 0 ? info.KeyLength : info.HeadCount > 0 ? info.EmbeddingLength / info.HeadCount : 0;

@@ -705,6 +705,34 @@ public partial class ApiServer
             catch (JinjaException ex) { await WriteJson(ctx, new { prompt = (string?)null, error = ex.Message }); }
         });
 
+        // ---- LoRA adapters
+        object AdapterDto(LocalModel a) => new { a.Id, a.FileName, a.SizeBytes, a.Architecture, a.Name };
+        app.MapGet("/api/models/adapters", async ctx =>
+        {
+            string? model = Q(ctx, "model");
+            string? arch = string.IsNullOrWhiteSpace(model) ? null : (_host.Library.Find(model) ?? throw new FileNotFoundException($"No local model matches '{model}'")).Architecture;
+            var adapters = _host.Library.ListAdapters().Where(a => arch == null || string.IsNullOrEmpty(a.Architecture) || a.Architecture == arch);
+            await WriteJson(ctx, adapters.Select(AdapterDto));
+        });
+        app.MapGet("/api/models/lora", async ctx =>
+        {
+            var r = _host.Models.Loaded.FirstOrDefault(x => x.Identifier == Q(ctx, "id")) ?? throw new FileNotFoundException($"'{Q(ctx, "id")}' is not loaded");
+            await WriteJson(ctx, r.ActiveLoras);
+        });
+        app.MapPost("/api/models/lora", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var r = _host.Models.Loaded.FirstOrDefault(x => x.Identifier == body["id"]?.GetValue<string>())
+                    ?? throw new FileNotFoundException($"'{body["id"]}' is not loaded");
+            var list = (body["adapters"] as JsonArray)?.Select(a => new LoraSetting
+            {
+                Id = a?["id"]?.GetValue<string>() ?? a?["path"]?.GetValue<string>() ?? "",
+                Scale = a?["scale"] is JsonValue sv && sv.TryGetValue<float>(out var sc) ? sc : 1f,
+            }).ToList() ?? new List<LoraSetting>();
+            await r.SetLorasAsync(list);
+            await WriteJson(ctx, new { adapters = r.ActiveLoras });
+        });
+
         app.MapPost("/api/models/cache/clear", async ctx =>
         {
             var body = await ReadBody(ctx);
@@ -738,7 +766,7 @@ public partial class ApiServer
         app.MapDelete("/api/models/cache/saved", async ctx =>
         {
             var r = LoadedOrThrow(Q(ctx, "id"));
-            await WriteJson(ctx, new { deleted = PromptCacheStore.Delete(r.Model, Q(ctx, "name")) });
+            await WriteJson(ctx, new { deleted = PromptCacheStore.Delete(r.CacheModel, Q(ctx, "name")) });
         });
 
         app.MapGet("/api/models/local", async ctx =>

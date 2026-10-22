@@ -205,7 +205,7 @@ public class Shell
             Running
               load <model> [--cpu|--gpu max|auto|off|0.5] [--gpu-layers N] [--identifier name] [--context-length N] [--ctx N] [--threads N (default 75% of cores)] [--batch N]
                            [--flash] [--no-mmap] [--mlock] [--kv-k q8_0] [--kv-v q8_0] [--no-vision] [--mmproj <file>] [--draft <small model>] [--draft-tokens 6] [--template-file chat.jinja]
-                           [--cpu-moe | --n-cpu-moe N] [--moe-experts N] [--override-tensor "regex=CPU;regex2=CPU"]
+                           [--lora "adapter.gguf=0.8;other.gguf"] [--cpu-moe | --n-cpu-moe N] [--moe-experts N] [--override-tensor "regex=CPU;regex2=CPU"]
                            [--id name] [--ttl minutes] [--embeddings]
                            [--gpus 0,1] [--split 3,1] [--split-mode layer|row|none]   multi-GPU: devices (priority order), shares, mode
                            [--parallel N]   requests generated at the same time (continuous batching, default 4)
@@ -761,6 +761,15 @@ public class Shell
         if (a.Value("ttl") is { } ttl) o.TtlMinutes = int.Parse(ttl);
         if (a.Value("draft") is { } dm) o.DraftModel = dm;
         if (a.Value("draft-tokens") is { } dt) o.DraftTokens = int.Parse(dt);
+        if (a.Value("lora") is { } lo)
+            foreach (var item in lo.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int at = item.LastIndexOf('=');
+                float scale = 1f;
+                string loraId = item;
+                if (at > 0 && float.TryParse(item[(at + 1)..], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sc)) { loraId = item[..at]; scale = sc; }
+                o.Loras.Add(new LoraSetting { Id = loraId.Trim(), Scale = scale });
+            }
         if (a.Flag("cpu-moe")) o.MoeCpuLayers = -1;
         if (a.Value("n-cpu-moe") is { } ncm) o.MoeCpuLayers = int.Parse(ncm);
         if (a.Value("moe-experts") is { } mex) o.MoeExpertCount = int.Parse(mex);

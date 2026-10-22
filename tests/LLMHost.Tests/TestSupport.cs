@@ -151,3 +151,57 @@ internal static class DocBuilder
         return sb.ToArray();
     }
 }
+
+/// <summary>Writes small LoRA adapter GGUF files (rank-r matrices for chosen base tensors) so adapter support can be tested without downloads.</summary>
+internal static class LoraBuilder
+{
+    /// <param name="targets">Base tensor names with their input and output sizes, e.g. ("blk.0.attn_q.weight", 576, 576).</param>
+    public static byte[] Build(string arch, IEnumerable<(string Tensor, int NIn, int NOut)> targets, int rank = 4, float alpha = 8f,
+        float magnitude = 0.5f, int seed = 1, string generalType = "adapter", string? adapterType = "lora")
+    {
+        var ms = new MemoryStream();
+        var w = new BinaryWriter(ms, Encoding.UTF8);
+        void Str(string s) { var b = Encoding.UTF8.GetBytes(s); w.Write((ulong)b.Length); w.Write(b); }
+        var rnd = new Random(seed);
+
+        var tensors = new List<(string Name, int Ne0, int Ne1)>();
+        foreach (var (name, nIn, nOut) in targets)
+        {
+            tensors.Add((name + ".lora_a", nIn, rank));
+            tensors.Add((name + ".lora_b", rank, nOut));
+        }
+        var kvs = new List<Action>
+        {
+            () => { Str("general.type"); w.Write(8u); Str(generalType); },
+            () => { Str("general.architecture"); w.Write(8u); Str(arch); },
+        };
+        if (adapterType != null) kvs.Add(() => { Str("adapter.type"); w.Write(8u); Str(adapterType); });
+        kvs.Add(() => { Str("adapter.lora.alpha"); w.Write(6u); w.Write(alpha); });
+
+        w.Write(Encoding.ASCII.GetBytes("GGUF"));
+        w.Write(3u);
+        w.Write((ulong)tensors.Count);
+        w.Write((ulong)kvs.Count);
+        foreach (var k in kvs) k();
+
+        ulong offset = 0;
+        foreach (var (name, ne0, ne1) in tensors)
+        {
+            Str(name);
+            w.Write(2u);                       // n_dims
+            w.Write((ulong)ne0); w.Write((ulong)ne1);
+            w.Write(0u);                       // F32
+            w.Write(offset);
+            ulong bytes = (ulong)ne0 * (ulong)ne1 * 4;
+            offset += (bytes + 31) / 32 * 32;
+        }
+        while (ms.Position % 32 != 0) w.Write((byte)0);
+        foreach (var (name, ne0, ne1) in tensors)
+        {
+            int n = ne0 * ne1;
+            for (int i = 0; i < n; i++) w.Write((float)((rnd.NextDouble() * 2 - 1) * magnitude));
+            while (ms.Position % 32 != 0) w.Write((byte)0);
+        }
+        return ms.ToArray();
+    }
+}

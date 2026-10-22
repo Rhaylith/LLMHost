@@ -81,6 +81,8 @@ public class LoadOptions
     public int MoeExpertCount { get; set; }
     /// <summary>Keep the expert weights of the first N layers in system memory (-1 = all layers, 0 = off). Attention and cache stay on the GPU, so big MoE models fit.</summary>
     public int MoeCpuLayers { get; set; }
+    /// <summary>LoRA adapters applied on top of the model (library id or file path, with a strength). They must be made for the same architecture.</summary>
+    public List<LoraSetting> Loras { get; set; } = new();
     /// <summary>Advanced: put tensors whose name matches a regular expression into a given buffer ("CPU" or a device buffer name).</summary>
     public List<TensorOverrideSetting> TensorOverrides { get; set; } = new();
     [JsonIgnore]
@@ -124,6 +126,7 @@ public class LoadOptions
         c.GpuDevices = GpuDevices != null ? new List<int>(GpuDevices) : null;
         c.TensorSplit = TensorSplit != null ? new List<float>(TensorSplit) : null;
         c.PromptTemplate = PromptTemplate?.Clone() ?? new PromptTemplateSettings();
+        c.Loras = Loras?.Select(l => new LoraSetting { Id = l.Id, Scale = l.Scale }).ToList() ?? new();
         c.TensorOverrides = TensorOverrides?.Select(t => new TensorOverrideSetting { Pattern = t.Pattern, Buffer = t.Buffer }).ToList() ?? new();
         return c;
     }
@@ -409,4 +412,11 @@ public class TensorOverrideSetting
     public string Pattern { get; set; } = "";
     /// <summary>"CPU" (system memory) or the name of a device buffer type.</summary>
     public string Buffer { get; set; } = "CPU";
+}
+
+/// <summary>One LoRA adapter to apply: <see cref="Id"/> is a library id, file name or file path; <see cref="Scale"/> its strength (1 = as trained, 0 = off).</summary>
+public class LoraSetting
+{
+    public string Id { get; set; } = "";
+    public float Scale { get; set; } = 1f;
 }

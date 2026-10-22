@@ -1,3 +1,4 @@
+loras: [...document.querySelectorAll('#l-lora-list .lora-row')].filter(r => r.querySelector('input[type=checkbox]').checked).map(r => ({id: r.dataset.id, scale: Number(r.querySelector('input[type=number]').value)})),   window._lorasWanted = d.loras || [];
 <!doctype html>
 <html lang="en">
 <head>
@@ -393,6 +394,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
     <div><label>Draft tokens per step (0 = 6)</label><input type="number" id="l-drafttokens" value="0" min="0" max="64"></div>
   </div>
   <div class="grid2"><div><label>Flash attention</label><select id="l-flash"><option value="auto">auto (recommended)</option><option value="on">on</option><option value="off">off</option></select></div></div>
+  <div id="l-lora" style="display:none"><label>LoRA adapters (fine-tunes applied on top of this model)</label><div id="l-lora-list"></div></div>
   <div id="l-moe" class="grid2" style="display:none">
     <div><label>Experts in system memory: layers (-1 = all, 0 = off)</label><input type="number" id="l-moecpu" value="0" min="-1"></div>
     <div><label>Experts used per token (0 = model default)</label><input type="number" id="l-moeexp" value="0" min="0"></div>
@@ -1019,6 +1021,20 @@ async function showTemplateInfo(id) {
   } catch {}
   try { const s = window._settings || await api('/api/settings'); $('l-template').open = !!s.alwaysShowTemplate || $('l-tpl-mode').value !== 'auto'; } catch {}
 }
+// LoRA adapters of the same architecture, with a strength each
+async function showLoras(id) {
+  $('l-lora').style.display = 'none'; $('l-lora-list').innerHTML = '';
+  try {
+    const list = await api('/api/models/adapters?model=' + encodeURIComponent(id));
+    if (!list.length) return;
+    const wanted = window._lorasWanted || [];
+    $('l-lora-list').innerHTML = list.map(a => {
+      const w = wanted.find(x => x.id === a.id);
+      return `<div class="lora-row row" data-id="${esc(a.id)}"><label style="flex:1"><input type="checkbox" style="width:auto" ${w ? 'checked' : ''}> ${esc(a.id)} <span class="dim">${fmt(a.sizeBytes)}</span></label><input type="number" step="0.05" value="${w ? w.scale : 1}" style="width:80px" title="Strength: 1 = as trained, 0 = off"></div>`;
+    }).join('');
+    $('l-lora').style.display = '';
+  } catch {}
+}
 // mixture-of-experts options are only offered for MoE models
 async function showMoe(id) {
   $('l-moe').style.display = 'none';
@@ -1055,7 +1071,7 @@ async function openLoad(id, emb, mode = 'load') {
   $('l-go').style.display = mode === 'defaults' ? 'none' : '';
   $('l-clear').style.display = d.hasLoad || d.hasGeneration ? '' : 'none';
   $('l-badge').textContent = d.hasLoad || d.hasGeneration ? 'saved defaults applied' : 'global defaults';
-  loadDrafts(id); showTemplateInfo(id); showMoe(id);
+  loadDrafts(id); showTemplateInfo(id); showMoe(id); showLoras(id);
   loadTarget = id; $('loadname').textContent = id; $('l-emb').checked = emb; $('l-msg').textContent = ''; $('l-msg').className = 'dim';
   $('l-force').style.display = 'none'; $('l-fit').textContent = 'Estimating memory use…';
   $('loaddlg').showModal();

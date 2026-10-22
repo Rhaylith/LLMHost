@@ -19,6 +19,8 @@ public class LocalModel
     /// <summary>Multimodal projector found next to the model (null for text-only models).</summary>
     public string? MmprojPath { get; set; }
     public bool SupportsVision => MmprojPath != null;
+    /// <summary>A LoRA adapter, not a model: it is listed separately and applied on top of a model of the same architecture.</summary>
+    public bool IsAdapter { get; set; }
     /// <summary>Vision / audio / tools / reasoning / embedding / MoE / rerank, derived from the GGUF headers.</summary>
     public ModelCapabilities Capabilities { get; set; } = ModelCapabilities.None;
 }
@@ -30,7 +32,35 @@ public class ModelLibrary
 
     public string Directory => AppSettings.Current.ResolvedModelsDirectory;
 
-    public IReadOnlyList<LocalModel> List()
+    /// <summary>The models in the library (LoRA adapters are listed by <see cref="ListAdapters"/>).</summary>
+    public IReadOnlyList<LocalModel> List() => Scan().Where(m => !m.IsAdapter).ToList();
+
+    /// <summary>LoRA adapter files in the library.</summary>
+    public IReadOnlyList<LocalModel> ListAdapters() => Scan().Where(m => m.IsAdapter).ToList();
+
+    /// <summary>Finds an adapter by library id, file name or file path.</summary>
+    public LocalModel? FindAdapter(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return null;
+        var all = ListAdapters();
+        if (File.Exists(query))
+        {
+            var full = System.IO.Path.GetFullPath(query);
+            return all.FirstOrDefault(m => string.Equals(m.Path, full, StringComparison.OrdinalIgnoreCase)) ?? AdapterFromFile(full);
+        }
+        query = query.Replace('\\', '/');
+        return all.FirstOrDefault(m => m.Id.Equals(query, StringComparison.OrdinalIgnoreCase) || m.FileName.Equals(query, StringComparison.OrdinalIgnoreCase))
+               ?? all.FirstOrDefault(m => m.Id.Contains(query, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static LocalModel? AdapterFromFile(string full)
+    {
+        var info = GgufInfo.TryRead(full);
+        if (info == null) return null;
+        return new LocalModel { Id = System.IO.Path.GetFileName(full), Path = full, FileName = System.IO.Path.GetFileName(full), SizeBytes = new FileInfo(full).Length, Architecture = info.Architecture, Name = info.Name, IsAdapter = info.IsAdapter };
+    }
+
+    private IReadOnlyList<LocalModel> Scan()
     {
         var dir = Directory;
         var result = new List<LocalModel>();
@@ -70,6 +100,7 @@ public class ModelLibrary
                 ContextLength = info?.ContextLength ?? 0,
                 IsEmbedding = info?.IsEmbeddingModel ?? false,
                 HasChatTemplate = info?.HasChatTemplate ?? false,
+                IsAdapter = info?.IsAdapter ?? false,
                 Split = shard,
                 MmprojPath = mmproj,
                 Capabilities = ModelCapabilities.From(info, MmprojInfo(mmproj), name),

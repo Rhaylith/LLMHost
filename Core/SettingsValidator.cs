@@ -75,6 +75,11 @@ public static class SettingsValidator
         foreach (var problem in Inference.TensorOverrides.Check(o)) e.Add(new($"{p}.tensorOverrides", problem));
         if (o.PromptTemplate != null)
             foreach (var problem in Inference.PromptTemplates.Check(o.PromptTemplate)) e.Add(new($"{p}.promptTemplate", problem));
+        for (int i = 0; i < (o.Loras?.Count ?? 0); i++)
+        {
+            if (string.IsNullOrWhiteSpace(o.Loras![i].Id)) e.Add(new($"{p}.loras[{i}].id", "The adapter needs a name or path."));
+            range($"{p}.loras[{i}].scale", o.Loras[i].Scale, -10, 10, "LoRA strength");
+        }
         range($"{p}.draftTokens", o.DraftTokens, 0, 64, "Draft tokens");
         range($"{p}.draftMinP", o.DraftMinP, 0, 1, "Draft confidence");
         range($"{p}.batchSize", o.BatchSize, 1, 65536, "Batch size");

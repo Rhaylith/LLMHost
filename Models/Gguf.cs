@@ -40,6 +40,11 @@ public class GgufInfo
     public long PoolingType { get; set; } = -1;
     /// <summary>Built-in multi-token-prediction heads (GGUF <c>nextn_predict_layers</c>); 0 when the model has none. Detected only: the pinned engine cannot use them yet.</summary>
     public long MtpLayers { get; set; }
+    /// <summary>LoRA adapter files: <c>general.type</c> = "adapter", <c>adapter.type</c> = "lora" and <c>adapter.lora.alpha</c>.</summary>
+    public string? GeneralType { get; set; }
+    public string? AdapterType { get; set; }
+    public float LoraAlpha { get; set; }
+    public bool IsAdapter => GeneralType == "adapter" || AdapterType == "lora";
     /// <summary>Ids of the BOS / EOS tokens (-1 when the file does not say) and where the token list starts in the file.</summary>
     public long BosId { get; set; } = -1;
     public long EosId { get; set; } = -1;
@@ -102,6 +107,9 @@ public class GgufInfo
                 object? v = ReadValue(r, type);
                 switch (key)
                 {
+                    case "general.type": info.GeneralType = v as string; break;
+                    case "adapter.type": info.AdapterType = v as string; break;
+                    case "adapter.lora.alpha": info.LoraAlpha = Convert.ToSingle(v); break;
                     case "general.architecture": info.Architecture = v as string ?? ""; break;
                     case "general.name": info.Name = v as string ?? ""; break;
                     case "general.size_label": info.SizeLabel = v as string; break;

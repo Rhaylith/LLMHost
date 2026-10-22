@@ -259,6 +259,9 @@ public sealed class ModelRuntime : IDisposable
                              $"Run 'runtime select {want.Id}' and restart to use it.");
         }
 
+        // ---- LoRA adapters: found, really adapters, made for this architecture (checked before the big weights are loaded)
+        var loras = ResolveLoras(options.Loras, info);
+
         // ---- will it fit? (guardrail)
         FitEstimate? estimate = null;
         try { estimate = FitEstimator.Estimate(model, options, gpuBackend: NativeBackend.GpuAvailable, gpuLayersOverride: layers); }
@@ -350,6 +353,7 @@ public sealed class ModelRuntime : IDisposable
         rt.Estimate = estimate;
         rt.Plan = plan;
         rt.ValidateTemplate();
+        if (loras.Count > 0) rt.ApplyLoras(loras);
         await rt.RestoreAutoAsync();
         return rt;
     }
@@ -386,6 +390,91 @@ public sealed class ModelRuntime : IDisposable
     // ------------------------------------------------------------------ prompts
 
     public int CountTokens(string text) => _weights.Tokenize(text, false, true, Encoding.UTF8).Length;
+
+    // ------------------------------------------------------------------ LoRA adapters
+
+    /// <summary>An adapter file that passed validation, with its strength.</summary>
+    internal sealed record ResolvedLora(LocalModel File, float Scale);
+
+    private readonly Dictionary<string, LoraAdapter> _loraCache = new(StringComparer.OrdinalIgnoreCase);
+    private List<ResolvedLora> _activeLoras = new();
+
+    /// <summary>The adapters in use (library id and strength).</summary>
+    public IReadOnlyList<LoraSetting> ActiveLoras => _activeLoras.Select(l => new LoraSetting { Id = l.File.Id, Scale = l.Scale }).ToList();
+
+    /// <summary>
+    /// Finds each adapter and checks that it is a LoRA file for the model's architecture. Mismatches fail the load with a message,
+    /// because applying an adapter to the wrong model gives garbage.
+    /// </summary>
+    internal static List<ResolvedLora> ResolveLoras(IEnumerable<LoraSetting>? settings, GgufInfo modelInfo)
+    {
+        var result = new List<ResolvedLora>();
+        if (settings == null) return result;
+        var library = new ModelLibrary();
+        foreach (var s in settings.Where(s => !string.IsNullOrWhiteSpace(s.Id)))
+        {
+            var file = library.FindAdapter(s.Id)
+                       ?? throw new ModelLoadException("missing", $"LoRA adapter '{s.Id}' was not found. Import or download the adapter file first.");
+            var info = GgufInfo.TryRead(file.Path)
+                       ?? throw new ModelLoadException("corrupt", $"LoRA adapter '{file.FileName}' could not be read: the file looks damaged.");
+            if (!info.IsAdapter)
+                throw new ModelLoadException("failed", $"'{file.FileName}' is not a LoRA adapter (it has no adapter metadata).");
+            if (!string.IsNullOrEmpty(modelInfo.Architecture) && !string.Equals(info.Architecture, modelInfo.Architecture, StringComparison.OrdinalIgnoreCase))
+                throw new ModelLoadException("failed",
+                    $"LoRA adapter '{file.FileName}' is for the '{info.Architecture}' architecture but the model is '{modelInfo.Architecture}'.");
+            result.Add(new ResolvedLora(file, s.Scale));
+        }
+        return result;
+    }
+
+    /// <summary>Loads the adapter files (once each) and applies them to the context with their strengths.</summary>
+    private void ApplyLoras(List<ResolvedLora> loras)
+    {
+        var applied = new List<(LoraAdapter, float)>();
+        foreach (var l in loras)
+        {
+            if (!_loraCache.TryGetValue(l.File.Path, out var adapter))
+            {
+                adapter = _weights.NativeHandle.LoadLoraFromFile(l.File.Path);
+                _loraCache[l.File.Path] = adapter;
+            }
+            applied.Add((adapter, l.Scale));
+        }
+        Context.NativeHandle.SetLoraAdapters(applied.ToArray());
+        _activeLoras = loras;
+        Options.Loras = ActiveLoras.ToList();
+        foreach (var l in loras) LoadWarnings.Add($"LoRA adapter {l.File.FileName} applied at strength {l.Scale:0.##}.");
+    }
+
+    /// <summary>
+    /// Changes the adapters of a loaded model without reloading it. Only possible while no request is running; every cached prompt
+    /// is dropped because the model's behaviour (and so its cache) changed.
+    /// </summary>
+    public async Task SetLorasAsync(IReadOnlyList<LoraSetting> settings)
+    {
+        EnsureSlots();
+        var resolved = ResolveLoras(settings, FitEstimator.ReadModel(Model.Path).Info);
+        await _ctxGate.WaitAsync();
+        try
+        {
+            if (_slots.Any(s => s.Req != null) || QueuedRequests > 0)
+                throw new InvalidOperationException("The model is busy generating; change its LoRA adapters when it is idle.");
+            ApplyLoras(resolved);
+            foreach (var s in _slots) ClearSlot(s);
+        }
+        finally { _ctxGate.Release(); }
+    }
+
+    /// <summary>The model identity used to store prompt caches: with adapters applied the cached state differs, so they get their own folder.</summary>
+    public LocalModel CacheModel
+    {
+        get
+        {
+            if (_activeLoras.Count == 0) return Model;
+            string sig = string.Join("+", _activeLoras.Select(l => $"{l.File.Id}@{l.Scale:0.###}"));
+            return new LocalModel { Id = Model.Id + "|lora=" + sig, Path = Model.Path, FileName = Model.FileName, SizeBytes = Model.SizeBytes };
+        }
+    }
 
     // ------------------------------------------------------------------ prompt template override
 
@@ -1470,7 +1559,7 @@ public sealed class ModelRuntime : IDisposable
 
     private unsafe SavedCache SaveSlot(Slot s, string name)
     {
-        string kv = PromptCacheStore.KvPath(Model, name);
+        string kv = PromptCacheStore.KvPath(CacheModel, name);
         Directory.CreateDirectory(Path.GetDirectoryName(kv)!);
         var tokens = s.Cache.ToArray();
         nuint written;
@@ -1487,7 +1576,7 @@ public sealed class ModelRuntime : IDisposable
     public async Task<SavedCache> SaveCacheAsync(string name, int? slotId = null)
     {
         EnsureSlots();
-        PromptCacheStore.KvPath(Model, name);          // validates the name
+        PromptCacheStore.KvPath(CacheModel, name);          // validates the name
         await _ctxGate.WaitAsync();
         try
         {
@@ -1499,7 +1588,7 @@ public sealed class ModelRuntime : IDisposable
 
     private unsafe int RestoreInto(Slot s, string name)
     {
-        string kv = PromptCacheStore.KvPath(Model, name);
+        string kv = PromptCacheStore.KvPath(CacheModel, name);
         var meta = PromptCacheStore.ReadMeta(kv);
         if (!File.Exists(kv) || meta == null) throw new FileNotFoundException($"No saved prompt cache called '{name}' for this model.");
         if (!string.Equals(meta.KvTypeK, Options.KvCacheTypeK, StringComparison.OrdinalIgnoreCase) ||
@@ -1531,7 +1620,7 @@ public sealed class ModelRuntime : IDisposable
     public async Task<int> RestoreCacheAsync(string name)
     {
         EnsureSlots();
-        PromptCacheStore.KvPath(Model, name);
+        PromptCacheStore.KvPath(CacheModel, name);
         await _ctxGate.WaitAsync();
         try
         {
@@ -1551,7 +1640,7 @@ public sealed class ModelRuntime : IDisposable
         try
         {
             if (!AppSettings.Current.PromptCache.AutoSave || Options.Embeddings || Model.IsEmbedding) return;
-            var dir = PromptCacheStore.DirFor(Model);
+            var dir = PromptCacheStore.DirFor(CacheModel);
             if (Directory.Exists(dir)) foreach (var old in Directory.EnumerateFiles(dir, AutoPrefix + "*")) try { File.Delete(old); } catch { }
             int n = 0;
             foreach (var s in _slots.Where(s => s.Req == null && s.Cache.Count >= MinReuseTokens).OrderByDescending(s => s.LastUsed))
@@ -1567,7 +1656,7 @@ public sealed class ModelRuntime : IDisposable
         try
         {
             if (!AppSettings.Current.PromptCache.AutoSave || Options.Embeddings || Model.IsEmbedding) return;
-            var dir = PromptCacheStore.DirFor(Model);
+            var dir = PromptCacheStore.DirFor(CacheModel);
             if (!Directory.Exists(dir)) return;
             int restored = 0;
             foreach (var kv in Directory.EnumerateFiles(dir, AutoPrefix + "*.kv").OrderBy(f => f, StringComparer.Ordinal))
@@ -1580,7 +1669,7 @@ public sealed class ModelRuntime : IDisposable
         catch { }
     }
 
-    public IReadOnlyList<SavedCache> SavedCaches() => PromptCacheStore.List(Model);
+    public IReadOnlyList<SavedCache> SavedCaches() => PromptCacheStore.List(CacheModel);
 
     // ------------------------------------------------------------------ embeddings
 

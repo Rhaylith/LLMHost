@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls (7 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters (8 of ~50).
 
 ---
 
@@ -190,7 +190,7 @@ Verified on SmolVLM-256M with a 512-token window: error / dropOldest / truncateM
 Deviation: no per-tensor sizes were added to `GgufInfo` — the estimator already reads the tensor table.
 Verified on Qwen3-30B-A3B-Q4_K_M (17 GB): the expert-count override shows up in llama.cpp's log (`validate_override … expert_used_count`), and with the experts forced into system memory the model loads on the Vulkan GPU and answers (llama.cpp logs "buffer type overridden"); the estimate arithmetic is unit-tested.
 
-#### §1.7 LoRA adapters — **M**
+#### ✅ §1.7 LoRA adapters — **M**
 * `LoadOptions.Loras: [{path, scale}]`. After model load, `llama_adapter_lora_init` + `llama_set_adapters_lora` on the context
   (LLamaSharp `LoraAdapter`/`context.LoadLoraAdapter`). Validate base-model match (GGUF `general.architecture`, adapter's
   `adapter.lora.alpha`), refuse mismatches.
@@ -199,6 +199,10 @@ Verified on Qwen3-30B-A3B-Q4_K_M (17 GB): the expert-count override shows up in 
 * Hot swap: `POST /api/models/lora {identifier, adapters:[{id,scale}]}` — changing scale does not need reload (re-apply to
   context; clear caches because KV is invalid).
 * FitEstimator: add adapter file sizes. Per-request LoRA is out of scope (document).
+
+**As built:** `LoadOptions.Loras` (`LoraSetting`: library id, file name or path + `scale`). LLamaSharp 0.27 has `LoadLoraFromFile` and `SetLoraAdapters`, used in `ModelRuntime.ApplyLoras`. Adapters are recognised by their GGUF metadata (`general.type = adapter` / `adapter.type = lora`, `adapter.lora.alpha`) and are now kept out of the model list: `ModelLibrary.List()` no longer shows them, `ListAdapters()` / `FindAdapter()` do. Before the weights are loaded each adapter is resolved and checked — missing, not an adapter, or a different architecture all fail the load with a message (`ResolveLoras`). `POST /api/models/lora {id, adapters:[{id, scale}]}` swaps adapters on a loaded model without reloading (only while idle; all cached prompts are dropped); `GET /api/models/lora?id=`, `GET /api/models/adapters?model=` (compatible adapters). Prompt caches saved to disk are keyed by the model **and** its adapters (`CacheModel`). The memory estimate adds the adapter file sizes. UI: adapter checklist with a strength per adapter in the load dialog (only when compatible adapters exist); CLI `load --lora "a.gguf=0.8;b.gguf"`.
+Deviations: adapters are not shown under their base model in My Models (only in the load dialog); no per-request LoRA (as planned); download/import reuse the normal flows (an imported adapter is picked up automatically).
+Verified with synthetic rank-4 adapters written by the tests (`LoraBuilder`) on SmolVLM-256M: strength 0 gives the plain output, strength 4 changes it, swapping and removing adapters at runtime works and restores the original output, a swapped model does not reuse the old prompt cache, a wrong-architecture adapter is refused. Not tested with a real trained adapter.
 
 #### §1.8 Multiple instances of the same model — **M**
 * `ModelManager.LoadAsync` already supports `options.Identifier`, but `Get(id)` returning an existing instance and the
