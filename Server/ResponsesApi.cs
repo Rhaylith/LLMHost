@@ -183,10 +183,16 @@ public partial class ApiServer
             ["incomplete_details"] = status == "incomplete" ? new JsonObject { ["reason"] = "max_output_tokens" } : null,
         };
 
-        JsonObject MessageItem(string itemId, string text) => new()
+        JsonObject OutputText(string text, JsonArray? lp)
+        {
+            var part = new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() };
+            if (g.Logprobs) part["logprobs"] = lp?.DeepClone() ?? new JsonArray();
+            return part;
+        }
+        JsonObject MessageItem(string itemId, string text, JsonArray? lp = null) => new()
         {
             ["id"] = itemId, ["type"] = "message", ["status"] = "completed", ["role"] = "assistant",
-            ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() }),
+            ["content"] = new JsonArray(OutputText(text, lp)),
         };
         JsonObject ReasoningItem(string itemId, string text) => new()
         {
@@ -217,7 +223,7 @@ public partial class ApiServer
             if (tools != null) (answer, calls) = ToolStreamParser.ParseAll(tools.Format, text);
             contentChars = answer.Length;
             if (thinking.Length > 0) output.Add(ReasoningItem("rs_" + Guid.NewGuid().ToString("N")[..24], thinking));
-            if (answer.Length > 0 || calls.Count == 0) output.Add(MessageItem("msg_" + Guid.NewGuid().ToString("N")[..24], answer));
+            if (answer.Length > 0 || calls.Count == 0) output.Add(MessageItem("msg_" + Guid.NewGuid().ToString("N")[..24], answer, g.Logprobs ? LogprobsFormat.Items(stats.Logprobs.ToList()) : null));
             foreach (var c in calls) output.Add(CallItem("fc_" + Guid.NewGuid().ToString("N")[..24], c.Id, c.Name, c.Arguments));
             var final = Skeleton(stats.FinishReason == "length" ? "incomplete" : "completed");
             Remember(final);
@@ -234,6 +240,9 @@ public partial class ApiServer
         // one open item at a time: "reasoning", "message" or "call:<index>"
         string? open = null; string openId = ""; int outIndex = -1;
         var text2 = new StringBuilder();
+        var lpAll = new JsonArray();            // log-probabilities of the answer text so far (when requested)
+        JsonArray? lpPending = null;
+        int lpSent = 0; var lpTrim = new LeadingTrim();
         string openCallId = "", openName = "";
 
         async Task CloseItem()
@@ -251,9 +260,11 @@ public partial class ApiServer
             else if (open == "message")
             {
                 string t = text2.ToString();
-                await RespEvent(ctx, seq++, "response.output_text.done", new JsonObject { ["item_id"] = openId, ["output_index"] = outIndex, ["content_index"] = 0, ["text"] = t });
-                await RespEvent(ctx, seq++, "response.content_part.done", new JsonObject { ["item_id"] = openId, ["output_index"] = outIndex, ["content_index"] = 0, ["part"] = new JsonObject { ["type"] = "output_text", ["text"] = t, ["annotations"] = new JsonArray() } });
-                var item = MessageItem(openId, t);
+                var doneEv = new JsonObject { ["item_id"] = openId, ["output_index"] = outIndex, ["content_index"] = 0, ["text"] = t };
+                if (g.Logprobs) doneEv["logprobs"] = lpAll.DeepClone();
+                await RespEvent(ctx, seq++, "response.output_text.done", doneEv);
+                await RespEvent(ctx, seq++, "response.content_part.done", new JsonObject { ["item_id"] = openId, ["output_index"] = outIndex, ["content_index"] = 0, ["part"] = OutputText(t, lpAll) });
+                var item = MessageItem(openId, t, lpAll);
                 output.Add(item);
                 await RespEvent(ctx, seq++, "response.output_item.done", new JsonObject { ["output_index"] = outIndex, ["item"] = item.DeepClone() });
             }
@@ -295,7 +306,14 @@ public partial class ApiServer
                 case ContentEvent c:
                     if (open != "message") await OpenItem("message", "msg_");
                     text2.Append(c.Text); contentChars += c.Text.Length;
-                    await RespEvent(ctx, seq++, "response.output_text.delta", new JsonObject { ["item_id"] = openId, ["output_index"] = outIndex, ["content_index"] = 0, ["delta"] = c.Text });
+                    var deltaEv = new JsonObject { ["item_id"] = openId, ["output_index"] = outIndex, ["content_index"] = 0, ["delta"] = c.Text };
+                    if (g.Logprobs)
+                    {
+                        deltaEv["logprobs"] = lpPending?.DeepClone() ?? new JsonArray();
+                        if (lpPending != null) foreach (var x in lpPending) lpAll.Add(x!.DeepClone());
+                        lpPending = null;
+                    }
+                    await RespEvent(ctx, seq++, "response.output_text.delta", deltaEv);
                     break;
                 case CallStartEvent s:
                     await CloseItem();
@@ -317,6 +335,16 @@ public partial class ApiServer
             }
         }
 
+        // tokens produced since the last answer event go with the next one
+        void SetPending()
+        {
+            if (!g.Logprobs) return;
+            List<TokenLogprob> fresh;
+            lock (stats.Logprobs) { fresh = stats.Logprobs.Skip(lpSent).ToList(); lpSent += fresh.Count; }
+            var items = LogprobsFormat.Items(fresh, lpTrim);
+            if (lpPending == null) lpPending = items; else foreach (var x in items) lpPending.Add(x!.DeepClone());
+        }
+
         await foreach (var seg in rt.StreamSegmentsAsync(prompt, g, stats, ct, images))
         {
             if (seg.Kind == SegmentKind.Reasoning)
@@ -325,8 +353,8 @@ public partial class ApiServer
                 text2.Append(seg.Text); reasoningChars += seg.Text.Length;
                 await RespEvent(ctx, seq++, "response.reasoning_summary_text.delta", new JsonObject { ["item_id"] = openId, ["output_index"] = outIndex, ["summary_index"] = 0, ["delta"] = seg.Text });
             }
-            else if (parser != null) foreach (var ev in parser.Feed(seg.Text)) await Handle(ev);
-            else await Handle(new ContentEvent(seg.Text));
+            else if (parser != null) { SetPending(); foreach (var ev in parser.Feed(seg.Text)) await Handle(ev); }
+            else { SetPending(); await Handle(new ContentEvent(seg.Text)); }
         }
         if (parser != null) foreach (var ev in parser.Finish()) await Handle(ev);
         if (output.Count == 0 && open == null) await OpenItem("message", "msg_");

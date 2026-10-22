@@ -49,6 +49,13 @@ public static class OpenAiMapping
             if (lp.TryGetValue<bool>(out var lpb)) { g.Logprobs = lpb; g.TopLogprobs = (int)(Num(body, "top_logprobs") ?? 0); }
             else if (lp.TryGetValue<int>(out var lpn)) { g.Logprobs = lpn >= 0; g.TopLogprobs = lpn; }
         }
+        // Responses API: log-probabilities are requested through include: ["message.output_text.logprobs"] (and top_logprobs)
+        if (body["include"] is JsonArray inc && inc.Any(x => x is JsonValue iv && iv.TryGetValue<string>(out var istr) && istr == "message.output_text.logprobs"))
+        {
+            g.Logprobs = true;
+            g.TopLogprobs = (int)(Num(body, "top_logprobs") ?? 0);
+        }
+        g.TopLogprobs = Math.Clamp(g.TopLogprobs, 0, LogprobsFormat.MaxTop);
         // Responses API: text.format = {type: json_schema | json_object, schema}
         if (body["text"]?["format"] is JsonObject tf)
         {

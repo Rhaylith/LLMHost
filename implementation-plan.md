@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances (9 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n (10 of ~50).
 
 ---
 
@@ -219,10 +219,15 @@ Verified with synthetic rank-4 adapters written by the tests (`LoraBuilder`) on 
 Deviations: instances with different weight placement (other GPU layers, mmap …) do not share and load separately (as expected); `/v1/models` lists every instance under its identifier rather than grouping them.
 Verified on SmolVLM-256M: two instances with different context sizes (1024 / 2048) share one set of weights, answer in parallel with identical greedy output; unloading one keeps the other working and the weights are freed with the last one; routing by pool name picks the idle instance while the other is busy; `name:2` is honoured explicitly.
 
-#### §1.11 `logprobs` / `n` — **S** (close-out)
+#### ✅ §1.11 `logprobs` / `n` — **S** (close-out)
 Verify existing OpenAI chat/completions implementation against the spec (bytes arrays, `top_logprobs` ≤ 20, streaming chunk
 shape, `n` with stream and `index`); add Responses API `top_logprobs` + `include: ["message.output_text.logprobs"]` and
 `/api/v1/chat` pass-through if missing; add contract tests; then tick the item.
+
+**As built:** the existing OpenAI chat / completions support was checked against the spec with contract tests on a real model, which found three gaps, now fixed: (1) `bytes` were derived from the decoded string, so a character split over two tokens produced U+FFFD bytes — tokens now carry their raw UTF-8 bytes (`TokenLogprob.Bytes`, `TopLogprob`, taken with `TokenToSpan`); (2) the answer text has its leading whitespace removed, so the token bytes did not add up to the text — the same trim is applied to the log-probabilities (`LeadingTrim`, one instance per stream); (3) the `include_usage` stream put the usage on the last finish chunk — it is now the separate final chunk with `choices: []` that the spec describes, and the chat object has `refusal: null`. Reasoning tokens are no longer part of the answer's `logprobs` (`TokenLogprob.Reasoning`). `top_logprobs` is clamped to 20.
+Added: **Responses API** — `include: ["message.output_text.logprobs"]` (+ `top_logprobs`) puts `logprobs` on the `output_text` part, on every `response.output_text.delta` event and on `response.output_text.done`; **native `/api/v1/chat`** — `logprobs: true` / `top_logprobs` return `logprobs` on the message item and on `message.delta` events. All shapes live in `Server/LogprobsFormat.cs`.
+Verified on SmolVLM-256M over HTTP: for chat (plain and streamed), legacy completions, Responses (plain and streamed) and native chat, the bytes of the returned log-probabilities spell exactly the returned text; `n = 3` returns indices 0..2 and summed usage; a streamed `n = 2` request has per-index role / content / finish chunks and one usage chunk; `top_logprobs` stays ≤ 20.
+Deviations: `top_logprobs` above 20 is clamped instead of rejected with HTTP 400; the alternatives (`top_logprobs`) of the very first token keep their leading space.
 
 #### §1.12 Embeddings options & reranking — **M**
 * Embeddings: `LoadOptions.Pooling (auto|none|mean|cls|last|rank)`, `Normalize` (default true → L2), `EmbedBatchSize`; request

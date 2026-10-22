@@ -175,6 +175,11 @@ public partial class ApiServer
         if (OpenAiMapping.Num(body, "max_output_tokens") is { } mo) g.MaxTokens = (int)mo;
         if (OpenAiMapping.Num(body, "seed") is { } sd && sd >= 0) g.Seed = (uint)sd;
         OpenAiMapping.ReadSamplers(body, g);
+        if (body["logprobs"] is JsonValue lpv && (lpv.TryGetValue<bool>(out var lpb) ? lpb : lpv.TryGetValue<int>(out var lpn) && lpn > 0))
+        {
+            g.Logprobs = true;
+            g.TopLogprobs = Math.Clamp((int)(OpenAiMapping.Num(body, "top_logprobs") ?? 0), 0, LogprobsFormat.MaxTop);
+        }
         if (body["reasoning"] is JsonValue rv && rv.TryGetValue<string>(out var rs) && Reasoning.NormalizeEffort(rs) is { } eff) g.ReasoningEffort = eff;
 
         var messages = new List<ChatMessage>();
@@ -353,7 +358,8 @@ public partial class ApiServer
             var (answer, thinking) = await rt.CompleteSegmentsAsync(prompt, g, stats, ct, imgs);
             var output = new List<object>();
             if (thinking.Length > 0) output.Add(new { type = "reasoning", content = thinking });
-            output.Add(new { type = "message", content = answer });
+            if (g.Logprobs) output.Add(new { type = "message", content = answer, logprobs = LogprobsFormat.Items(stats.Logprobs.ToList()) });
+            else output.Add(new { type = "message", content = answer });
             int rTok = thinking.Length + answer.Length > 0 ? (int)Math.Round(stats.CompletionTokens * (double)thinking.Length / (thinking.Length + answer.Length)) : 0;
             Remember(answer);
             await WriteJson(ctx, new { model_instance_id = rt.Identifier, output, stats = StatsDto(rTok), response_id = responseId });
@@ -367,6 +373,7 @@ public partial class ApiServer
         var all = new StringBuilder();
         int reasoningLen = 0, answerLen = 0;
         bool promptDone = false;
+        int sentLp = 0; var lpTrim = new LeadingTrim();
         async Task End()
         {
             if (open != null) await NativeEvent(ctx, open + ".end", new { type = open + ".end" });
@@ -387,7 +394,14 @@ public partial class ApiServer
                 await NativeEvent(ctx, kind + ".start", new { type = kind + ".start" });
             }
             if (kind == "reasoning") reasoningLen += seg.Text.Length; else { answerLen += seg.Text.Length; all.Append(seg.Text); }
-            await NativeEvent(ctx, kind + ".delta", new { type = kind + ".delta", content = seg.Text });
+            if (kind == "message" && g.Logprobs)
+            {
+                List<TokenLogprob> fresh;
+                lock (stats.Logprobs) { fresh = stats.Logprobs.Skip(sentLp).ToList(); sentLp += fresh.Count; }
+                await NativeEvent(ctx, "message.delta", new { type = "message.delta", content = seg.Text, logprobs = LogprobsFormat.Items(fresh, lpTrim) });
+            }
+            else
+                await NativeEvent(ctx, kind + ".delta", new { type = kind + ".delta", content = seg.Text });
         }
         if (!promptDone) await NativeEvent(ctx, "prompt_processing.end", new { type = "prompt_processing.end" });
         await End();

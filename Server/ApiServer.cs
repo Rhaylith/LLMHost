@@ -265,7 +265,8 @@ public partial class ApiServer
                 }
                 await Send(parser.Finish());
                 string fin = parser.HasCalls ? "tool_calls" : stats.FinishReason;
-                await Sse(ctx, Chunk(id, created, rt, new { }, fin, includeUsage ? Usage(stats) : null, StatsObj(stats)));
+                await Sse(ctx, Chunk(id, created, rt, new { }, fin, null, StatsObj(stats)));
+                if (includeUsage) await Sse(ctx, UsageChunk(id, created, rt, Usage(stats)));
                 await ctx.Response.WriteAsync("data: [DONE]\n\n");
                 return;
             }
@@ -309,7 +310,7 @@ public partial class ApiServer
                 var st = all[i] = i == 0 ? stats : new GenerationStats();
                 await Send(Chunk(id, created, rt, new { role = "assistant", content = "" }, null, index: i));
                 bool open = false;
-                int sentLp = 0;
+                int sentLp = 0; var lpTrim = new LeadingTrim();
                 await foreach (var seg in rt.StreamSegmentsAsync(prompt, ForChoice(i), st, ct, images))
                 {
                     object? lp = null;
@@ -317,7 +318,7 @@ public partial class ApiServer
                     {
                         List<TokenLogprob> fresh;
                         lock (st.Logprobs) { fresh = st.Logprobs.Skip(sentLp).ToList(); sentLp += fresh.Count; }
-                        lp = ChatLogprobs(fresh);
+                        lp = LogprobsFormat.Chat(fresh, lpTrim);
                     }
                     if (seg.Kind == SegmentKind.Reasoning && !inlineReasoning)
                         await Send(Chunk(id, created, rt, new { reasoning_content = seg.Text }, null, index: i, logprobs: lp));
@@ -335,8 +336,8 @@ public partial class ApiServer
             }
             await Task.WhenAll(Enumerable.Range(0, nChoices).Select(RunStream));
             for (int i = 0; i < nChoices; i++)
-                await Send(Chunk(id, created, rt, new { }, all[i].FinishReason,
-                    i == nChoices - 1 && includeUsage ? UsageSum(all) : null, i == 0 ? StatsObj(all[0]) : null, index: i));
+                await Send(Chunk(id, created, rt, new { }, all[i].FinishReason, null, i == 0 ? StatsObj(all[0]) : null, index: i));
+            if (includeUsage) await Send(UsageChunk(id, created, rt, UsageSum(all)));
             await ctx.Response.WriteAsync("data: [DONE]\n\n");
             return;
         }
@@ -358,7 +359,7 @@ public partial class ApiServer
             return new
             {
                 index = i, message, finish_reason = r.Stats.FinishReason,
-                logprobs = wantLogprobs ? ChatLogprobs(r.Stats.Logprobs.ToList()) : null,
+                logprobs = wantLogprobs ? LogprobsFormat.Chat(r.Stats.Logprobs.ToList()) : null,
             };
         }).ToList();
         await WriteJson(ctx, new
@@ -368,19 +369,6 @@ public partial class ApiServer
         });
     }
 
-    /// <summary>OpenAI chat logprobs object (content: token, logprob, bytes, top_logprobs) for a run of tokens.</summary>
-    private static object? ChatLogprobs(IReadOnlyList<TokenLogprob> items)
-    {
-        if (items.Count == 0) return null;
-        return new
-        {
-            content = items.Select(t => new
-            {
-                token = t.Token, logprob = t.Logprob, bytes = Encoding.UTF8.GetBytes(t.Token).Select(b => (int)b).ToList(),
-                top_logprobs = t.Top.Select(x => new { token = x.Token, logprob = x.Logprob, bytes = Encoding.UTF8.GetBytes(x.Token).Select(b => (int)b).ToList() }).ToList(),
-            }).ToList(),
-        };
-    }
 
     private static object UsageSum(GenerationStats[] all) => new
     {
@@ -396,6 +384,12 @@ public partial class ApiServer
         id, @object = "chat.completion.chunk", created, model = rt.Identifier,
         choices = new[] { new { index, delta, finish_reason = finish, logprobs } },
         usage, stats,
+    };
+
+    /// <summary>The extra last chunk of a stream with include_usage: no choices, the usage of the whole request.</summary>
+    private static object UsageChunk(string id, long created, ModelRuntime rt, object usage) => new
+    {
+        id, @object = "chat.completion.chunk", created, model = rt.Identifier, choices = Array.Empty<object>(), usage,
     };
 
     private static object Usage(GenerationStats s) => new
@@ -414,21 +408,6 @@ public partial class ApiServer
         generation_time = Math.Round((s.TotalMs - s.TimeToFirstTokenMs) / 1000.0, 3),
     };
 
-    /// <summary>Legacy completions logprobs (tokens, token_logprobs, top_logprobs, text_offset).</summary>
-    private static object? TextLogprobs(IReadOnlyList<TokenLogprob> items)
-    {
-        if (items.Count == 0) return null;
-        int off = 0;
-        var offsets = new List<int>();
-        foreach (var t in items) { offsets.Add(off); off += t.Token.Length; }
-        return new
-        {
-            tokens = items.Select(t => t.Token).ToList(),
-            token_logprobs = items.Select(t => t.Logprob).ToList(),
-            top_logprobs = items.Select(t => t.Top.GroupBy(x => x.Token).ToDictionary(x => x.Key, x => x.First().Logprob)).ToList(),
-            text_offset = offsets,
-        };
-    }
 
     private async Task Completions(HttpContext ctx)
     {
@@ -453,7 +432,7 @@ public partial class ApiServer
             await Task.WhenAll(Enumerable.Range(0, n).Select(async i =>
             {
                 var st = all[i] = new GenerationStats();
-                int sentLp = 0;
+                int sentLp = 0; var lpTrim = new LeadingTrim();
                 await foreach (var seg in rt.StreamSegmentsAsync(prompt, ForChoice(i), st, ct))
                 {
                     if (seg.Kind == SegmentKind.Reasoning && !g.KeepReasoning) continue;
@@ -462,7 +441,7 @@ public partial class ApiServer
                     {
                         List<TokenLogprob> fresh;
                         lock (st.Logprobs) { fresh = st.Logprobs.Skip(sentLp).ToList(); sentLp += fresh.Count; }
-                        lp = TextLogprobs(fresh);
+                        lp = LogprobsFormat.Text(fresh, lpTrim);
                     }
                     await Send(new
                     {
@@ -495,7 +474,7 @@ public partial class ApiServer
             choices = texts.Select((t, i) => new
             {
                 index = i, text = echo ? prompt + t : t, finish_reason = stats[i].FinishReason,
-                logprobs = g.Logprobs ? TextLogprobs(stats[i].Logprobs.ToList()) : null,
+                logprobs = g.Logprobs ? LogprobsFormat.Text(stats[i].Logprobs.ToList()) : null,
             }).ToList(),
             usage = UsageSum(stats), stats = StatsObj(stats[0]),
         });

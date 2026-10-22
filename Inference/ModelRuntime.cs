@@ -22,8 +22,11 @@ public class ModelLoadException : InvalidOperationException
 /// <summary>A chat turn. <see cref="Images"/> holds the raw bytes of attached images (vision models only).</summary>
 public record ChatMessage(string Role, string Content, IReadOnlyList<byte[]>? Images = null);
 
-/// <summary>One generated token with its log-probability and the most likely alternatives.</summary>
-public record TokenLogprob(string Token, double Logprob, List<(string Token, double Logprob)> Top);
+/// <summary>A candidate token with its log-probability; <see cref="Bytes"/> are the token's raw UTF-8 bytes (a character can be split over several tokens).</summary>
+public record TopLogprob(string Token, double Logprob, byte[] Bytes);
+
+/// <summary>One generated token with its log-probability and the most likely alternatives. <see cref="Reasoning"/>: it was produced inside a think block.</summary>
+public record TokenLogprob(string Token, double Logprob, byte[] Bytes, List<TopLogprob> Top, bool Reasoning = false);
 
 public class GenerationStats
 {
@@ -1527,16 +1530,29 @@ public sealed class ModelRuntime : IDisposable
             while (j > 0 && vals[j - 1] < v) { vals[j] = vals[j - 1]; ids[j] = ids[j - 1]; j--; }
             vals[j] = v; ids[j] = i;
         }
-        var top = new List<(string, double)>();
+        var top = new List<TopLogprob>();
         for (int i = 0; i < k; i++)
-            if (!float.IsNegativeInfinity(vals[i])) top.Add((TokenText(ctx, (LLamaToken)ids[i]), vals[i] - lse));
+            if (!float.IsNegativeInfinity(vals[i]))
+            {
+                var tb = TokenBytes(ctx, (LLamaToken)ids[i]);
+                top.Add(new TopLogprob(Encoding.UTF8.GetString(tb), vals[i] - lse, tb));
+            }
         double chosen = logits[(int)token] - lse;
-        lock (r.Stats.Logprobs) r.Stats.Logprobs.Add(new TokenLogprob(TokenText(ctx, token), chosen, top));
+        var bytes = TokenBytes(ctx, token);
+        lock (r.Stats.Logprobs) r.Stats.Logprobs.Add(new TokenLogprob(Encoding.UTF8.GetString(bytes), chosen, bytes, top, r.Scanner.InThink));
     }
 
-    private static string TokenText(LLamaContext ctx, LLamaToken t)
+    /// <summary>The token's raw bytes, as llama.cpp prints them (a leading "space" marker becomes a space). Part of a multi-byte character for some tokens.</summary>
+    internal static byte[] TokenBytes(LLamaContext ctx, LLamaToken t)
     {
-        try { var d = new StreamingTokenDecoder(ctx); d.Add(t); return d.Read(); } catch { return ""; }
+        try
+        {
+            var buf = new byte[128];
+            int n = (int)ctx.NativeHandle.ModelHandle.TokenToSpan(t, buf, 0, false);
+            if (n > buf.Length) { buf = new byte[n]; n = (int)ctx.NativeHandle.ModelHandle.TokenToSpan(t, buf, 0, false); }
+            return buf.AsSpan(0, Math.Max(0, Math.Min(n, buf.Length))).ToArray();
+        }
+        catch { return Array.Empty<byte>(); }
     }
 
     private void HandleToken(Slot slot, LLamaToken token, LLamaContext ctx, bool addToFeed = true)
