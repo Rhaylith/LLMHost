@@ -29,6 +29,8 @@ table{border-collapse:collapse;width:100%}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
 th{color:var(--dim);font-weight:500;font-size:12px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px}
+.tag.err{color:var(--acc)}.tag.warn{color:#d9a400}
+.readme{margin-top:10px;white-space:pre-wrap;word-break:break-word;font-size:13px}.readme pre{background:var(--panel2);padding:8px;overflow:auto;white-space:pre}
 .tag{display:inline-block;background:var(--panel2);border-radius:4px;padding:0 6px;font-size:11px;color:var(--dim);margin-right:4px}
 .ok{color:var(--ok)}.dim{color:var(--dim)}.err{color:var(--acc)}
 .col{flex-direction:column;gap:0}
@@ -173,6 +175,10 @@ dialog::backdrop{background:#0008}
   <div class="row" style="margin-top:8px"><input id="dl-input" placeholder="…or paste a Hugging Face link, user/model[:quant], user/model/file.gguf, or a direct .gguf URL"><button class="b" onclick="downloadInput()">Download</button></div>
   <div id="dl-msg" class="dim" style="min-height:18px"></div>
   <div id="results"></div>
+  <div id="drawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:min(560px,96vw);background:var(--panel);border-left:1px solid var(--panel2);z-index:50;overflow:auto;padding:14px;box-shadow:-6px 0 18px rgba(0,0,0,.35)">
+    <button class="b sec" style="float:right" onclick="closeDrawer()">✕</button>
+    <div id="drawer-body"></div>
+  </div>
   <h3>Downloads</h3>
   <div id="downloads"><span class="dim">No downloads</span></div>
   <h3>Curated catalog</h3>
@@ -926,9 +932,10 @@ async function refreshModels() {
       <td style="white-space:nowrap">${m.isEmbedding ? '' : `<button class="b sec" title="Open PowerShell with Claude Code using this model" onclick='launchClaudeCode(${JSON.stringify(m.id)})'>Claude Code</button> `}<button class="b sec" title="Load a second instance of this model (shares the weights; own context and settings)" onclick='loadAnother(${JSON.stringify(m.modelId)})'>+ instance</button> <button class="b sec" title="Measure generation speed at several thread counts" onclick='testThreads(${JSON.stringify(m.id)}, this)'>Test threads</button> <button class="b sec" onclick="unload('${esc(m.id)}')">Eject</button></td></tr>`).join('') + '</table>' : '<span class="dim">Nothing loaded.</span>';
   const local = await api('/api/models/local');
   $('local').innerHTML = local.length ? `<table><tr><th>Model</th><th>Arch</th><th>Quant</th><th>Context</th><th>Size</th><th></th></tr>` +
-    local.map(m => `<tr><td>${esc(m.id)} ${m.isEmbedding ? '<span class="tag">embedding</span>' : ''}${m.supportsVision ? '<span class="tag">vision</span>' : ''}</td><td>${esc(m.architecture)}</td><td>${esc(m.quantization)}</td><td>${m.contextLength || ''}</td><td>${fmt(m.sizeBytes)}</td>
+    local.map(m => `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)}</td><td>${esc(m.architecture)}</td><td>${esc(m.quantization)}</td><td>${m.contextLength || ''}</td><td>${fmt(m.sizeBytes)}</td>
       <td style="white-space:nowrap">${m.loadedAs ? '<span class="ok">loaded</span>' : `<button class="b" onclick='openLoad(${JSON.stringify(m.id)}, ${m.isEmbedding})'>Load</button>`}
       <button class="b sec" title="Default load and inference settings for this model" onclick='openLoad(${JSON.stringify(m.id)}, ${m.isEmbedding}, "defaults")'>⚙</button>
+      <button class="b sec" title="Architecture, licence and capabilities" onclick='showLocalInfo(${JSON.stringify(m.id)})'>Details</button>
       <button class="b sec" onclick='del(${JSON.stringify(m.id)})'>Delete</button></td></tr>`).join('') + '</table>' : '<span class="dim">No models yet — head to Discover.</span>';
 }
 function fillLoad(d) {
@@ -1182,13 +1189,58 @@ async function renderCatalog() {
   $('catalog').innerHTML = '<h4>LLMs</h4>' + cat.filter(e => !e.isVision).map(card).join('')
     + '<h4>Image models (vision)</h4>' + cat.filter(e => e.isVision).map(card).join('');
 }
+// ---------------------------------------------------------------- model badges and detail drawer
+const CAP_BADGES = [['vision', '👁 vision'], ['audio', '🎧 audio'], ['tools', '🔧 tools'], ['reasoning', '🧠 reasoning'], ['moe', '⚙ MoE'], ['embedding', '📐 embedding'], ['rerank', '↕ rerank']];
+function capBadges(c) { return c ? CAP_BADGES.filter(([k]) => c[k]).map(([k, t]) => `<span class="tag" title="${k}">${t}</span>`).join('') : ''; }
+function licenseTag(id, kind) {
+  if (!id) return '';
+  const cls = kind === 'noncommercial' ? 'err' : kind === 'restricted' ? 'warn' : 'dim';
+  return `<span class="tag ${cls}" title="Licence">${esc(id)}${kind === 'noncommercial' ? ' ⚠' : ''}</span>`;
+}
+// a small, safe Markdown view: everything is escaped first, then a few patterns become tags; links only for http(s)
+function mdLite(md) {
+  const blocks = [];
+  let s = esc(md).replace(/```[^\n]*\n([\s\S]*?)```/g, (_, c) => { blocks.push(c); return '\u0000' + (blocks.length - 1) + '\u0000'; });
+  s = s.replace(/^(#{1,4})\s+(.*)$/gm, (_, h, t) => `<h${h.length + 2}>${t}</h${h.length + 2}>`)
+       .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/`([^`\n]+)`/g, '<code>$1</code>')
+       .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+       .replace(/^\s*[-*]\s+(.*)$/gm, '&bull; $1')
+       .replace(/<!--[\s\S]*?-->/g, '');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<pre>' + blocks[i] + '</pre>');
+}
+function openDrawer(html) { $('drawer-body').innerHTML = html; $('drawer').style.display = 'block'; }
+function closeDrawer() { $('drawer').style.display = 'none'; }
+async function showCard(repo) {
+  openDrawer('<span class="dim">Loading…</span>');
+  try {
+    const c = await api('/api/models/card?repo=' + encodeURIComponent(repo));
+    openDrawer(`<h3>${esc(c.repo)}</h3><div>${capBadges(c.capabilities)} ${licenseTag(c.license, c.licenseKind)}</div>
+      ${c.licenseWarning ? `<div class="err" style="margin:6px 0">${esc(c.licenseWarning)}</div>` : ''}
+      <div class="dim" style="margin:6px 0">${c.downloads.toLocaleString()} downloads · ${c.likes} likes${c.lastModified ? ' · updated ' + esc(c.lastModified.slice(0, 10)) : ''}${c.baseModel ? ' · base: ' + esc(c.baseModel) : ''}${c.pipeline ? ' · ' + esc(c.pipeline) : ''}</div>
+      <div class="row"><button class="b" onclick='showFiles(${JSON.stringify(c.repo)}); closeDrawer()'>Files and quants</button></div>
+      <div class="readme">${c.readme ? mdLite(c.readme) : '<span class="dim">This repository has no README.</span>'}</div>`);
+  } catch (e) { openDrawer(`<span class="err">${esc(e.message)}</span>`); }
+}
+async function showLocalInfo(id) {
+  openDrawer('<span class="dim">Loading…</span>');
+  try {
+    const g = await api('/api/models/info?id=' + encodeURIComponent(id));
+    const rows = [['Architecture', g.architecture], ['Name', g.name], ['Parameters', g.sizeLabel], ['Quantization', g.quantization], ['Context length', g.contextLength || null],
+      ['Embedding size', g.embeddingLength || null], ['Layers', g.blockCount || null], ['Attention heads', g.headCount ? g.headCount + ' (' + (g.headCountKv || g.headCount) + ' KV)' : null],
+      ['Experts', g.expertCount ? g.expertCount + ' (' + g.expertUsedCount + ' per token)' : null], ['Vocabulary', g.vocabSize || null], ['Base model', g.baseModel],
+      ['File size', fmt(g.fileBytes)], ['Chat template', g.chatTemplate ? 'yes' : 'no'], ['Source', g.repoUrl]].filter(r => r[1] != null && r[1] !== '');
+    openDrawer(`<h3>${esc(g.id)}</h3><div>${capBadges(g.capabilities)} ${licenseTag(g.license, g.licenseKind)}</div>
+      ${g.licenseWarning ? `<div class="err" style="margin:6px 0">${esc(g.licenseWarning)}</div>` : ''}
+      <table>${rows.map(r => `<tr><th style="text-align:left">${esc(r[0])}</th><td>${esc(String(r[1]))}</td></tr>`).join('')}</table>`);
+  } catch (e) { openDrawer(`<span class="err">${esc(e.message)}</span>`); }
+}
 async function search() {
   const q = $('q').value.trim(); if (!q) return;
   $('results').innerHTML = '<span class="dim">Searching…</span>';
   try {
     const r = await api('/api/models/search?q=' + encodeURIComponent(q));
     $('results').innerHTML = '<table><tr><th>Repository</th><th>Downloads</th><th>Likes</th><th></th></tr>' + r.map(m =>
-      `<tr><td>${esc(m.id)}</td><td>${m.downloads.toLocaleString()}</td><td>${m.likes}</td><td><button class="b sec" onclick='showFiles(${JSON.stringify(m.id)})'>Files</button></td></tr>`).join('') + '</table>';
+      `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)} ${licenseTag(m.license, '')}</td><td>${m.downloads.toLocaleString()}</td><td>${m.likes}</td><td style="white-space:nowrap"><button class="b sec" onclick='showFiles(${JSON.stringify(m.id)})'>Files</button> <button class="b sec" title="README, licence and details" onclick='showCard(${JSON.stringify(m.id)})'>Details</button></td></tr>`).join('') + '</table>';
   } catch (e) { $('results').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
 $('q').onkeydown = e => { if (e.key === 'Enter') search(); };

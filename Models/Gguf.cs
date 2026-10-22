@@ -19,6 +19,11 @@ public class GgufInfo
     public string Architecture { get; set; } = "";
     public string Name { get; set; } = "";
     public string? SizeLabel { get; set; }
+    /// <summary>Licence id, base model, repository and organisation as the file states them.</summary>
+    public string? License { get; set; }
+    public string? BaseModel { get; set; }
+    public string? RepoUrl { get; set; }
+    public string? Organization { get; set; }
     public string? Quantization { get; set; }
     public long ContextLength { get; set; }
     public long EmbeddingLength { get; set; }
@@ -116,6 +121,10 @@ public class GgufInfo
                     case "general.architecture": info.Architecture = v as string ?? ""; break;
                     case "general.name": info.Name = v as string ?? ""; break;
                     case "general.size_label": info.SizeLabel = v as string; break;
+                    case "general.license": info.License = v as string; break;
+                    case "general.base_model.0.name": info.BaseModel = v as string; break;
+                    case "general.repo_url": info.RepoUrl = v as string; break;
+                    case "general.organization": info.Organization = v as string; break;
                     case "general.file_type": fileType = Convert.ToInt64(v); break;
                     case "general.alignment": info.Alignment = Math.Max(1, ToLong(v)); break;
                     case "tokenizer.chat_template": info.HasChatTemplate = true; info.ChatTemplate = v as string; break;

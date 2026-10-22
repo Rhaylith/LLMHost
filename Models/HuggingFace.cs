@@ -5,7 +5,7 @@ using LLMHostProject.Core;
 
 namespace LLMHostProject.Models;
 
-public record RemoteModel(string Id, long Downloads, long Likes, string? LastModified, string? Pipeline);
+public record RemoteModel(string Id, long Downloads, long Likes, string? LastModified, string? Pipeline, IReadOnlyList<string>? Tags = null);
 
 /// <summary>A downloadable GGUF (possibly split into several shards).</summary>
 public record RemoteFile(string Repo, string FileName, long SizeBytes, string Quant, IReadOnlyList<string> Shards,
@@ -65,7 +65,8 @@ public static partial class HuggingFace
                 e.TryGetProperty("downloads", out var d) ? d.GetInt64() : 0,
                 e.TryGetProperty("likes", out var l) ? l.GetInt64() : 0,
                 e.TryGetProperty("lastModified", out var m) ? m.GetString() : null,
-                e.TryGetProperty("pipeline_tag", out var p) ? p.GetString() : null));
+                e.TryGetProperty("pipeline_tag", out var p) ? p.GetString() : null,
+                e.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array ? tg.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : null));
         }
         return list;
     }

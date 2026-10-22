@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity (14 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity , §3.1 capability badges and model card (15 of ~50).
 
 ---
 
@@ -307,7 +307,7 @@ Deviations: no `Poll` option and no `llama_numa_init` (LLamaSharp does not expos
 
 ### §3 Model management
 
-#### §3.1 Capability badges & richer model card — **M** (needs X3)
+#### ✅ §3.1 Capability badges & richer model card — **M** (needs X3)
 * `Gguf.cs` already parses KV metadata: add architecture, parameter count, context length, expert count, embedding length,
   license (`general.license`), languages, base model; chat-template feature scan (`tools`, `enable_thinking`).
 * `HuggingFace.cs`: `GET /api/models/{id}` → card data (`cardData`, `tags`, `license`, `downloads`, `likes`, `lastModified`)
@@ -315,6 +315,8 @@ Deviations: no `Poll` option and no `llama_numa_init` (LLamaSharp does not expos
 * UI: badge row (👁 vision · 🔧 tools · 🧠 reasoning · ⚙ MoE · 📐 embedding) in Discover, My Models, model picker;
   detail drawer with README, files/quants with fit hint, license (warning on non-commercial), architecture table.
 * Tests: capability derivation from fixture metadata dictionaries.
+
+**As built:** `Models/ModelCard.cs`. `GgufInfo` now also reads `general.license`, `general.base_model.0.name`, `general.repo_url` and `general.organization`. `GET /api/models/info?id=` returns the architecture table of a downloaded model (layers, heads, experts, context, vocabulary, licence, base model). `GET /api/models/card?repo=` returns card data and the README of a Hugging Face repository (front matter stripped, cached 24 h under `cache/hf/`, stale copy used when offline, repository ids validated, a 401/403 answers `gated`). `GET /api/models/search` now carries licence and `capabilities` guessed from HF tags and the name (`RemoteCapabilities.FromTags`). `LicenseInfo.Classify` sorts licence ids into open / restricted / noncommercial / unknown and produces a warning for the last two. UI: badge row (👁 vision, 🎧 audio, 🔧 tools, 🧠 reasoning, ⚙ MoE, 📐 embedding, ↕ rerank) in Discover results and My Models, a detail drawer with README, licence warning, base model and, for downloaded models, the architecture table. The README is shown through a small escaping renderer (everything HTML-escaped first, links only for http/https), so no HTML from a README reaches the page. Deviations: badges in the chat model picker were not added; the remote badges are tag-based guesses (flagged by the "unknown" licence / no tags), the downloaded ones come from the real GGUF headers.
 
 #### §3.2 Discover filters, sorting, pagination, staff picks — **M**
 * `/api/models/search` parameters: `sort (trending|downloads|likes|updated)`, `quant`, `minSize/maxSize`, `family` (HF

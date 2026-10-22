@@ -884,7 +884,42 @@ public partial class ApiServer
             await WriteJson(ctx, Catalog.Entries));
 
         app.MapGet("/api/models/search", async ctx =>
-            await WriteJson(ctx, await HuggingFace.SearchAsync(Q(ctx, "q"), 30, ctx.RequestAborted)));
+            await WriteJson(ctx, (await HuggingFace.SearchAsync(Q(ctx, "q"), 30, ctx.RequestAborted)).Select(m => new
+            {
+                m.Id, m.Downloads, m.Likes, m.LastModified, m.Pipeline,
+                license = m.Tags?.FirstOrDefault(t => t.StartsWith("license:"))?[8..],
+                capabilities = RemoteCapabilities.FromTags(m.Tags, m.Pipeline, m.Id).ToApi(),
+            })));
+
+        // card data + README of a Hugging Face repository (cached 24 h)
+        app.MapGet("/api/models/card", async ctx =>
+        {
+            try
+            {
+                var c = await HuggingFace.GetCardAsync(Q(ctx, "repo"), ctx.RequestAborted, Q(ctx, "refresh") == "1");
+                await WriteJson(ctx, new
+                {
+                    c.Repo, c.License, licenseKind = c.LicenseInfo.Kind, licenseWarning = c.LicenseInfo.Warning, c.Tags, c.Pipeline,
+                    c.Downloads, c.Likes, c.LastModified, c.Gated, c.BaseModel, c.Readme, capabilities = c.Capabilities.ToApi(), fetched = c.FetchedUtc,
+                });
+            }
+            catch (GatedModelException g) { await WriteError(ctx, 403, g.Message, "gated"); }
+        });
+
+        // architecture table of a downloaded model, read from its GGUF header
+        app.MapGet("/api/models/info", async ctx =>
+        {
+            var m = _host.Library.Find(Q(ctx, "id")) ?? throw new FileNotFoundException("Model not found");
+            var g = GgufInfo.Read(m.Path);
+            var lic = LicenseInfo.Classify(g.License);
+            await WriteJson(ctx, new
+            {
+                m.Id, g.Architecture, g.Name, g.SizeLabel, g.Quantization, g.ContextLength, g.EmbeddingLength, g.BlockCount, g.HeadCount, g.HeadCountKv,
+                g.ExpertCount, g.ExpertUsedCount, g.VocabSize, g.SlidingWindow, g.License, licenseKind = lic.Kind, licenseWarning = lic.Warning,
+                g.BaseModel, g.RepoUrl, g.Organization, fileBytes = g.FileLength, capabilities = m.Capabilities.ToApi(),
+                chatTemplate = g.HasChatTemplate,
+            });
+        });
 
         app.MapGet("/api/models/files", async ctx =>
             await WriteJson(ctx, (await HuggingFace.ListFilesAsync(Q(ctx, "repo"), ctx.RequestAborted))
