@@ -30,7 +30,7 @@ public class LocalModel
 /// <summary>Scans the models directory (publisher/repo/file.gguf layout, same as BlahLLMWrapper).</summary>
 public class ModelLibrary
 {
-    private readonly Dictionary<string, (DateTime Stamp, GgufInfo? Info)> _cache = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Stamp, GgufInfo? Info)> _cache = new();     // shared by every request thread
 
     public string Directory => AppSettings.Current.ResolvedModelsDirectory;
 
@@ -270,7 +270,7 @@ public class ModelLibrary
             }
             else File.Delete(m.Path);
             try { File.Delete(ModelSidecar.PathFor(m.Path)); } catch { }
-            _cache.Remove(m.Path);
+            _cache.TryRemove(m.Path, out _);
             return true;
         }
         catch { return false; }

@@ -167,6 +167,7 @@
       <div><label data-i18n="appearance.language">Language</label><select id="ap-lang"><option value="auto" data-i18n="appearance.auto">Automatic (browser language)</option></select></div>
     </div>
     <div class="dim" data-i18n="appearance.note">Messages of the server and the command line stay in English.</div>
+    <div class="row" style="margin-top:8px"><button class="b sec" type="button" onclick="openWizard()" data-i18n="wizard.rerun_button">Run the setup guide again</button></div>
   </div>
   <div class="card" id="hwlive-card"><h2 data-i18n="h.live_load">Live load</h2><div id="hwlive-body" class="dim">Reading…</div></div>
   <div class="card" id="link-card"><h2 data-i18n="h.linked_devices">Linked devices</h2>
@@ -503,6 +504,10 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
   <div class="row" style="margin-top:6px"><button class="b" onclick="presetPreview()" data-i18n="btn.check">Check</button></div>
   <div id="pi-preview" style="margin-top:8px"></div>
 </dialog>
+<dialog id="wizard" style="max-width:640px;width:94vw">
+  <div style="display:flex;justify-content:space-between;align-items:center"><h2 data-i18n="wizard.title">Welcome to LLMHost</h2><span class="dim" id="wizard-steps"></span></div>
+  <div id="wizard-body"></div>
+</dialog>
 <dialog id="shortcut-help" style="max-width:520px;width:92vw"><div style="display:flex;justify-content:space-between"><h3 data-i18n="h.keyboard_shortcuts">Keyboard shortcuts</h3><button class="b sec" onclick="$('shortcut-help').close()">✕</button></div><div id="shortcut-help-body"></div></dialog>
 <dialog id="quickopen" style="max-width:560px;width:92vw;padding:0"><input id="quickopen-input" placeholder="Jump to a chat, load a model, run a command…" data-i18n-placeholder="ph.jump_to_a_chat_load" style="width:100%;box-sizing:border-box;border-radius:0"><div id="quickopen-list"></div></dialog>
 <script src="/ui/marked.js"></script>
@@ -528,7 +533,8 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/help.js"></script>
 <script src="/ui/theme.js"></script>
 <script src="/ui/hardware.js"></script>
+<script src="/ui/onboarding.js"></script>
 <script src="/ui/features.js"></script>
-<script>initI18n();</script>
+<script>initI18n().then(() => maybeOnboard());</script>
 </body>
 </html>

@@ -137,7 +137,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** Finish the desktop shell: tray icon, auto-start, single instance, window state persistence, update notifications (the embedded WebView2 window hosting the UI inside the exe is done)
 - [x] **P2** **User / Power User / Developer** interface modes that progressively reveal advanced options (speculative decoding, per-model configs, server settings, logs)
 - [x] **P2** Color themes (light/dark/system) and interface language selection + localisation
-- [ ] **P2** First-run onboarding: hardware survey, recommended models, choose models folder
+- [x] **P2** First-run onboarding: hardware survey, recommended models, choose models folder
 - [ ] **P2** In-app auto-update and release channels; installer (MSIX/MSI) and self-contained single-file publish
 - [ ] **P2** Notifications on download/load completion
 - [ ] **P3** Accessibility pass, responsive/mobile layout

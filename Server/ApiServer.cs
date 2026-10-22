@@ -1680,6 +1680,45 @@ public partial class ApiServer
         });
 
 
+        // ---- first-run wizard: what it shows (hardware, runtime, folder, recommended models) and when it is done
+        app.MapGet("/api/onboarding", async ctx =>
+        {
+            var hw = Hardware.Detect();
+            var (total, avail) = Hardware.MemoryStatus();
+            var s = RuntimeManager.Survey();
+            var rec = RuntimeManager.List().FirstOrDefault(r => r.Recommended);
+            var folder = _host.Directories.Report().Roots[0];
+            long budget = Onboarding.Budget(hw, avail);
+            bool fresh = _host.Library.List().Count == 0 && _host.Chats.List().Count == 0;
+            await WriteJson(ctx, new
+            {
+                needed = !_host.Settings.OnboardingDone && fresh, done = _host.Settings.OnboardingDone, mode = _host.Settings.UiMode,
+                hardware = new
+                {
+                    cpu = hw.Cpu, logicalCores = hw.LogicalCores, physicalCores = CpuTopology.Detect().PhysicalCores, ramTotalBytes = total, ramAvailableBytes = avail,
+                    gpus = hw.Gpus.Select(g => new { g.Name, g.Vendor, g.Integrated, g.VramBytes, g.UsableBytes }),
+                    cpuFeatures = new { s.Avx, s.Avx2, s.Avx512 }, vulkan = s.Vulkan,
+                    recommendedRuntime = rec == null ? null : new { rec.Id, rec.Name, rec.Kind, rec.Variant, installed = rec.Compatible },
+                    budgetBytes = budget,
+                },
+                folder = new { path = folder.Path, folder.FreeBytes, folder.TotalBytes },
+                recommendations = Onboarding.Recommend(budget, Catalog.Entries).Select(r => new
+                {
+                    r.Slot, key = r.Entry.Key, r.Entry.Name, r.Entry.Repo, quant = r.Entry.RecommendedQuant, r.Entry.Params, r.Entry.Tags, estimatedBytes = r.EstimatedBytes, r.Reason,
+                    fitsFreeSpace = r.EstimatedBytes < folder.FreeBytes,
+                }),
+                hasToken = HuggingFace.HasToken,
+            });
+        });
+        app.MapPost("/api/onboarding/complete", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            string? chosen = body["mode"]?.GetValue<string>(); if (chosen is "user" or "power" or "developer") _host.Settings.UiMode = chosen;
+            _host.Settings.OnboardingDone = true; _host.Settings.Save();
+            await WriteJson(ctx, new { done = true, mode = _host.Settings.UiMode });
+        });
+        app.MapPost("/api/onboarding/reset", async ctx => { _host.Settings.OnboardingDone = false; _host.Settings.Save(); await WriteJson(ctx, new { done = false }); });
+
         // ---- chat folders
         object FolderDto(ChatFolder f) => new { f.Id, f.Name, f.ParentId, f.Order };
         app.MapGet("/api/chat-folders", async ctx => await WriteJson(ctx, _host.ChatFolders.List().Select(FolderDto)));

@@ -19,7 +19,7 @@ public class LocaleTests : IClassFixture<ServerFixture>
         var keys = Regex.Matches(html, @"data-i18n(?:-title|-placeholder)?=""([^""]+)""").Select(m => m.Groups[1].Value).ToHashSet();
         foreach (Match m in Regex.Matches(html, @"<script src=""(/ui/(?!i18n\.js)[a-z0-9_-]+\.js)"""))
             foreach (Match k in Regex.Matches(await _f.Http.GetStringAsync(m.Groups[1].Value), @"\bt\(\s*['""]([a-z0-9_.]+)['""]"))
-                keys.Add(k.Groups[1].Value);
+                if (!k.Groups[1].Value.EndsWith("_")) keys.Add(k.Groups[1].Value);                       // "wizard.slot_" + x is a prefix, not a key
         return keys;
     }
 
@@ -31,12 +31,23 @@ public class LocaleTests : IClassFixture<ServerFixture>
         Assert.True(missing.Count == 0, "keys used but missing in en.json: " + string.Join(", ", missing));
     }
 
+    private async Task<string> Corpus()
+    {
+        string html = await _f.Http.GetStringAsync("/");
+        var sb = new System.Text.StringBuilder(html);
+        foreach (Match m in Regex.Matches(html, @"<script src=""(/ui/(?!i18n\.js)[a-z0-9_-]+\.js)"""))
+            sb.Append(await _f.Http.GetStringAsync(m.Groups[1].Value));
+        return sb.ToString();
+    }
+
     [Fact]
     public async Task NoEnglishKeyIsUnused()
     {
         var en = await Locale("en");
-        var used = await UsedKeys();
-        var unused = en.Select(kv => kv.Key).Where(k => !used.Contains(k)).OrderBy(k => k).ToList();
+        string corpus = await Corpus();
+        // a key is used when it appears as a quoted literal, or when a quoted literal is the start of keys built in code ('wizard.slot_' + x)
+        var prefixes = Regex.Matches(corpus, @"['""]([a-z]+\.[a-z0-9_.]*_)['""]\s*\+").Select(m => m.Groups[1].Value).ToList();
+        var unused = en.Select(kv => kv.Key).Where(k => !corpus.Contains($"'{k}'") && !corpus.Contains($"\"{k}\"") && !prefixes.Any(p => k.StartsWith(p))).OrderBy(k => k).ToList();
         Assert.True(unused.Count == 0, "keys in en.json that nothing uses: " + string.Join(", ", unused));
     }
 
