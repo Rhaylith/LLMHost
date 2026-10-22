@@ -9,6 +9,32 @@ public class UiPageTests : IClassFixture<ServerFixture>
     private readonly ServerFixture _f;
     public UiPageTests(ServerFixture f) => _f = f;
 
+    /// <summary>The page together with every script it loads, as one text (the scripts share one global scope).</summary>
+    private async Task<string> Page()
+    {
+        string html = await _f.Http.GetStringAsync("/");
+        var sb = new System.Text.StringBuilder(html);
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(html, @"<script src=""(/ui/[^""]+)"""))
+            sb.Append('\n').Append(await _f.Http.GetStringAsync(m.Groups[1].Value));
+        return sb.ToString();
+    }
+
+    [Fact]
+    public async Task EveryScriptAndTheStylesheetAreServed()
+    {
+        string html = await _f.Http.GetStringAsync("/");
+        var urls = System.Text.RegularExpressions.Regex.Matches(html, @"(?:src|href)=""(/ui/[^""]+)""").Select(m => m.Groups[1].Value).ToList();
+        Assert.True(urls.Count >= 9);
+        foreach (var u in urls)
+        {
+            var r = await _f.Http.GetAsync(u);
+            Assert.True(r.IsSuccessStatusCode, u);
+            Assert.True((await r.Content.ReadAsStringAsync()).Length > 100, u);
+        }
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await _f.Http.GetAsync("/ui/nothing.js")).StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await _f.Http.GetAsync("/ui/..%2Fapp.css")).StatusCode);
+    }
+
     [Fact]
     public async Task ThePageStartsWithTheDoctypeAndHasItsLoadDialogFields()
     {
@@ -23,7 +49,7 @@ public class UiPageTests : IClassFixture<ServerFixture>
     public async Task EveryHelpTipIsValidJavaScript()
     {
         // a stray apostrophe in one help text breaks the whole script; the tips are written as  'id': {t:'..', r:'..', e:'..'}
-        string html = await _f.Http.GetStringAsync("/");
+        string html = await Page();
         var tips = html.Split('\n').Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"^\s*'[a-z]-[a-z0-9_-]+': \{t:")).ToList();
         Assert.True(tips.Count > 20);
         foreach (var line in tips)
@@ -40,7 +66,7 @@ public class UiPageTests : IClassFixture<ServerFixture>
     [Fact]
     public async Task TheLoadDialogSendsEveryNewOption()
     {
-        string html = await _f.Http.GetStringAsync("/");
+        string html = await Page();
         int start = html.IndexOf("function collectLoad", StringComparison.Ordinal);
         Assert.True(start > 0);
         string body = html[start..Math.Min(html.Length, start + 3000)];

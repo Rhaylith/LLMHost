@@ -148,6 +148,20 @@ public partial class ApiServer
     private void MapUi(WebApplication app)
     {
         string? html = null;
+        // the page's stylesheet and scripts (embedded; plain files, no build step)
+        app.MapGet("/ui/{name}", async ctx =>
+        {
+            string name = (string)ctx.Request.RouteValues["name"]!;
+            bool ok = System.Text.RegularExpressions.Regex.IsMatch(name, @"^[a-z0-9_-]+\.(js|css)$");
+            Stream? s = ok ? Assembly.GetExecutingAssembly().GetManifestResourceStream("ui/" + name) : null;
+            if (s == null) { ctx.Response.StatusCode = 404; return; }
+            using (s)
+            {
+                ctx.Response.ContentType = name.EndsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8";
+                ctx.Response.Headers.CacheControl = "no-cache";
+                await s.CopyToAsync(ctx.Response.Body);
+            }
+        });
         app.MapGet("/", async ctx =>
         {
             html ??= LoadEmbedded("index.html");

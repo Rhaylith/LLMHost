@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management (19 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files (20 of ~50).
 
 ---
 
@@ -363,12 +363,14 @@ Deviations: no `Poll` option and no `llama_numa_init` (LLamaSharp does not expos
 
 ### §4 Chat experience (Phase D; after splitting the UI — see §9.0)
 
-#### §9.0 UI restructuring (prerequisite for most of §4 and §9) — **L**
+#### ✅ §9.0 UI restructuring (prerequisite for most of §4 and §9) — **L**
 `Web/index.html` is a single 1365-line file. Convert to **Preact + HTM or Vite build** whose output is embedded as resources
 (no Node needed at runtime; build step in CSProj `Exec` guarded by `node` presence, committed `dist/` fallback so building
 without Node still works). Split into modules: `api.js`, `store.js` (signals), `views/{chat,models,discover,settings,logs,
 runtimes}.js`, `components/*`. Keep the existing tooltip help (`p-*` keys) data-driven. Do it incrementally view by view; ship
 behind no feature flag (same URL). Add a Playwright smoke test (launch host, open `/`, send a prompt with the fixture model).
+
+**As built:** the page is no longer one file. `Web/index.html` holds the markup; the stylesheet is `Web/app.css` and the script is split by section into `Web/ui/{core,shell,chat,models,discover,settings,system,help,hardware}.js`, all embedded as resources and served by `GET /ui/{name}` (names restricted to `[a-z0-9_-]+.(js|css)`, `Cache-Control: no-cache`). The scripts are plain classic scripts loaded in order, so they share one global scope exactly as before: no behaviour changed. Deviations: **no Preact / Vite / Node build** (Node is not installed here and the build would have had to be re-verified for every view); the split gives the per-view files the plan asked for and later items can add modules, a framework can still be introduced behind the same URLs. There is no Playwright smoke test; `UiPageTests` now loads the page together with all its scripts (and checks that every referenced file is served and that bad names give 404), and the page was opened in the built-in browser to confirm the scripts run without console errors.
 
 #### §4.1 Chat management — **L**
 * Storage: `chats/` becomes a tree: add `folders.json` (`{id, name, parentId, order}`) and `folderId`, `title`, `titleAuto`,

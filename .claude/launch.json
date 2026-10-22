@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "llmhost-ui", "runtimeExecutable": "dotnet", "runtimeArgs": ["run", "--no-build", "--project", "LLMHost.csproj", "--", "serve", "--port", "18234"], "port": 18234 }
+  ]
+}
