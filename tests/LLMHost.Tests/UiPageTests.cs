@@ -18,6 +18,25 @@ public class UiPageTests : IClassFixture<ServerFixture>
             Assert.Contains($"id=\"{id}\"", html);
     }
 
+
+    [Fact]
+    public async Task EveryHelpTipIsValidJavaScript()
+    {
+        // a stray apostrophe in one help text breaks the whole script; the tips are written as  'id': {t:'..', r:'..', e:'..'}
+        string html = await _f.Http.GetStringAsync("/");
+        var tips = html.Split('\n').Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"^\s*'[a-z]-[a-z0-9_-]+': \{t:")).ToList();
+        Assert.True(tips.Count > 20);
+        foreach (var line in tips)
+        {
+            int quotes = 0;
+            for (int i = 0; i < line.Length; i++)
+            {
+                if (line[i] == '\\') { i++; continue; }
+                if (line[i] == '\'') quotes++;
+            }
+            Assert.True(quotes == 8, $"help tip has {quotes} unescaped quotes (expected 8): {line.Trim()[..Math.Min(80, line.Trim().Length)]}");
+        }
+    }
     [Fact]
     public async Task TheLoadDialogSendsEveryNewOption()
     {

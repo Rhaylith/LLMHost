@@ -38,9 +38,9 @@ public partial class ApiServer
             if (body["context_length"] is JsonValue cl && cl.TryGetValue<uint>(out var cv)) opts.ContextSize = cv;
             if (body["flash_attention"] is JsonValue fa && fa.TryGetValue<bool>(out var fv)) opts.FlashAttentionMode = fv ? "on" : "off";
             if (body["eval_batch_size"] is JsonValue eb && eb.TryGetValue<uint>(out var ev)) opts.BatchSize = opts.UBatchSize = ev;
-            if (body["num_experts"] != null) { /* accepted for compatibility; MoE expert count is not configurable yet */ }
-            if (body["gpu"] is JsonValue gv && gv.TryGetValue<string>(out var gs))
-                opts.Device = gs is "off" or "cpu" ? "cpu" : gs is "max" or "all" ? "gpu" : "auto";
+            if (body["num_experts"] is JsonValue ne && ne.TryGetValue<int>(out var nev)) opts.MoeExpertCount = Math.Max(0, nev);
+            if (body["gpu"] is JsonValue gv)
+                opts.SetGpu(gv.TryGetValue<string>(out var gs) ? gs : gv.TryGetValue<double>(out var gd) ? gd.ToString(System.Globalization.CultureInfo.InvariantCulture) : "auto");
             if (body["identifier"]?.GetValue<string>() is { Length: > 0 } ident) opts.Identifier = ident;
             if (body["parallel"] is JsonValue pv && pv.TryGetValue<int>(out var pn)) opts.MaxConcurrent = pn;
             if (body["ttl"] is JsonValue tv && tv.TryGetValue<int>(out var tn)) opts.TtlMinutes = Math.Max(0, tn / 60);

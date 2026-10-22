@@ -836,6 +836,7 @@ public partial class ApiServer
             if (uint.TryParse(Q(ctx, "ctx"), out var c) && c > 0) o.ContextSize = c;
             if (Q(ctx, "device") is { Length: > 0 } dev) o.Device = dev;
             if (Q(ctx, "gpuLayers") is { Length: > 0 } gl) o.GpuLayers = int.TryParse(gl, out var g) ? g : null;
+            if (Q(ctx, "gpuRatio") is { Length: > 0 } gr) o.GpuRatio = float.TryParse(gr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var grv) ? grv : null;
             if (Q(ctx, "kvK") is { Length: > 0 } kk) o.KvCacheTypeK = kk;
             if (Q(ctx, "kvV") is { Length: > 0 } kv) o.KvCacheTypeV = kv;
             if (Q(ctx, "flash") is { Length: > 0 } fl) o.FlashAttentionMode = fl is "1" or "true" or "on" ? "on" : fl is "0" or "false" or "off" ? "off" : "auto";

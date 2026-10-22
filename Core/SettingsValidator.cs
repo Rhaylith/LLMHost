@@ -8,7 +8,7 @@ public static class SettingsValidator
 {
     private static readonly string[] Backends = { "auto", "vulkan", "cpu" };
     private static readonly string[] Guardrails = { "off", "balanced", "strict" };
-    private static readonly string[] Devices = { "cpu", "gpu", "auto" };
+    private static readonly string[] Devices = { "cpu", "gpu", "auto", "max" };
     private static readonly string[] Tri = { "auto", "on", "off" };
     private static readonly string[] SplitModes = { "layer", "row", "none" };
     private static readonly string[] KvTypes = { "f16", "q8_0", "q4_0" };
@@ -67,7 +67,10 @@ public static class SettingsValidator
         Action<string, double, double, double, string> range, Action<string, string?, string[], string> oneOf)
     {
         if (o == null) { e.Add(new(p, "Missing.")); return; }
-        oneOf($"{p}.device", o.Device, Devices, "Device");
+        if (!double.TryParse(o.Device, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var deviceRatio))
+            oneOf($"{p}.device", o.Device, Devices, "Device");
+        else range($"{p}.device", deviceRatio, 0, 1, "GPU ratio");
+        if (o.GpuRatio.HasValue) range($"{p}.gpuRatio", o.GpuRatio.Value, 0, 1, "GPU ratio");
         oneOf($"{p}.flashAttentionMode", o.FlashAttentionMode, Tri, "Flash attention");
         oneOf($"{p}.splitMode", o.SplitMode, SplitModes, "Split mode");
         oneOf($"{p}.kvCacheTypeK", o.KvCacheTypeK, KvTypes, "K cache type");

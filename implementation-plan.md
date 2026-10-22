@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking (11 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio (12 of ~50).
 
 ---
 
@@ -247,12 +247,16 @@ Verified with real models: bge-small-en-v1.5 (BERT, CLS pooling from the file: 3
 
 ### §2 Hardware & runtimes
 
-#### §2.4 GPU offload as ratio — **S**
+#### ✅ §2.4 GPU offload as ratio — **S**
 `LoadOptions.GpuRatio (0–1)` and `Device: "max"|"auto"|<ratio>`; `PlanGpuLayers`
 ([ModelRuntime.cs:89](Inference/ModelRuntime.cs:89)) converts: `max` = all layers, `auto` = VRAM-fit result from
 `FitEstimator`, ratio = `round(ratio × nLayers)`. Accept `--gpu max|auto|0.0–1.0` in CLI `load`, `"gpu"` in
 `/api/v1/models/load`; UI slider with layer-count readout; keep `GpuLayers` as the explicit override (wins when both set).
 Tests for the conversion.
+
+**As built:** `LoadOptions.GpuRatio` (0–1, null = off) next to `GpuLayers`; precedence is exact `GpuLayers` > `GpuRatio` > `Device`. The layer count is worked out from the model itself at load time: `LoadOptions.LayersForRatio` = round(ratio × (blocks + 1)), the output layer counting as one more, 999 (all) at 1 or when rounding reaches the output layer, 0 at 0 (`RequestedGpuLayers` is used by `PlanGpuLayers` and by the memory estimate, so the fit check and the real load agree). `Device` accepts `max` (= `gpu`) and a number written as text (`"0.5"`). One parser for the common notation, `LoadOptions.SetGpu`: `off|cpu`, `max|all`, `auto`, or a ratio — used by CLI `load/fit --gpu max|auto|off|0.5` (it used to compute a fixed layer count in the shell), native `POST /api/v1/models/load {gpu: "max"|"off"|"auto"|0.5}` (string or JSON number) and the estimate endpoint (`gpuRatio=`). Nonsense values (`2`, `most`) are refused with a message. UI: a "share of the layers" checkbox + slider in the load dialog with a readout such as `50% ≈ 17 of 33 layers` (same rounding as the server, using the block count from the live memory estimate), saved with the model defaults. While doing this: native `num_experts` now sets `moeExpertCount` (it was a placeholder).
+Verified: conversion table (rounding, 0, 1, rounding up to "all", unknown layer count), precedence, notation parsing, validation, planner and memory-estimate results for a 32-block model, and a real GPU load of SmolVLM-256M with `GpuRatio = 0.5` that offloads exactly the computed number of layers. `UiPageTests` also gained a guard that every help tip in the page is valid JavaScript (an apostrophe in a tip had just broken the whole script).
+Deviation: the ratio is a share of layers, not of memory — layers differ in size, so 50 % of the layers is not exactly 50 % of the weights.
 
 #### §2.5 Per-backend worker processes (CPU ↔ Vulkan at runtime) — **XL**
 Problem: the native library is loaded once per process ([NativeBackend.cs](Inference/NativeBackend.cs)).

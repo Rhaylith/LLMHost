@@ -32,7 +32,7 @@ Every command also works inside the interactive shell with a leading `/` (`/load
 | Library | `publisher/repo/file.gguf` layout, GGUF metadata inspection (arch, quant, context, embedding detection) |
 | Vision | Image input for multimodal GGUF models: the `mmproj` projector is auto-detected / downloaded, images accepted as OpenAI `image_url` (data URL or http(s)), Anthropic `image` blocks, web UI attach/paste/drop and CLI `/image <file>`; `--no-vision` / `--mmproj` load options |
 | Prompt cache | KV cache is kept between requests; only the part of the prompt that changed is evaluated (`cache_prompt` request field, CLI `/cache on\|off\|clear`, UI checkbox). Reports `cached_tokens` in usage |
-| Execution | **CPU by default**; opt in to GPU (`--gpu`, all layers) or auto (fits as many layers as VRAM allows) per model; explicit layer count; several models loaded at once; idle TTL auto-unload |
+| Execution | **CPU by default**; opt in to GPU (`--gpu`, all layers), auto (fits as many layers as VRAM allows) or a share of the layers (`--gpu 0.5`) per model; explicit layer count; several models loaded at once; idle TTL auto-unload |
 | GPUs (incl. AMD) | Vulkan is the only GPU backend (works on AMD Radeon, and also NVIDIA/Intel); no ROCm/HIP/CUDA install needed. `config backend auto\|vulkan\|cpu` |
 | Parameters | temperature, top-k/p, min-p, typical-p, repeat/frequency/presence penalty, max tokens, seed, stop strings, logit bias, GBNF grammar, JSON mode, JSON-schema constrained output, system prompt; presets |
 | Load options | context length, batch/ubatch, threads, flash attention, mmap/mlock, KV-cache quantization (f16/q8_0/q4_0), RoPE base/scale, main GPU |

@@ -114,11 +114,12 @@ public sealed class ModelRuntime : IDisposable
     public static int PlanGpuLayers(LocalModel model, LoadOptions o, GgufInfo? info)
     {
         if (!NativeBackend.GpuAvailable) return 0;
-        if (o.GpuLayers.HasValue) return Math.Max(0, o.GpuLayers.Value);
+        // an exact layer count or a ratio wins over the device choice
+        if (o.RequestedGpuLayers(info?.BlockCount ?? 0) is { } requested) return requested;
         switch (o.Device.ToLowerInvariant())
         {
             case "cpu": return 0;
-            case "gpu": return 999;
+            case "gpu": case "max": return 999;
         }
         // auto: as many layers as the memory estimate (weights per layer + KV cache + compute buffers) allows
         try

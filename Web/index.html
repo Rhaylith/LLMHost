@@ -380,6 +380,8 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
   <div class="grid2">
     <div><label>Device</label><select id="l-device"><option value="cpu" selected>CPU only (default)</option><option value="auto">GPU: auto (fit to VRAM) - ~1 CPU core busy</option><option value="gpu">GPU: all layers - ~1 CPU core busy</option></select></div>
     <div><label>GPU layers (blank = by device)</label><input type="number" id="l-gpulayers"></div>
+    <div><label><input type="checkbox" id="l-useratio" style="width:auto"> Offload a share of the layers</label>
+      <div class="row"><input type="range" id="l-gpuratio" min="0" max="100" step="1" value="50"><span id="l-ratio-out" class="dim"></span></div></div>
     <div><label>Context length</label><input type="number" id="l-ctx" value="4096"></div>
     <div><label id="l-threads-label">CPU threads (0 = default: 75% of cores)</label><input type="number" id="l-threads" value="0"></div>
     <div><label>Batch size</label><input type="number" id="l-batch" value="512"></div>
@@ -925,6 +927,7 @@ async function refreshModels() {
 function fillLoad(d) {
   $('l-device').value = d.device || 'cpu';
   $('l-gpulayers').value = d.gpuLayers ?? '';
+  $('l-useratio').checked = d.gpuRatio != null; $('l-gpuratio').value = d.gpuRatio != null ? Math.round(d.gpuRatio * 100) : 50; updateRatioText();
   $('l-ctx').value = d.contextSize || 4096;
   $('l-threads').value = d.threads || 0;
   $('l-batch').value = d.batchSize || 512;
@@ -966,7 +969,7 @@ function collectLoad() {
   const ratios = on.map(g => g.ratio);
   return {gpuDevices: on.length ? on.map(g => g.index) : null,
     tensorSplit: on.length > 1 && ratios.every(r => r != null && r > 0) ? ratios : null, splitMode: $('l-splitmode').value,
-    device: $('l-device').value, gpuLayers: gl === '' ? null : Number(gl), contextSize: Number($('l-ctx').value), threads: Number($('l-threads').value),
+    device: $('l-device').value, gpuLayers: gl === '' ? null : Number(gl), gpuRatio: $('l-useratio').checked ? Number($('l-gpuratio').value) / 100 : null,contextSize: Number($('l-ctx').value), threads: Number($('l-threads').value),
     batchSize: Number($('l-batch').value), uBatchSize: Number($('l-batch').value), ttlMinutes: Number($('l-ttl').value), kvCacheTypeK: $('l-kvk').value, kvCacheTypeV: $('l-kvv').value,
     identifier: $('l-id').value || null, mainGpu: Number($('l-main').value), maxConcurrent: Number($('l-conc').value) || 4, draftModel: $('l-draft').value || null, draftTokens: Number($('l-drafttokens').value) || 0, pooling: $('l-pooling').value, embedBatchSize: Number($('l-embbatch').value) || 0, normalize: $('l-normalize').checked, loras: [...document.querySelectorAll('#l-lora-list .lora-row')].filter(r => r.querySelector('input[type=checkbox]').checked).map(r => ({id: r.dataset.id, scale: Number(r.querySelector('input[type=number]').value)})),promptTemplate: collectTemplate(), moeCpuLayers: Number($('l-moecpu').value) || 0, moeExpertCount: Number($('l-moeexp').value) || 0, flashAttentionMode: $('l-flash').value, flashAttention: $('l-flash').value === 'on', useMmap: $('l-mmap').checked, useMlock: $('l-mlock').checked,
     embeddings: $('l-emb').checked, vision: $('l-vision').checked};
@@ -1124,11 +1127,13 @@ async function updateFit() {
   const o = collectLoad();
   const q = new URLSearchParams({id: loadTarget, ctx: o.contextSize, device: o.device, kvK: o.kvCacheTypeK, kvV: o.kvCacheTypeV, flash: o.flashAttentionMode, vision: o.vision});
   if (o.gpuLayers !== null) q.set('gpuLayers', o.gpuLayers);
+  if (o.gpuRatio !== null) q.set('gpuRatio', o.gpuRatio);
   if (o.gpuDevices) q.set('devices', o.gpuDevices.join(','));
   if (o.tensorSplit) q.set('split', o.tensorSplit.join(','));
   q.set('splitMode', o.splitMode);
   try {
     const e = await api('/api/models/estimate?' + q);
+    window._blocks = e.blockCount; updateRatioText();
     const col = e.verdict === 'fits' ? 'var(--ok)' : e.verdict === 'tight' ? '#d29922' : 'var(--acc)';
     const label = {fits: 'Should fit', tight: 'Tight', 'wont-fit': 'Will not fit'}[e.verdict];
     $('l-fit').innerHTML = `<b style="color:${col}">${label}</b> — weights ${fmt(e.weightsBytes)} + KV cache ${fmt(e.kvCacheBytes)} + compute ${fmt(e.computeBytes)}${e.projectorBytes ? ' + vision ' + fmt(e.projectorBytes) : ''}` +
@@ -1139,7 +1144,15 @@ async function updateFit() {
       (e.warnings.length ? '<br><span class="dim">' + e.warnings.map(esc).join('<br>') + '</span>' : '');
   } catch (err) { $('l-fit').innerHTML = `<span class="err">${esc(err.message)}</span>`; }
 }
-['l-device','l-gpulayers','l-ctx','l-kvk','l-kvv','l-flash','l-vision','l-batch'].forEach(id => { $(id).addEventListener('input', scheduleFit); $(id).addEventListener('change', scheduleFit); });
+// "share of the layers" slider: the same rounding as the server (ratio x (blocks + 1), the output layer counts as one more)
+function updateRatioText() {
+  const r = Number($('l-gpuratio').value) / 100, b = window._blocks || 0;
+  const n = Math.round(r * (b + 1));
+  $('l-ratio-out').textContent = Math.round(r * 100) + '%' + (b ? ' ≈ ' + (n >= b + 1 ? 'all' : n) + ' of ' + (b + 1) + ' layers' : '');
+  $('l-gpuratio').disabled = !$('l-useratio').checked;
+}
+$('l-gpuratio').addEventListener('input', updateRatioText); $('l-useratio').addEventListener('change', updateRatioText);
+['l-useratio','l-gpuratio','l-device','l-gpulayers','l-ctx','l-kvk','l-kvv','l-flash','l-vision','l-batch'].forEach(id => { $(id).addEventListener('input', scheduleFit); $(id).addEventListener('change', scheduleFit); });
 async function unload(id) { await api('/api/models/unload', {method:'POST', body:{id}}); refreshModels(); }
 async function del(id) { if (confirm('Delete ' + id + ' from disk?')) { await api('/api/models/local?id=' + encodeURIComponent(id), {method:'DELETE'}).catch(e => alert(e.message)); refreshModels(); } }
 
@@ -1478,6 +1491,7 @@ const TIPS = {
   'p-schema': {t:'A JSON Schema the answer must match exactly (overrides JSON mode).', r:'JSON Schema text', e:'{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}'},
   // load dialog
   'l-device': {t:'Where the model runs: CPU only, GPU with every layer, or GPU with as many layers as fit.', r:'cpu · auto · gpu', e:'gpu for speed when the model fits in VRAM; auto for big models'},
+  'l-gpuratio': {t:'Offload a share of the layers instead of counting them: 50% puts about half of the layers on the GPU. An exact layer count, when given, wins.', r:'0 – 100 %', e:'60% of a 33-layer model = 20 layers'},
   'l-gpulayers': {t:'Exact number of layers placed on the GPU. Blank = decided by Device.', r:'blank or 0 – layer count (999 = all)', e:'20 → 20 layers on the GPU, the rest on the CPU'},
   'l-ctx': {t:'How many tokens (prompt + conversation + answer) the model can keep in view. Bigger costs more memory (KV cache).', r:'512 – the model\'s maximum', e:'4096 chat · 16384+ long documents'},
   'l-threads': {t:'CPU threads used for the CPU part of generation. 0 = automatic (75% of the cores).', r:'0 or 1 – logical cores', e:'On a 192-thread CPU, 16–32 is often faster than all of them.'},

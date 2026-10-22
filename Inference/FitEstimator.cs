@@ -108,7 +108,8 @@ public static class FitEstimator
         var none = new List<GpuInfo>();
         if (!gpuBackend || hw.Gpus.Count == 0) return none;
         if (o.GpuLayers is 0) return none;
-        if (o.GpuLayers is null && o.Device.Equals("cpu", StringComparison.OrdinalIgnoreCase)) return none;
+        if (o.GpuLayers is null && o.TryGetRatio(out var wanted) && wanted <= 0) return none;
+        if (o.GpuLayers is null && !o.TryGetRatio(out _) && o.Device.Equals("cpu", StringComparison.OrdinalIgnoreCase)) return none;
         if (o.GpuDevices is { Count: > 0 })
             return o.GpuDevices.Select(i => hw.Gpus.FirstOrDefault(g => g.Index == i)).Where(g => g != null).Select(g => g!).ToList();
         if (o.SplitMode.Equals("none", StringComparison.OrdinalIgnoreCase))
@@ -242,7 +243,7 @@ public static class FitEstimator
         est.ComputeBytes = compute;
 
         // ---- how many layers go where
-        int requested = gpuLayersOverride ?? (o.GpuLayers ?? (devices.Count == 0 ? 0 : 999));
+        int requested = gpuLayersOverride ?? (o.RequestedGpuLayers(n) ?? (devices.Count == 0 ? 0 : 999));
         if (devices.Count == 0) requested = 0;
         // llama.cpp offloads the LAST k repeating layers; the output layer follows once k exceeds the block count.
         // The token embedding table always stays in system memory (tied models copy it for the output matmul).

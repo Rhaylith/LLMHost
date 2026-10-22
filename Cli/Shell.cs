@@ -729,6 +729,13 @@ public class Shell
 
     // ===================================================================== load / unload
 
+    /// <summary>--gpu [off|max|auto|0.0-1.0] (a bare --gpu means max).</summary>
+    private void ApplyGpuFlag(Args a, LoadOptions o)
+    {
+        if (!a.Flag("gpu")) return;
+        o.SetGpu(a.Value("gpu") ?? "max");
+    }
+
     private async Task<bool> LoadAsync(Args a)
     {
         if (a.Positional.Count == 0) { Ui.Error("usage: load <model> [--cpu|--gpu] [--gpu-layers N] [--ctx N] ..."); return false; }
@@ -836,22 +843,6 @@ public class Shell
     }
 
     /// <summary>--gpu [max|auto|off|0..1]: device choice, or the fraction of layers to offload.</summary>
-    private void ApplyGpuFlag(Args a, LoadOptions o)
-    {
-        if (!a.Flag("gpu")) return;
-        string gv = (a.Value("gpu") ?? "max").ToLowerInvariant();
-        if (gv is "max" or "all" or "1" or "1.0") o.Device = "gpu";
-        else if (gv is "off" or "cpu" or "0") o.Device = "cpu";
-        else if (gv == "auto") o.Device = "auto";
-        else
-        {
-            double ratio = double.Parse(gv, System.Globalization.CultureInfo.InvariantCulture);
-            o.Device = "gpu";
-            var gm = _host.Library.Find(string.Join(' ', a.Positional));
-            int blocks = gm != null ? (int)FitEstimator.ReadModel(gm.Path).Info.BlockCount : 0;
-            o.GpuLayers = blocks > 0 ? (int)Math.Round(ratio * (blocks + 1)) : null;
-        }
-    }
 
     private bool Unload(Args a)
     {

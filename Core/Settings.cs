@@ -48,6 +48,60 @@ public class LoadOptions
     public string Device { get; set; } = "cpu";
     /// <summary>Explicit number of layers on the GPU. null = decided by <see cref="Device"/>.</summary>
     public int? GpuLayers { get; set; }
+    /// <summary>
+    /// Share of the model's layers to put on the GPU, 0 to 1 (1 = all, 0 = none), instead of counting layers. <see cref="GpuLayers"/>
+    /// wins when both are set. The layer count is worked out from the model when it is loaded (the output layer counts as one more).
+    /// </summary>
+    public float? GpuRatio { get; set; }
+
+    /// <summary>
+    /// Applies the common <c>--gpu</c> / <c>gpu</c> notation: "off" or "cpu" (no GPU), "max" or "all" (every layer), "auto" (as many as
+    /// fit), or a ratio such as "0.5" (half of the layers).
+    /// </summary>
+    public void SetGpu(string value)
+    {
+        string v = (value ?? "").Trim().ToLowerInvariant();
+        GpuRatio = null;
+        switch (v)
+        {
+            case "off": case "cpu": case "none": Device = "cpu"; return;
+            case "max": case "all": case "gpu": case "": Device = "gpu"; return;
+            case "auto": Device = "auto"; return;
+        }
+        if (!double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ratio) || ratio < 0 || ratio > 1)
+            throw new ArgumentException($"GPU offload must be off, max, auto or a ratio between 0 and 1 (got '{value}').");
+        Device = ratio >= 1 ? "gpu" : ratio <= 0 ? "cpu" : "gpu";
+        if (ratio is > 0 and < 1) GpuRatio = (float)ratio;
+    }
+
+    /// <summary>The ratio asked for:<see cref="GpuRatio"/>, or a number written in <see cref="Device"/> (for example "0.5").</summary>
+    public bool TryGetRatio(out double ratio)
+    {
+        if (GpuRatio.HasValue) { ratio = GpuRatio.Value; return true; }
+        return double.TryParse(Device, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ratio);
+    }
+
+    /// <summary>Layers on the GPU as asked for by <see cref="GpuLayers"/> or a ratio; null when the choice is left to <see cref="Device"/>.</summary>
+    public int? RequestedGpuLayers(long blockCount)
+    {
+        if (GpuLayers.HasValue) return Math.Max(0, GpuLayers.Value);
+        return TryGetRatio(out var r) ? LayersForRatio(r, blockCount) : null;
+    }
+
+    /// <summary>
+    /// Layers for a ratio of a model with <paramref name="blockCount"/> repeating layers: ratio × (blocks + 1), rounded; everything
+    /// (999) at 1 or when rounding reaches the output layer, 0 at 0. Null when the layer count of the model is unknown.
+    /// </summary>
+    public static int? LayersForRatio(double ratio, long blockCount)
+    {
+        if (double.IsNaN(ratio)) return null;
+        if (ratio >= 1) return 999;
+        if (ratio <= 0) return 0;
+        if (blockCount <= 0) return null;
+        long total = blockCount + 1;
+        long n = (long)Math.Round(ratio * total, MidpointRounding.AwayFromZero);
+        return n >= total ? 999 : (int)n;
+    }
     public int MainGpu { get; set; }
     /// <summary>GPUs to use (indexes as listed by 'hardware'). Null or empty = automatic.</summary>
     public List<int>? GpuDevices { get; set; }

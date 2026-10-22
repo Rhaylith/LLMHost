@@ -58,7 +58,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** Runtime/engine manager (BlahLLMWrapper's Ctrl+Shift+R view): list installed llama.cpp builds (CPU AVX/AVX2/AVX512 and Vulkan only — no ROCm/HIP/CUDA), download/update/select them, show the active one, per-model choice, auto-update, hardware survey for compatibility
 - [x] **P1** Multi-GPU: select devices, tensor-split ratios, split mode, GPU priority order; reliable Vulkan-device ↔ DXGI/WMI adapter mapping
 - [x] **P1** Accurate "will it fit?" estimate (weights + KV cache + compute buffers + MoE, iGPU shared memory) with pre-load warning and the "limit offload to dedicated GPU memory" guardrail
-- [ ] **P2** GPU offload expressed as a ratio (`--gpu max|auto|0.0–1.0` in `lms load`) in addition to a raw layer count
+- [x] **P2** GPU offload expressed as a ratio (`--gpu max|auto|0.0–1.0`, `gpu` in the native API, a slider in the UI) in addition to a raw layer count
 - [ ] **P2** Switch backend (CPU ↔ Vulkan) at runtime by hosting each backend in its own worker process (native lib is process-wide today)
 - [ ] **P2** Live hardware monitor (GPU/CPU utilisation, VRAM/RAM, temperature)
 - [ ] **P2** CPU thread pool settings (`threads`, `threads_batch`, affinity/priority), NUMA
