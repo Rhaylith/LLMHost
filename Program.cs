@@ -16,6 +16,10 @@ public static class Program
         if (args.Length == 0 || (args[0].StartsWith("--") && args[0] is not "--help"))
             return await RunDesktopAsync(shell, args);
 
+        // double-clicking a shared preset (.llmpreset) imports it; the running app sees the new file at once (the presets folder is watched)
+        if (args[0].EndsWith(".llmpreset", StringComparison.OrdinalIgnoreCase) && File.Exists(args[0]))
+            return await shell.RunCommandAsync("preset", new[] { "import", args[0] });
+
         string cmd = args[0].ToLowerInvariant();
         var rest = args.Skip(1).ToArray();
 

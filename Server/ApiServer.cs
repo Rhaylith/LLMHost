@@ -1220,6 +1220,36 @@ public partial class ApiServer
             string saved = _host.Presets.Save((string)ctx.Request.RouteValues["name"]!, g, body["description"]?.GetValue<string>());
             await WriteJson(ctx, new { ok = true, name = saved });
         });
+        // ---- sharing: export as name.preset.json; import from pasted text, a file's text or an https address (preview first, then save)
+        app.MapGet("/api/presets/{name}/export", async ctx =>
+        {
+            var p = _host.Presets.Get((string)ctx.Request.RouteValues["name"]!);
+            if (p == null) { await WriteError(ctx, 404, "Preset not found", "not_found"); return; }
+            ctx.Response.ContentType = "application/json; charset=utf-8";
+            ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{PresetRules.SafeName(p.Name)}.preset.json\"";
+            await ctx.Response.WriteAsync(PresetShare.Export(p));
+        });
+        async Task<(string Text, string? Fallback)> PresetSource(JsonNode body, CancellationToken ct)
+        {
+            if (body["text"]?.GetValue<string>() is { Length: > 0 } text) return (text, null);
+            string url = body["url"]?.GetValue<string>() ?? throw new ArgumentException("Give either 'text' or 'url'.");
+            string fetched = await PresetShare.FetchAsync(url, ct);
+            string file = Path.GetFileName(new Uri(PresetShare.RewriteGitHub(url)).AbsolutePath);
+            return (fetched, System.Text.RegularExpressions.Regex.Replace(file, @"(\.preset)?\.(json|llmpreset)$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+        }
+        app.MapPost("/api/presets/import/preview", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var (text, fb) = await PresetSource(body, ctx.RequestAborted);
+            await WriteJson(ctx, PresetShare.Preview(text, _host.Presets, fb));
+        });
+        app.MapPost("/api/presets/import", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var (text, fb) = await PresetSource(body, ctx.RequestAborted);
+            try { await WriteJson(ctx, new { name = PresetShare.Import(text, _host.Presets, body["name"]?.GetValue<string>(), body["overwrite"]?.GetValue<bool>() ?? false, fb) }); }
+            catch (InvalidOperationException ex) { await WriteError(ctx, 409, ex.Message, "conflict"); }
+        });
         app.MapPost("/api/presets/{name}/duplicate", async ctx =>
         {
             var body = await ReadBody(ctx);

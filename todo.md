@@ -93,7 +93,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 ## 5. Presets
 
 - [x] **P2** Presets as JSON files in a `config-presets`-style folder containing system prompt + all inference params (load params excluded, as in BlahLLMWrapper), with an "unsaved changes / reset to preset" indicator
-- [ ] **P2** Import / export a preset from a file or URL; share by file
+- [x] **P2** Import / export a preset from a file or URL; share by file
 - [ ] **P3** Hub-style publish, pull updates, push new revisions (needs a hosting target — could be a Git repo or simple registry)
 - [ ] **P3** Legacy-preset migration helper (0.2.x format)
 

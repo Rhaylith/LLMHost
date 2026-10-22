@@ -101,6 +101,7 @@
     <h3>Presets</h3>
     <div class="row"><select id="preset-sel"></select><button class="b sec" onclick="loadPreset()">Load</button></div>
     <div class="row" style="margin-top:6px"><input id="preset-name" placeholder="name"><button class="b sec" onclick="savePreset()">Save</button></div>
+    <div class="row" style="margin-top:6px"><button class="b sec" style="flex:1" title="Download the selected preset as a .preset.json file" onclick="exportPreset()">Export</button><button class="b sec" style="flex:1" title="Import a preset from a file, pasted text or a web address" onclick="openPresetImport()">Import…</button><button class="b sec" style="flex:1" title="Copy the selected preset under a new name" onclick="duplicatePreset()">Duplicate</button></div>
     <div id="chat-settings-note" class="dim" style="margin-top:6px"></div>
     <div class="row" style="margin-top:6px"><button class="b sec" id="preset-update" style="flex:1" title="Overwrite the active preset with the values on this panel" onclick="updateActivePreset()">Update preset</button><button class="b sec" id="preset-reset" style="flex:1" title="Back to the values of the active preset" onclick="resetToPreset()">Reset to preset</button></div>
     <div class="row" style="margin-top:6px"><button class="b sec" style="flex:1" title="Use the values of this chat as the defaults of its model" onclick="saveAsModelDefault()">Save as model default</button><button class="b sec" style="flex:1" title="Drop this chat's changes: back to the preset or default it started from" onclick="resetChatSettings()">Reset</button></div>
@@ -448,6 +449,14 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
   </div>
 </dialog>
 
+<dialog id="preset-import" style="max-width:560px;width:92vw">
+  <div style="display:flex;justify-content:space-between"><h3>Import a preset</h3><button class="b sec" onclick="$('preset-import').close()">✕</button></div>
+  <div class="dim">Paste the JSON, pick a <code>.preset.json</code> / <code>.llmpreset</code> file (or drop it on this window), or give an https address (GitHub file links work).</div>
+  <textarea id="pi-text" rows="5" placeholder="{ &quot;name&quot;: &quot;…&quot;, &quot;inference&quot;: { … } }" style="margin-top:6px"></textarea>
+  <div class="row" style="margin-top:6px"><input id="pi-url" placeholder="https://…/my.preset.json"><input type="file" id="pi-file" accept=".json,.llmpreset,application/json"></div>
+  <div class="row" style="margin-top:6px"><button class="b" onclick="presetPreview()">Check</button></div>
+  <div id="pi-preview" style="margin-top:8px"></div>
+</dialog>
 <dialog id="shortcut-help" style="max-width:520px;width:92vw"><div style="display:flex;justify-content:space-between"><h3>Keyboard shortcuts</h3><button class="b sec" onclick="$('shortcut-help').close()">✕</button></div><div id="shortcut-help-body"></div></dialog>
 <dialog id="quickopen" style="max-width:560px;width:92vw;padding:0"><input id="quickopen-input" placeholder="Jump to a chat, load a model, run a command…" style="width:100%;box-sizing:border-box;border-radius:0"><div id="quickopen-list"></div></dialog>
 <script src="/ui/marked.js"></script>
@@ -460,6 +469,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/render.js"></script>
 <script src="/ui/chats.js"></script>
 <script src="/ui/chatsettings.js"></script>
+<script src="/ui/presetshare.js"></script>
 <script src="/ui/panes.js"></script>
 <script src="/ui/shortcuts.js"></script>
 <script src="/ui/models.js"></script>

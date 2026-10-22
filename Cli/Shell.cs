@@ -998,6 +998,26 @@ public class Shell
                 else { File.WriteAllText(target, json); Ui.Info($"Wrote {target}."); }
                 return true;
             }
+            case "import" when name != null:
+            {
+                // a file, or an https address (GitHub blob links work); shows what it sets, then saves unless the name is taken
+                string text = name.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? PresetShare.FetchAsync(name).GetAwaiter().GetResult() : File.ReadAllText(name);
+                string fallback = System.Text.RegularExpressions.Regex.Replace(Path.GetFileName(name), @"(\.preset)?\.(json|llmpreset)$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var pv = PresetShare.Preview(text, _host.Presets, fallback);
+                Ui.Info($"Preset '{pv.Name}'{(pv.Description != null ? " - " + pv.Description : "")}");
+                foreach (var kv in pv.Fields) Ui.Info(Ui.Dim($"  {kv.Key} = {kv.Value}"));
+                if (pv.SystemPrompt != null) Ui.Info(Ui.Dim($"  system prompt: {pv.SystemPrompt}"));
+                foreach (var d in pv.Dropped) Ui.Info(Ui.Yellow($"  ignored (load setting): {d}"));
+                foreach (var u in pv.Unknown) Ui.Info(Ui.Yellow($"  ignored (unknown): {u}"));
+                bool overwrite = a.Flag("overwrite");
+                if (pv.Exists && !overwrite && a.Value("name") == null) { Ui.Error($"'{pv.Name}' already exists. Use --overwrite, or --name {pv.SuggestedName}."); return false; }
+                Ui.Info($"Saved preset '{PresetShare.Import(text, _host.Presets, a.Value("name"), overwrite, fallback)}'."); return true;
+            }
+            case "associate":
+                PresetShare.RegisterFileType(Environment.ProcessPath ?? throw new InvalidOperationException("Cannot find the program path."));
+                Ui.Info(".llmpreset files now open with LLMHost (current user)."); return true;
+            case "unassociate":
+                PresetShare.UnregisterFileType(); Ui.Info("Removed the .llmpreset association."); return true;
             case "duplicate" when name != null:
                 Ui.Info($"Created preset '{_host.Presets.Duplicate(name, a.Positional.Skip(2).FirstOrDefault())}'."); return true;
             default:
@@ -1673,7 +1693,7 @@ public class Args
     public List<string> Positional { get; } = new();
     private readonly Dictionary<string, string?> _opts = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> Booleans = new(StringComparer.OrdinalIgnoreCase)
-        { "cpu", "cpu-moe", "another", "no-normalize", "no-flash", "no-mmap", "mlock", "embeddings", "bg", "y", "lan", "no-vision", "no-mmproj", "move", "link", "copy", "skip-fit-check", "force", "daemon", "service", "json", "all", "follow", "f", "local" };
+        { "cpu", "cpu-moe", "another", "no-normalize", "no-flash", "no-mmap", "mlock", "embeddings", "bg", "y", "lan", "no-vision", "no-mmproj", "move", "link", "copy", "skip-fit-check", "force", "daemon", "service", "json", "all", "follow", "f", "local", "overwrite" };
 
     public Args(string[] args)
     {
