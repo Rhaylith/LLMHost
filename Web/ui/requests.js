@@ -5,7 +5,7 @@ async function loadRequests() {
   for (const [id, k] of [['rq-model', 'model'], ['rq-status', 'status'], ['rq-q', 'q']]) if ($(id).value.trim()) p.set(k, $(id).value.trim());
   try {
     const r = await api('/api/requests?' + p.toString());
-    $('rq-info').textContent = `${r.requests.length} shown of ${r.total} kept` + (r.bodiesLogged ? ' · bodies are logged' : '');
+    $('rq-info').textContent = t("requests.shown", {n: r.requests.length, total: r.total}) + (r.bodiesLogged ? ' · bodies are logged' : '');
     $('rq-list').innerHTML = '<table><tr><th>Time</th><th>Status</th><th>Request</th><th>Model</th><th>Who</th><th>ms</th><th>In</th><th>Out</th></tr>' + r.requests.map(e =>
       `<tr class="rq" data-id="${esc(e.id)}"><td>${esc(new Date(e.time).toLocaleTimeString())}</td><td class="${e.status >= 400 ? 'err' : 'ok'}">${e.status}</td><td>${esc(e.method)} ${esc(e.path)}${e.stream ? ' <span class="tag">stream</span>' : ''}</td><td>${esc(e.model || '')}</td><td>${esc(e.token || '')}</td><td>${Math.round(e.durationMs)}</td><td>${e.inputTokens || ''}</td><td>${e.outputTokens || ''}</td></tr>`).join('') + '</table>';
     $('rq-list').querySelectorAll('.rq').forEach(tr => tr.onclick = () => showRequest(tr.dataset.id));

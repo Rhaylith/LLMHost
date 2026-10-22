@@ -198,6 +198,30 @@ public sealed class MainWindow : Form
 
     // ------------------------------------------------------------------ web view
 
+    // ---- theme: the page draws itself, the window frame and the browser's own parts (scroll bars, form controls) follow too
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    private void OnSettingsSaved() { try { BeginInvoke(ApplyTheme); } catch { } }
+
+    private static bool SystemUsesDark()
+    {
+        try { return Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1) is int v && v == 0; }
+        catch { return false; }
+    }
+
+    private void ApplyTheme()
+    {
+        string theme = AppSettings.Current.UiTheme;
+        bool dark = theme == "dark" || (theme == "system" && SystemUsesDark());
+        try
+        {
+            _web.CoreWebView2.Profile.PreferredColorScheme = theme == "dark" ? CoreWebView2PreferredColorScheme.Dark
+                : theme == "light" ? CoreWebView2PreferredColorScheme.Light : CoreWebView2PreferredColorScheme.Auto;
+        }
+        catch { }
+        try { int v = dark ? 1 : 0; DwmSetWindowAttribute(Handle, 20, ref v, 4); } catch { }     // immersive dark title bar
+    }
+
     private async Task InitializeAsync()
     {
         try
@@ -210,6 +234,8 @@ public sealed class MainWindow : Form
             core.Settings.IsZoomControlEnabled = true;
             // the page binds its own shortcuts (Ctrl+N, Ctrl+P, Ctrl+K ...): the browser must not claim them first
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            ApplyTheme();
+            AppSettings.Saved += OnSettingsSaved;
 
             // keep every navigation inside this window, never spawn an external browser window
             core.NewWindowRequested += (_, e) =>

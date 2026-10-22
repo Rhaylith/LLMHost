@@ -51,6 +51,9 @@ public static class SettingsValidator
             if (t.Mode == "file" && string.IsNullOrWhiteSpace(t.CertPath)) e.Add(new("network.tls.certPath", "A certificate file is required in file mode."));
         }
         OneOf("uiMode", s.UiMode, new[] { "user", "power", "developer" }, "Interface mode");
+        OneOf("uiTheme", s.UiTheme, new[] { "light", "dark", "system" }, "Theme");
+        if (!string.IsNullOrWhiteSpace(s.UiAccent) && !System.Text.RegularExpressions.Regex.IsMatch(s.UiAccent, @"^#[0-9a-fA-F]{6}$")) e.Add(new("uiAccent", "The accent colour must look like #1f5fd6."));
+        if (!System.Text.RegularExpressions.Regex.IsMatch(s.UiLanguage ?? "", @"^(auto|[a-z]{2}(-[A-Za-z]{2})?)$")) e.Add(new("uiLanguage", "The language is auto or a code such as en or de."));
         if (s.Jit == null) e.Add(new("jit", "Missing."));
         else { Range("jit.defaultTtlMinutes", s.Jit.DefaultTtlMinutes, 0, 525_600, "Default idle time"); Range("jit.maxLoadedModels", s.Jit.MaxLoadedModels, 0, 64, "Most loaded models"); OneOf("jit.evictOrder", s.Jit.EvictOrder, new[] { "lru", "oldest" }, "Eviction order"); }
         foreach (var (field, message) in LLMHostProject.Core.Shortcuts.Check(s.Shortcuts)) e.Add(new(field, message));

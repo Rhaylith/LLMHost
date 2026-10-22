@@ -40,6 +40,7 @@
     <EmbeddedResource Include="Web\ui\*.js" LogicalName="ui/%(Filename)%(Extension)" />
     <EmbeddedResource Include="Web\vendor\*.js;Web\vendor\*.css" LogicalName="ui/%(Filename)%(Extension)" />
     <EmbeddedResource Include="Models\catalog.json" LogicalName="catalog.json" />
+    <EmbeddedResource Include="Web\locales\*.json" LogicalName="ui/locales/%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

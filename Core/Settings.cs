@@ -357,6 +357,12 @@ public class AppSettings
     public LinkSettings Link { get; set; } = new();
     /// <summary>How much of the web interface is shown: user, power or developer (controls are hidden, never disabled).</summary>
     public string UiMode { get; set; } = "power";
+    /// <summary>light | dark | system (follow Windows).</summary>
+    public string UiTheme { get; set; } = "system";
+    /// <summary>Accent colour as #rrggbb (blank = the theme's own).</summary>
+    public string? UiAccent { get; set; }
+    /// <summary>auto (the browser language) or a language code of the interface (en, de).</summary>
+    public string UiLanguage { get; set; } = "auto";
     /// <summary>Downloads running at the same time; the rest wait in the queue.</summary>
     public int MaxConcurrentDownloads { get; set; } = 2;
     public bool VerboseNativeLog { get; set; }
@@ -464,6 +470,9 @@ public class AppSettings
         }
     }
 
+    /// <summary>Raised after the settings were written (the desktop window follows theme changes).</summary>
+    public static event Action? Saved;
+
     public void Save()
     {
         lock (Gate)
@@ -474,6 +483,7 @@ public class AppSettings
             if (node["huggingFaceToken"] is System.Text.Json.Nodes.JsonValue tv && tv.TryGetValue<string>(out var plain) && !string.IsNullOrEmpty(plain) && !SecretStore.IsProtected(plain))
                 node["huggingFaceToken"] = SecretStore.Protect(plain);               // never written in clear text
             Migrations.WriteAtomic(AppPaths.SettingsFile, node.ToJsonString(Json.Options));
+            try { Saved?.Invoke(); } catch { }
         }
     }
 
@@ -482,6 +492,7 @@ public class AppSettings
         ModelsDirectory = other.ModelsDirectory; ExtraModelsDirectories = other.ExtraModelsDirectories ?? new(); Host = other.Host; Port = other.Port; ApiKey = other.ApiKey; RequireAuth = other.RequireAuth;
         Cors = other.Cors; AnthropicApi = other.AnthropicApi; Backend = other.Backend;
         CatalogUrl = other.CatalogUrl; CheckModelUpdates = other.CheckModelUpdates; AutoTitleChats = other.AutoTitleChats; Shortcuts = other.Shortcuts ?? new(); HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest; Jit = other.Jit ?? new(); Network = other.Network ?? new(); MetricsPublic = other.MetricsPublic; Link = other.Link ?? new(); UiMode = other.UiMode is "user" or "developer" ? other.UiMode : "power";
+        UiTheme = other.UiTheme is "light" or "dark" ? other.UiTheme : "system"; UiAccent = string.IsNullOrWhiteSpace(other.UiAccent) ? null : other.UiAccent.Trim(); UiLanguage = string.IsNullOrWhiteSpace(other.UiLanguage) ? "auto" : other.UiLanguage.Trim().ToLowerInvariant();
         MaxConcurrentDownloads = Math.Clamp(other.MaxConcurrentDownloads, 1, 8);
         LimitToDedicatedGpuMemory = other.LimitToDedicatedGpuMemory;
         Runtime = string.IsNullOrWhiteSpace(other.Runtime) ? "auto" : other.Runtime;

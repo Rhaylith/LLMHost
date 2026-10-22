@@ -9,3 +9,11 @@
 .hljs-meta,.hljs-selector-id,.hljs-selector-class,.hljs-tag{color:#56b6c2}
 .hljs-deletion{color:#e06c75}
 .hljs-emphasis{font-style:italic}.hljs-strong{font-weight:bold}
+/* light theme: darker tones with enough contrast on the light code background */
+:root[data-theme="light"] .hljs-keyword,:root[data-theme="light"] .hljs-selector-tag,:root[data-theme="light"] .hljs-literal,:root[data-theme="light"] .hljs-type,:root[data-theme="light"] .hljs-doctag{color:#7b2a9a}
+:root[data-theme="light"] .hljs-string,:root[data-theme="light"] .hljs-regexp,:root[data-theme="light"] .hljs-addition,:root[data-theme="light"] .hljs-meta .hljs-string{color:#2c6b1f}
+:root[data-theme="light"] .hljs-number,:root[data-theme="light"] .hljs-symbol,:root[data-theme="light"] .hljs-bullet,:root[data-theme="light"] .hljs-variable,:root[data-theme="light"] .hljs-template-variable{color:#9a4a00}
+:root[data-theme="light"] .hljs-title,:root[data-theme="light"] .hljs-section,:root[data-theme="light"] .hljs-function .hljs-title,:root[data-theme="light"] .hljs-name{color:#1450b8}
+:root[data-theme="light"] .hljs-attr,:root[data-theme="light"] .hljs-attribute,:root[data-theme="light"] .hljs-built_in,:root[data-theme="light"] .hljs-class .hljs-title{color:#7a5400}
+:root[data-theme="light"] .hljs-meta,:root[data-theme="light"] .hljs-selector-id,:root[data-theme="light"] .hljs-selector-class,:root[data-theme="light"] .hljs-tag{color:#006b7a}
+:root[data-theme="light"] .hljs-deletion{color:#b81f25}

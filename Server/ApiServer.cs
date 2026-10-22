@@ -264,6 +264,14 @@ public partial class ApiServer
     private void MapUi(WebApplication app)
     {
         string? html = null;
+        // translation files of the page: /ui/locales/<lang>.json (embedded)
+        app.MapGet("/ui/locales/{lang}.json", async ctx =>
+        {
+            string lang = (string)ctx.Request.RouteValues["lang"]!;
+            Stream? s = System.Text.RegularExpressions.Regex.IsMatch(lang, @"^[a-z]{2}(-[A-Za-z]{2})?$") ? Assembly.GetExecutingAssembly().GetManifestResourceStream($"ui/locales/{lang}.json") : null;
+            if (s == null) { ctx.Response.StatusCode = 404; return; }
+            using (s) { ctx.Response.ContentType = "application/json; charset=utf-8"; ctx.Response.Headers.CacheControl = "no-cache"; await s.CopyToAsync(ctx.Response.Body); }
+        });
         // the page's stylesheet and scripts (embedded; plain files, no build step)
         app.MapGet("/ui/{name}", async ctx =>
         {

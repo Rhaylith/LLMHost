@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LLMHost — Local LLM</title>
+<script>try{var t=localStorage.getItem('uiTheme')||'system',d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';var a=localStorage.getItem('uiAccent');if(a){document.documentElement.style.setProperty('--acc2',a);var h=a.replace('#','');var l=(0.2126*parseInt(h.slice(0,2),16)+0.7152*parseInt(h.slice(2,4),16)+0.0722*parseInt(h.slice(4,6),16))/255;document.documentElement.style.setProperty('--on-acc',l>0.6?'#000000':'#ffffff')}}catch(e){}</script>
 <link rel="stylesheet" href="/ui/katex.css">
 <link rel="stylesheet" href="/ui/hljs-theme.css">
 <link rel="stylesheet" href="/ui/app.css">
@@ -11,26 +12,26 @@
 <body>
 <nav>
   <h1>⚡ LLMHost</h1>
-  <button data-tab="chat" class="on">Chat</button>
-  <button data-tab="models">My Models</button>
-  <button data-tab="discover">Discover</button>
-  <button data-tab="settings">Server &amp; Settings</button>
-  <button data-tab="help">Help</button>
-  <button data-tab="requests">Requests</button>
-  <button data-tab="logs">Logs</button>
-  <div id="hwlive" class="dim" style="margin-left:auto;display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer" title="Live load: processor, memory, GPU (click for details)">
+  <button data-tab="chat" class="on" data-i18n="btn.chat">Chat</button>
+  <button data-tab="models" data-i18n="btn.my_models">My Models</button>
+  <button data-tab="discover" data-i18n="btn.discover">Discover</button>
+  <button data-tab="settings" data-i18n="btn.server_settings">Server &amp; Settings</button>
+  <button data-tab="help" data-i18n="btn.help">Help</button>
+  <button data-tab="requests" data-i18n="btn.requests">Requests</button>
+  <button data-tab="logs" data-i18n="btn.logs">Logs</button>
+  <div id="hwlive" class="dim" style="margin-left:auto;display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer" title="Live load: processor, memory, GPU (click for details)" data-i18n-title="tt.live_load_processor_memory_gpu">
     <span id="hwlive-text">…</span><canvas id="hwlive-spark" width="90" height="20"></canvas>
   </div>
   <div id="status">…</div>
-  <label class="dim" style="font-size:12px;padding:0 6px 6px" title="How much of the interface is shown: User = chat and models; Power = adds samplers, presets, per-model settings; Developer = adds server settings, tokens, MCP and logs">Mode <select id="ui-mode" style="width:100%"><option value="user">User</option><option value="power">Power user</option><option value="developer">Developer</option></select></label>
+  <label class="dim" style="font-size:12px;padding:0 6px 6px" title="How much of the interface is shown: User = chat and models; Power = adds samplers, presets, per-model settings; Developer = adds server settings, tokens, MCP and logs">Mode <select id="ui-mode" style="width:100%"><option value="user" data-i18n="opt.user">User</option><option value="power" data-i18n="opt.power_user">Power user</option><option value="developer" data-i18n="opt.developer">Developer</option></select></label>
 </nav>
 <main>
 <!-- ======================== CHAT ======================== -->
 <section id="chat" class="on">
   <div id="chats">
-    <div class="row"><button class="b" style="flex:1" onclick="newChat()">+ New chat</button><button class="b sec" title="New folder" onclick="newFolder()">📁</button><button class="b sec" title="Import chats (this app, or a ChatGPT export)" onclick="importChats()">⇪</button><button class="b sec" id="compare-btn" title="Split view: several models or settings side by side, one prompt to all" onclick="toggleCompare()">⫴</button></div>
-    <input id="chat-search" placeholder="Search chats…" style="margin:8px 0">
-    <div id="chat-bulk" class="row" style="display:none;margin-bottom:6px"><span class="dim" style="flex:1"></span><button class="b red" onclick="bulkDelete()">Delete</button><button class="b sec" onclick="clearSelection()">✕</button></div>
+    <div class="row"><button class="b" style="flex:1" onclick="newChat()" data-i18n="btn.new_chat">+ New chat</button><button class="b sec" title="New folder" data-i18n-title="tt.new_folder" onclick="newFolder()">📁</button><button class="b sec" title="Import chats (this app, or a ChatGPT export)" data-i18n-title="tt.import_chats_this_app_or" onclick="importChats()">⇪</button><button class="b sec" id="compare-btn" title="Split view: several models or settings side by side, one prompt to all" data-i18n-title="tt.split_view_several_models_or" onclick="toggleCompare()">⫴</button></div>
+    <input id="chat-search" placeholder="Search chats…" data-i18n-placeholder="ph.search_chats" style="margin:8px 0">
+    <div id="chat-bulk" class="row" style="display:none;margin-bottom:6px"><span class="dim" style="flex:1"></span><button class="b red" onclick="bulkDelete()" data-i18n="btn.delete">Delete</button><button class="b sec" onclick="clearSelection()">✕</button></div>
     <div id="chatlist"></div>
     <input type="file" id="chat-import-file" accept=".json,application/json" hidden>
   </div>
@@ -39,13 +40,13 @@
     <div id="panes-grid"></div>
     <div id="panes-diff"></div>
     <div id="panes-composer">
-      <textarea id="panes-input" rows="2" placeholder="Send one prompt to every pane… (Enter to send, Shift+Enter for newline)"></textarea>
+      <textarea id="panes-input" rows="2" placeholder="Send one prompt to every pane… (Enter to send, Shift+Enter for newline)" data-i18n-placeholder="ph.send_one_prompt_to_every"></textarea>
       <div style="display:flex;flex-direction:column;gap:6px">
         <label class="dim" style="white-space:nowrap"><input type="checkbox" id="panes-all" checked style="width:auto"> send to all</label>
-        <button class="b" id="panes-send" onclick="paneSend()">Send</button>
-        <button class="b red" id="panes-stop" style="display:none" onclick="paneStop()">Stop</button>
-        <button class="b sec" id="add-pane" onclick="addPane()" title="Add a pane (up to 4)">+ pane</button>
-        <button class="b sec" onclick="toggleCompare(false)" title="Back to the normal chat">Close</button>
+        <button class="b" id="panes-send" onclick="paneSend()" data-i18n="btn.send">Send</button>
+        <button class="b red" id="panes-stop" style="display:none" onclick="paneStop()" data-i18n="btn.stop">Stop</button>
+        <button class="b sec" id="add-pane" onclick="addPane()" title="Add a pane (up to 4)" data-i18n-title="tt.add_a_pane_up_to" data-i18n="btn.pane">+ pane</button>
+        <button class="b sec" onclick="toggleCompare(false)" title="Back to the normal chat" data-i18n-title="tt.back_to_the_normal_chat" data-i18n="btn.close">Close</button>
       </div>
     </div>
   </div>
@@ -55,83 +56,83 @@
     <div id="ctxbar" style="display:none"><div class="track"><i></i></div><span class="dim"></span></div>
     <div id="tps" class="dim" style="display:none;max-width:860px;width:100%;margin:0 auto;padding:0 12px;font-size:12px"></div>
     <div id="composer">
-      <textarea id="input" placeholder="Send a message… (Enter to send, Shift+Enter for newline)"></textarea>
+      <textarea id="input" placeholder="Send a message… (Enter to send, Shift+Enter for newline)" data-i18n-placeholder="ph.send_a_message_enter_to"></textarea>
       <div style="display:flex;flex-direction:column;gap:6px">
-        <button class="b sec" id="attach" title="Attach images (vision models) or documents (.pdf .docx .txt .md ...) - or drop them here">📎</button>
+        <button class="b sec" id="attach" title="Attach images (vision models) or documents (.pdf .docx .txt .md ...) - or drop them here" data-i18n-title="tt.attach_images_vision_models_or">📎</button>
         <input type="file" id="file" accept="image/*,.pdf,.docx,.txt,.md,.markdown,.csv,.json,.log,.xml,.html,.yaml,.yml,.py,.cs,.js,.ts,.java,.c,.cpp,.h,.go,.rs,.sql" multiple hidden>
-        <button class="b" id="send">Send</button>
-        <button class="b red" id="stop" style="display:none">Stop</button>
+        <button class="b" id="send" data-i18n="btn.send">Send</button>
+        <button class="b red" id="stop" style="display:none" data-i18n="btn.stop">Stop</button>
       </div>
     </div>
   </div>
   <div id="params">
-    <h2>Parameters</h2>
-    <label>Model</label><select id="p-model"></select>
-    <button class="b sec" style="width:100%;margin-top:6px" onclick="launchClaudeCode($('p-model').value)" title="Opens PowerShell with ANTHROPIC_BASE_URL / ANTHROPIC_MODEL set for this server and starts Claude Code">Open in Claude Code (PowerShell)…</button>
-    <div class="row" style="margin-top:4px"><button class="b sec" style="flex:1" onclick="configureClaudeApp($('p-model').value)" title="Writes the connection settings into a Claude Code settings file so the Claude Code desktop app (and CLI) use this server in that folder">Configure Claude Code app…</button><button class="b sec" onclick="unconfigureClaudeApp()" title="Remove the entries again">Undo</button></div>
-    <label>System prompt</label><textarea id="p-system" rows="4"></textarea>
-    <label>Temperature</label><div class="row"><input type="range" id="p-temperature" min="0" max="2" step="0.05"><span class="v"></span></div>
-    <label>Top P</label><div class="row"><input type="range" id="p-top_p" min="0" max="1" step="0.01"><span class="v"></span></div>
-    <label>Top K</label><div class="row"><input type="range" id="p-top_k" min="0" max="200" step="1"><span class="v"></span></div>
-    <label>Min P</label><div class="row"><input type="range" id="p-min_p" min="0" max="1" step="0.01"><span class="v"></span></div>
-    <label>Repeat penalty</label><div class="row"><input type="range" id="p-repeat_penalty" min="1" max="2" step="0.01"><span class="v"></span></div>
-    <label>Frequency penalty</label><div class="row"><input type="range" id="p-frequency_penalty" min="-2" max="2" step="0.05"><span class="v"></span></div>
-    <label>Presence penalty</label><div class="row"><input type="range" id="p-presence_penalty" min="-2" max="2" step="0.05"><span class="v"></span></div>
+    <h2 data-i18n="h.parameters">Parameters</h2>
+    <label data-i18n="lbl.model">Model</label><select id="p-model"></select>
+    <button class="b sec" style="width:100%;margin-top:6px" onclick="launchClaudeCode($('p-model').value)" title="Opens PowerShell with ANTHROPIC_BASE_URL / ANTHROPIC_MODEL set for this server and starts Claude Code" data-i18n-title="tt.opens_powershell_with_anthropic_base" data-i18n="btn.open_in_claude_code_powershell">Open in Claude Code (PowerShell)…</button>
+    <div class="row" style="margin-top:4px"><button class="b sec" style="flex:1" onclick="configureClaudeApp($('p-model').value)" title="Writes the connection settings into a Claude Code settings file so the Claude Code desktop app (and CLI) use this server in that folder" data-i18n="btn.configure_claude_code_app">Configure Claude Code app…</button><button class="b sec" onclick="unconfigureClaudeApp()" title="Remove the entries again" data-i18n-title="tt.remove_the_entries_again" data-i18n="btn.undo">Undo</button></div>
+    <label data-i18n="lbl.system_prompt">System prompt</label><textarea id="p-system" rows="4"></textarea>
+    <label data-i18n="lbl.temperature">Temperature</label><div class="row"><input type="range" id="p-temperature" min="0" max="2" step="0.05"><span class="v"></span></div>
+    <label data-i18n="lbl.top_p">Top P</label><div class="row"><input type="range" id="p-top_p" min="0" max="1" step="0.01"><span class="v"></span></div>
+    <label data-i18n="lbl.top_k">Top K</label><div class="row"><input type="range" id="p-top_k" min="0" max="200" step="1"><span class="v"></span></div>
+    <label data-i18n="lbl.min_p">Min P</label><div class="row"><input type="range" id="p-min_p" min="0" max="1" step="0.01"><span class="v"></span></div>
+    <label data-i18n="lbl.repeat_penalty">Repeat penalty</label><div class="row"><input type="range" id="p-repeat_penalty" min="1" max="2" step="0.01"><span class="v"></span></div>
+    <label data-i18n="lbl.frequency_penalty">Frequency penalty</label><div class="row"><input type="range" id="p-frequency_penalty" min="-2" max="2" step="0.05"><span class="v"></span></div>
+    <label data-i18n="lbl.presence_penalty">Presence penalty</label><div class="row"><input type="range" id="p-presence_penalty" min="-2" max="2" step="0.05"><span class="v"></span></div>
     <div class="grid2">
-      <div><label>Max tokens (-1 = ∞)</label><input type="number" id="p-max_tokens"></div>
-      <div><label>Seed (blank = random)</label><input type="number" id="p-seed"></div>
+      <div><label data-i18n="lbl.max_tokens_1">Max tokens (-1 = ∞)</label><input type="number" id="p-max_tokens"></div>
+      <div><label data-i18n="lbl.seed_blank_random">Seed (blank = random)</label><input type="number" id="p-seed"></div>
     </div>
-    <label>Stop strings (comma separated)</label><input id="p-stop">
-    <label>Reasoning (thinking models)</label>
-    <select id="p-reasoning"><option value="">model default</option><option value="off">off</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="on">on</option></select>
-    <label title="What happens when the conversation is longer than the context window">When the context is full</label>
-    <select id="p-overflow"><option value="dropOldest">drop the oldest turns (default)</option><option value="truncateMiddle">keep start and end, drop the middle</option><option value="rollingWindow">rolling window (answers can go on)</option><option value="stopAtLimit">stop at the limit</option><option value="error">refuse (error)</option></select>
-    <label title="Tools of the MCP servers configured in Settings"><input type="checkbox" id="p-mcp" style="width:auto"> Use MCP tools</label>
-    <select id="p-mcp-confirm"><option value="ask">Ask before each tool call</option><option value="never">Run tools without asking</option></select>
+    <label data-i18n="lbl.stop_strings_comma_separated">Stop strings (comma separated)</label><input id="p-stop">
+    <label data-i18n="lbl.reasoning_thinking_models">Reasoning (thinking models)</label>
+    <select id="p-reasoning"><option value="" data-i18n="opt.model_default">model default</option><option value="off" data-i18n="opt.off">off</option><option value="low" data-i18n="opt.low">low</option><option value="medium" data-i18n="opt.medium">medium</option><option value="high" data-i18n="opt.high">high</option><option value="on" data-i18n="opt.on">on</option></select>
+    <label title="What happens when the conversation is longer than the context window" data-i18n-title="tt.what_happens_when_the_conversation" data-i18n="lbl.when_the_context_is_full">When the context is full</label>
+    <select id="p-overflow"><option value="dropOldest" data-i18n="opt.drop_the_oldest_turns_default">drop the oldest turns (default)</option><option value="truncateMiddle" data-i18n="opt.keep_start_and_end_drop">keep start and end, drop the middle</option><option value="rollingWindow" data-i18n="opt.rolling_window_answers_can_go">rolling window (answers can go on)</option><option value="stopAtLimit" data-i18n="opt.stop_at_the_limit">stop at the limit</option><option value="error" data-i18n="opt.refuse_error">refuse (error)</option></select>
+    <label title="Tools of the MCP servers configured in Settings" data-i18n-title="tt.tools_of_the_mcp_servers"><input type="checkbox" id="p-mcp" style="width:auto"> Use MCP tools</label>
+    <select id="p-mcp-confirm"><option value="ask" data-i18n="opt.ask_before_each_tool_call">Ask before each tool call</option><option value="never" data-i18n="opt.run_tools_without_asking">Run tools without asking</option></select>
     <label><input type="checkbox" id="p-json" style="width:auto"> JSON mode</label>
-    <label title="Reuse the evaluated prompt prefix between requests (KV cache)"><input type="checkbox" id="p-cache" style="width:auto" checked> Prompt cache</label>
-    <details id="adv-sampling"><summary style="cursor:pointer;margin-top:8px">Advanced sampling</summary>
-      <label>Mirostat</label><select id="p-mirostat"><option value="0">off</option><option value="1">Mirostat v1</option><option value="2">Mirostat v2</option></select>
-      <div class="grid2"><div><label>Mirostat tau</label><input type="number" step="0.1" id="p-mirostat_tau" value="5"></div><div><label>Mirostat eta</label><input type="number" step="0.01" id="p-mirostat_eta" value="0.1"></div></div>
-      <div class="grid2"><div><label>DRY multiplier (0 = off)</label><input type="number" step="0.1" id="p-dry_multiplier" value="0"></div><div><label>DRY base</label><input type="number" step="0.05" id="p-dry_base" value="1.75"></div></div>
-      <label>DRY allowed length</label><input type="number" id="p-dry_allowed_length" value="2">
-      <div class="grid2"><div><label>XTC probability (0 = off)</label><input type="number" step="0.05" id="p-xtc_probability" value="0"></div><div><label>XTC threshold</label><input type="number" step="0.01" id="p-xtc_threshold" value="0.1"></div></div>
-      <label>Top-n sigma (0 = off)</label><input type="number" step="0.1" id="p-top_n_sigma" value="0">
-      <label>Sampler order (comma separated, blank = default)</label><input id="p-samplers" placeholder="penalties,dry,top_n_sigma,top_k,typ_p,top_p,min_p,xtc,temperature">
+    <label title="Reuse the evaluated prompt prefix between requests (KV cache)" data-i18n-title="tt.reuse_the_evaluated_prompt_prefix"><input type="checkbox" id="p-cache" style="width:auto" checked> Prompt cache</label>
+    <details id="adv-sampling"><summary style="cursor:pointer;margin-top:8px" data-i18n="sum.advanced_sampling">Advanced sampling</summary>
+      <label data-i18n="lbl.mirostat">Mirostat</label><select id="p-mirostat"><option value="0" data-i18n="opt.off">off</option><option value="1" data-i18n="opt.mirostat_v1">Mirostat v1</option><option value="2" data-i18n="opt.mirostat_v2">Mirostat v2</option></select>
+      <div class="grid2"><div><label data-i18n="lbl.mirostat_tau">Mirostat tau</label><input type="number" step="0.1" id="p-mirostat_tau" value="5"></div><div><label data-i18n="lbl.mirostat_eta">Mirostat eta</label><input type="number" step="0.01" id="p-mirostat_eta" value="0.1"></div></div>
+      <div class="grid2"><div><label data-i18n="lbl.dry_multiplier_0_off">DRY multiplier (0 = off)</label><input type="number" step="0.1" id="p-dry_multiplier" value="0"></div><div><label data-i18n="lbl.dry_base">DRY base</label><input type="number" step="0.05" id="p-dry_base" value="1.75"></div></div>
+      <label data-i18n="lbl.dry_allowed_length">DRY allowed length</label><input type="number" id="p-dry_allowed_length" value="2">
+      <div class="grid2"><div><label data-i18n="lbl.xtc_probability_0_off">XTC probability (0 = off)</label><input type="number" step="0.05" id="p-xtc_probability" value="0"></div><div><label data-i18n="lbl.xtc_threshold">XTC threshold</label><input type="number" step="0.01" id="p-xtc_threshold" value="0.1"></div></div>
+      <label data-i18n="lbl.top_n_sigma_0_off">Top-n sigma (0 = off)</label><input type="number" step="0.1" id="p-top_n_sigma" value="0">
+      <label data-i18n="lbl.sampler_order_comma_separated_blank">Sampler order (comma separated, blank = default)</label><input id="p-samplers" placeholder="penalties,dry,top_n_sigma,top_k,typ_p,top_p,min_p,xtc,temperature">
     </details>
-    <label>JSON schema (structured output)</label><textarea id="p-schema" rows="3" placeholder='{"type":"object","properties":{...}}'></textarea>
-    <h3>Presets</h3>
-    <div class="row"><select id="preset-sel"></select><button class="b sec" onclick="loadPreset()">Load</button></div>
-    <div class="row" style="margin-top:6px"><input id="preset-name" placeholder="name"><button class="b sec" onclick="savePreset()">Save</button></div>
-    <div class="row" style="margin-top:6px"><button class="b sec" style="flex:1" title="Download the selected preset as a .preset.json file" onclick="exportPreset()">Export</button><button class="b sec" style="flex:1" title="Import a preset from a file, pasted text or a web address" onclick="openPresetImport()">Import…</button><button class="b sec" style="flex:1" title="Copy the selected preset under a new name" onclick="duplicatePreset()">Duplicate</button></div>
+    <label data-i18n="lbl.json_schema_structured_output">JSON schema (structured output)</label><textarea id="p-schema" rows="3" placeholder='{"type":"object","properties":{...}}'></textarea>
+    <h3 data-i18n="h.presets">Presets</h3>
+    <div class="row"><select id="preset-sel"></select><button class="b sec" onclick="loadPreset()" data-i18n="btn.load">Load</button></div>
+    <div class="row" style="margin-top:6px"><input id="preset-name" placeholder="name"><button class="b sec" onclick="savePreset()" data-i18n="btn.save">Save</button></div>
+    <div class="row" style="margin-top:6px"><button class="b sec" style="flex:1" title="Download the selected preset as a .preset.json file" data-i18n-title="tt.download_the_selected_preset_as" onclick="exportPreset()" data-i18n="btn.export">Export</button><button class="b sec" style="flex:1" title="Import a preset from a file, pasted text or a web address" data-i18n-title="tt.import_a_preset_from_a" onclick="openPresetImport()" data-i18n="btn.import">Import…</button><button class="b sec" style="flex:1" title="Copy the selected preset under a new name" data-i18n-title="tt.copy_the_selected_preset_under" onclick="duplicatePreset()" data-i18n="btn.duplicate">Duplicate</button></div>
     <div id="chat-settings-note" class="dim" style="margin-top:6px"></div>
-    <div class="row" style="margin-top:6px"><button class="b sec" id="preset-update" style="flex:1" title="Overwrite the active preset with the values on this panel" onclick="updateActivePreset()">Update preset</button><button class="b sec" id="preset-reset" style="flex:1" title="Back to the values of the active preset" onclick="resetToPreset()">Reset to preset</button></div>
-    <div class="row" style="margin-top:6px"><button class="b sec" style="flex:1" title="Use the values of this chat as the defaults of its model" onclick="saveAsModelDefault()">Save as model default</button><button class="b sec" style="flex:1" title="Drop this chat's changes: back to the preset or default it started from" onclick="resetChatSettings()">Reset</button></div>
+    <div class="row" style="margin-top:6px"><button class="b sec" id="preset-update" style="flex:1" title="Overwrite the active preset with the values on this panel" data-i18n-title="tt.overwrite_the_active_preset_with" onclick="updateActivePreset()" data-i18n="btn.update_preset">Update preset</button><button class="b sec" id="preset-reset" style="flex:1" title="Back to the values of the active preset" data-i18n-title="tt.back_to_the_values_of" onclick="resetToPreset()" data-i18n="btn.reset_to_preset">Reset to preset</button></div>
+    <div class="row" style="margin-top:6px"><button class="b sec" style="flex:1" title="Use the values of this chat as the defaults of its model" data-i18n-title="tt.use_the_values_of_this" onclick="saveAsModelDefault()" data-i18n="btn.save_as_model_default">Save as model default</button><button class="b sec" style="flex:1" title="Drop this chat's changes: back to the preset or default it started from" data-i18n-title="tt.drop_this_chat_s_changes" onclick="resetChatSettings()" data-i18n="btn.reset">Reset</button></div>
   </div>
 </section>
 
 <!-- ======================== MODELS ======================== -->
 <section id="models" class="col">
-  <h2>Downloads</h2>
+  <h2 data-i18n="h.downloads">Downloads</h2>
   <div id="mydownloads" style="margin-bottom:8px"><span class="dim">No downloads</span></div>
-  <h2 style="margin-top:20px">Loaded models</h2>
+  <h2 style="margin-top:20px" data-i18n="h.loaded_models">Loaded models</h2>
   <div id="loaded"></div>
   <h2 style="margin-top:20px">Downloaded models <span class="dim" id="mdir" style="font-size:12px;font-weight:400"></span></h2>
   <div id="local"></div>
-  <h3>Import an existing .gguf file</h3>
+  <h3 data-i18n="h.import_an_existing_gguf_file">Import an existing .gguf file</h3>
   <div class="row"><input id="imp-path" placeholder="C:\path\to\model.gguf (shards and the mmproj next to it come along)">
     <select id="imp-mode" style="width:130px"><option value="copy">copy</option><option value="move">move</option><option value="link">link</option></select>
-    <button class="b" onclick="importModel()">Import</button></div>
-  <div class="row" style="margin-top:6px"><input id="imp-pub" placeholder="publisher (default: local)"><input id="imp-name" placeholder="model folder name (default: from the file)"></div>
+    <button class="b" onclick="importModel()" data-i18n="btn.import_2">Import</button></div>
+  <div class="row" style="margin-top:6px"><input id="imp-pub" placeholder="publisher (default: local)" data-i18n-placeholder="ph.publisher_default_local"><input id="imp-name" placeholder="model folder name (default: from the file)" data-i18n-placeholder="ph.model_folder_name_default_from"></div>
   <div id="imp-msg" class="dim" style="min-height:18px"></div>
 </section>
 
 <!-- ======================== DISCOVER ======================== -->
 <section id="discover" class="col">
-  <h2>Discover models</h2>
-  <div class="row"><input id="q" placeholder="Search Hugging Face for GGUF models (e.g. llama, qwen, mistral)…"><button class="b" onclick="search()">Search</button></div>
+  <h2 data-i18n="h.discover_models">Discover models</h2>
+  <div class="row"><input id="q" placeholder="Search Hugging Face for GGUF models (e.g. llama, qwen, mistral)…" data-i18n-placeholder="ph.search_hugging_face_for_gguf"><button class="b" onclick="search()" data-i18n="btn.search">Search</button></div>
   <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:8px">
-    <label class="dim">Sort <select id="d-sort" onchange="search()"><option value="downloads">most downloaded</option><option value="trending">trending</option><option value="likes">most liked</option><option value="updated">recently updated</option></select></label>
+    <label class="dim">Sort <select id="d-sort" onchange="search()"><option value="downloads" data-i18n="opt.most_downloaded">most downloaded</option><option value="trending" data-i18n="opt.trending">trending</option><option value="likes" data-i18n="opt.most_liked">most liked</option><option value="updated" data-i18n="opt.recently_updated">recently updated</option></select></label>
     <label class="dim">Family <input id="d-family" placeholder="llama, qwen2, gemma3…" style="width:150px"></label>
     <label class="dim"><input type="checkbox" id="d-vision" style="width:auto"> vision</label>
     <label class="dim"><input type="checkbox" id="d-tools" style="width:auto"> tools</label>
@@ -139,103 +140,111 @@
     <span class="dim">File list:</span>
     <label class="dim">Quant <input id="d-quant" placeholder="Q4_K_M" style="width:90px"></label>
     <label class="dim">Max GB <input id="d-maxsize" type="number" min="0" step="1" style="width:70px"></label>
-    <label class="dim">Fits <select id="d-fits"><option value="">any</option><option value="gpu">my GPU</option><option value="ram">my RAM</option></select></label>
+    <label class="dim">Fits <select id="d-fits"><option value="" data-i18n="opt.any">any</option><option value="gpu" data-i18n="opt.my_gpu">my GPU</option><option value="ram" data-i18n="opt.my_ram">my RAM</option></select></label>
   </div>
-  <div class="row" style="margin-top:8px"><input id="dl-input" placeholder="…or paste a Hugging Face link, user/model[:quant], user/model/file.gguf, or a direct .gguf URL"><button class="b" onclick="downloadInput()">Download</button></div>
+  <div class="row" style="margin-top:8px"><input id="dl-input" placeholder="…or paste a Hugging Face link, user/model[:quant], user/model/file.gguf, or a direct .gguf URL" data-i18n-placeholder="ph.or_paste_a_hugging_face"><button class="b" onclick="downloadInput()" data-i18n="btn.download">Download</button></div>
   <div id="dl-msg" class="dim" style="min-height:18px"></div>
   <div id="results"></div>
   <div id="drawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:min(560px,96vw);background:var(--panel);border-left:1px solid var(--panel2);z-index:50;overflow:auto;padding:14px;box-shadow:-6px 0 18px rgba(0,0,0,.35)">
     <button class="b sec" style="float:right" onclick="closeDrawer()">✕</button>
     <div id="drawer-body"></div>
   </div>
-  <h3>Downloads</h3>
+  <h3 data-i18n="h.downloads">Downloads</h3>
   <div id="downloads"><span class="dim">No downloads</span></div>
-  <h3>Curated catalog</h3>
+  <h3 data-i18n="h.curated_catalog">Curated catalog</h3>
   <div id="catalog"></div>
 </section>
 
 <!-- ======================== SETTINGS ======================== -->
 <section id="settings" class="col">
-  <input id="set-search" placeholder="Search all settings (ignores the mode)…" style="max-width:420px;margin-bottom:8px">
-  <h2>Hardware</h2>
+  <input id="set-search" placeholder="Search all settings (ignores the mode)…" data-i18n-placeholder="ph.search_all_settings_ignores_the" style="max-width:420px;margin-bottom:8px">
+  <h2 data-i18n="h.hardware">Hardware</h2>
   <div class="card" id="hw"></div>
-  <div class="card" id="hwlive-card"><h2>Live load</h2><div id="hwlive-body" class="dim">Reading…</div></div>
-  <div class="card" id="link-card"><h2>Linked devices</h2>
+  <div class="card" id="appearance-card"><h2 data-i18n="h.appearance">Appearance</h2>
+    <div class="grid2">
+      <div><label data-i18n="appearance.theme">Theme</label><select id="ap-theme"><option value="system" data-i18n="appearance.system">Follow Windows</option><option value="light" data-i18n="appearance.light">Light</option><option value="dark" data-i18n="appearance.dark">Dark</option></select></div>
+      <div><label data-i18n="appearance.accent">Accent colour</label><div class="row"><input type="color" id="ap-accent" style="width:56px;padding:2px"><button class="b sec" type="button" id="ap-accent-reset" data-i18n="appearance.reset">Default</button></div></div>
+      <div><label data-i18n="appearance.language">Language</label><select id="ap-lang"><option value="auto" data-i18n="appearance.auto">Automatic (browser language)</option></select></div>
+    </div>
+    <div class="dim" data-i18n="appearance.note">Messages of the server and the command line stay in English.</div>
+  </div>
+  <div class="card" id="hwlive-card"><h2 data-i18n="h.live_load">Live load</h2><div id="hwlive-body" class="dim">Reading…</div></div>
+  <div class="card" id="link-card"><h2 data-i18n="h.linked_devices">Linked devices</h2>
     <div class="dim">Use the models of your other computers as if they were here. Your devices must reach each other on a network you already have (a LAN, Tailscale, ZeroTier, WireGuard). Off by default; every device has to be paired with a short code, and each paired device only gets the permissions you give it.</div>
     <div id="link-body" style="margin-top:8px"></div>
   </div>
-  <div class="card" id="net-card"><h2>Network and limits</h2>
+  <div class="card" id="net-card"><h2 data-i18n="h.network_and_limits">Network and limits</h2>
     <div class="dim">Changes to the address list, limits and HTTPS apply after restarting the server (the list and request limits apply at once).</div>
     <div class="grid2">
       <div><label>Allowed networks (one per line: loopback, private, any, 192.168.1.0/24 …; blank = this machine, plus the LAN when it listens on the network)</label><textarea id="n-allow" rows="3"></textarea></div>
-      <div><label>HTTPS</label><select id="n-tls"><option value="off">off</option><option value="selfSigned">self-signed certificate</option><option value="file">certificate file</option></select>
-        <label>HTTPS port</label><input type="number" id="n-tls-port"><label>Certificate file (.pfx or .pem; file mode)</label><input id="n-tls-cert"><label>Private key (.pem) / .pfx password</label><div class="row"><input id="n-tls-key"><input id="n-tls-pass" type="password"></div>
+      <div><label data-i18n="lbl.https">HTTPS</label><select id="n-tls"><option value="off" data-i18n="opt.off">off</option><option value="selfSigned" data-i18n="opt.self_signed_certificate">self-signed certificate</option><option value="file" data-i18n="opt.certificate_file">certificate file</option></select>
+        <label data-i18n="lbl.https_port">HTTPS port</label><input type="number" id="n-tls-port"><label data-i18n="lbl.certificate_file_pfx_or_pem">Certificate file (.pfx or .pem; file mode)</label><input id="n-tls-cert"><label data-i18n="lbl.private_key_pem_pfx_password">Private key (.pem) / .pfx password</label><div class="row"><input id="n-tls-key"><input id="n-tls-pass" type="password"></div>
         <div class="dim">With a self-signed certificate, clients can trust <a href="/api/tls/cert">the public certificate</a>.</div></div>
-      <div><label>Largest request (MB) / upload (MB)</label><div class="row"><input type="number" id="n-body" min="1"><input type="number" id="n-upload" min="1"></div></div>
-      <div><label>Most connections (0 = no limit)</label><input type="number" id="n-conn" min="0"></div>
-      <div><label>Requests per minute per token / per address (0 = no limit)</label><div class="row"><input type="number" id="n-rl-tok" min="0"><input type="number" id="n-rl-ip" min="0"></div></div>
-      <div><label>Caps: most choices (n) / most tokens (0 = no cap)</label><div class="row"><input type="number" id="n-cap-n" min="0"><input type="number" id="n-cap-t" min="0"></div></div>
+      <div><label data-i18n="lbl.largest_request_mb_upload_mb">Largest request (MB) / upload (MB)</label><div class="row"><input type="number" id="n-body" min="1"><input type="number" id="n-upload" min="1"></div></div>
+      <div><label data-i18n="lbl.most_connections_0_no_limit">Most connections (0 = no limit)</label><input type="number" id="n-conn" min="0"></div>
+      <div><label data-i18n="lbl.requests_per_minute_per_token">Requests per minute per token / per address (0 = no limit)</label><div class="row"><input type="number" id="n-rl-tok" min="0"><input type="number" id="n-rl-ip" min="0"></div></div>
+      <div><label data-i18n="lbl.caps_most_choices_n_most">Caps: most choices (n) / most tokens (0 = no cap)</label><div class="row"><input type="number" id="n-cap-n" min="0"><input type="number" id="n-cap-t" min="0"></div></div>
     </div></div>
-  <div class="card" id="jit-card"><h2>Loading on demand</h2>
+  <div class="card" id="jit-card"><h2 data-i18n="h.loading_on_demand">Loading on demand</h2>
     <div class="dim">When a request names a model that is not loaded, it is loaded for that request. Models you load by hand are never unloaded automatically.</div>
     <div class="grid2">
       <div><label><input type="checkbox" id="s-jit" style="width:auto"> Load models when a request names them</label></div>
       <div><label><input type="checkbox" id="s-jit-evict" style="width:auto"> Unload idle on-demand models to make room</label></div>
-      <div><label>Idle time of on-demand models (minutes, 0 = never)</label><input type="number" id="s-jit-ttl" min="0"></div>
-      <div><label>Most models loaded at once (0 = no limit)</label><input type="number" id="s-jit-max" min="0"></div>
-      <div><label>Unload first</label><select id="s-jit-order"><option value="lru">least recently used</option><option value="oldest">loaded longest ago</option></select></div>
+      <div><label data-i18n="lbl.idle_time_of_on_demand">Idle time of on-demand models (minutes, 0 = never)</label><input type="number" id="s-jit-ttl" min="0"></div>
+      <div><label data-i18n="lbl.most_models_loaded_at_once">Most models loaded at once (0 = no limit)</label><input type="number" id="s-jit-max" min="0"></div>
+      <div><label data-i18n="lbl.unload_first">Unload first</label><select id="s-jit-order"><option value="lru" data-i18n="opt.least_recently_used">least recently used</option><option value="oldest" data-i18n="opt.loaded_longest_ago">loaded longest ago</option></select></div>
     </div></div>
-  <div class="card" id="shortcuts-card"><h2>Keyboard shortcuts</h2>
+  <div class="card" id="shortcuts-card"><h2 data-i18n="h.keyboard_shortcuts">Keyboard shortcuts</h2>
     <div class="dim">Press <kbd>?</kbd> anywhere (outside a text box) to see them. Click <b>Change</b>, then press the new keys; a combination another action already uses is refused.</div>
     <div id="shortcut-table"></div></div>
-  <div class="card" id="disk-card"><h2>Model folders and disk</h2>
+  <div class="card" id="disk-card"><h2 data-i18n="h.model_folders_and_disk">Model folders and disk</h2>
     <div id="disk-body" class="dim">Reading…</div>
-    <div class="row" style="margin-top:8px"><input id="dir-add" placeholder="Another folder with models (read like the main one)"><button class="b sec" onclick="dirAdd()">Add folder</button></div>
-    <div class="row" style="margin-top:8px"><input id="dir-to" placeholder="New main folder, e.g. D:\Models">
-      <select id="dir-mode"><option value="move">move the files</option><option value="copy">copy the files</option><option value="switchOnly">only switch (files already there)</option></select>
-      <button class="b" onclick="dirMove()">Apply</button></div>
+    <div class="row" style="margin-top:8px"><input id="dir-add" placeholder="Another folder with models (read like the main one)" data-i18n-placeholder="ph.another_folder_with_models_read"><button class="b sec" onclick="dirAdd()" data-i18n="btn.add_folder">Add folder</button></div>
+    <div class="row" style="margin-top:8px"><input id="dir-to" placeholder="New main folder, e.g. D:\Models" data-i18n-placeholder="ph.new_main_folder_e_g">
+      <select id="dir-mode"><option value="move" data-i18n="opt.move_the_files">move the files</option><option value="copy" data-i18n="opt.copy_the_files">copy the files</option><option value="switchOnly" data-i18n="opt.only_switch_files_already_there">only switch (files already there)</option></select>
+      <button class="b" onclick="dirMove()" data-i18n="btn.apply">Apply</button></div>
     <div id="dir-job" class="dim" style="margin-top:6px"></div>
   </div>
-  <h2>MCP servers</h2>
+  <h2 data-i18n="h.mcp_servers">MCP servers</h2>
   <div class="card" style="max-width:760px">
     <div class="dim" style="margin-bottom:6px">mcp.json (Cursor notation): local servers with command / args / env, remote servers with url / headers.</div>
     <textarea id="mcp-config" rows="8" style="font-family:Consolas,monospace;font-size:12px"></textarea>
-    <div class="row" style="margin-top:6px"><button class="b" onclick="saveMcp()">Save and reconnect</button><button class="b sec" onclick="loadMcp(true)">Connect and list tools</button><span id="mcp-msg" class="dim"></span></div>
+    <div class="row" style="margin-top:6px"><button class="b" onclick="saveMcp()" data-i18n="btn.save_and_reconnect">Save and reconnect</button><button class="b sec" onclick="loadMcp(true)" data-i18n="btn.connect_and_list_tools">Connect and list tools</button><span id="mcp-msg" class="dim"></span></div>
     <div id="mcp-servers" style="margin-top:8px"></div>
   </div>
   <h2 id="runtimes-h">Runtimes <span class="dim" style="font-size:12px;font-weight:400">(Ctrl+Shift+R)</span></h2>
   <div class="card" id="runtimes"></div>
-  <h2>Server &amp; application settings</h2>
+  <h2 data-i18n="h.server_application_settings">Server &amp; application settings</h2>
   <div class="card" style="max-width:640px">
     <div class="grid2">
-      <div><label>Bind host (0.0.0.0 = whole network)</label><input id="s-host"></div>
-      <div><label>Port</label><input type="number" id="s-port"></div>
-      <div><label>API key (blank = none)</label><input id="s-apikey"></div>
-      <div><label>GPU backend</label><select id="s-backend"><option>auto</option><option>vulkan</option><option>cpu</option></select></div>
-      <div><label>Models directory</label><input id="s-modelsdir"></div>
-      <div><label>Hugging Face token (stored encrypted for your Windows account)</label><div class="row"><input id="s-hftoken" type="password"><button class="b sec" type="button" onclick="checkHfToken()">Check</button></div><div id="hf-who" class="dim"></div></div>
-      <div><label>Max concurrent downloads</label><input type="number" id="s-maxdl" min="1" max="8"></div>
-      <div><label>Update feed URL (JSON with version, url, notes; blank = none)</label><input id="s-feed" placeholder="https://example.com/llmhost/latest.json"></div>
-      <div><label>Staff-picks list URL (catalog.json format; blank = built-in list only)</label><input id="s-catalog" placeholder="https://example.com/llmhost/catalog.json"></div>
-      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0" title="Once a day, compares your downloaded models with Hugging Face"><input type="checkbox" id="s-modelupd" style="width:auto"> Check downloaded models for newer versions daily</label><label style="margin:6px 0" title="After the first answer, the loaded model suggests a short title (skipped while it is busy)"><input type="checkbox" id="s-autotitle" style="width:auto"> Name new chats automatically</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-logbodies" style="width:auto"> Keep request and response bodies in the Requests view <span class="dim">(your prompts; redacted, 8 KB each)</span></label><label style="margin:6px 0"><input type="checkbox" id="s-metricspub" style="width:auto"> Serve /metrics without an API token</label><label style="margin:6px 0"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
-      <div><label>Load guardrail (refuse loads that exceed memory)</label><select id="s-guard"><option value="off">off</option><option value="balanced">balanced</option><option value="strict">strict</option></select></div>
-      <div><label>&nbsp;</label><label style="margin:6px 0" title="Integrated GPUs then stop borrowing system RAM"><input type="checkbox" id="s-dedicated" style="width:auto"> Limit offload to dedicated GPU memory</label></div>
-      <div><label>&nbsp;</label><label style="margin:6px 0" title="Open the prompt-template section of the load dialog by default"><input type="checkbox" id="s-showtpl" style="width:auto"> Always show the prompt template when loading</label></div>
+      <div><label data-i18n="lbl.bind_host_0_0_0">Bind host (0.0.0.0 = whole network)</label><input id="s-host"></div>
+      <div><label data-i18n="lbl.port">Port</label><input type="number" id="s-port"></div>
+      <div><label data-i18n="lbl.api_key_blank_none">API key (blank = none)</label><input id="s-apikey"></div>
+      <div><label data-i18n="lbl.gpu_backend">GPU backend</label><select id="s-backend"><option>auto</option><option>vulkan</option><option>cpu</option></select></div>
+      <div><label data-i18n="lbl.models_directory">Models directory</label><input id="s-modelsdir"></div>
+      <div><label data-i18n="lbl.hugging_face_token_stored_encrypted">Hugging Face token (stored encrypted for your Windows account)</label><div class="row"><input id="s-hftoken" type="password"><button class="b sec" type="button" onclick="checkHfToken()" data-i18n="btn.check">Check</button></div><div id="hf-who" class="dim"></div></div>
+      <div><label data-i18n="lbl.max_concurrent_downloads">Max concurrent downloads</label><input type="number" id="s-maxdl" min="1" max="8"></div>
+      <div><label data-i18n="lbl.update_feed_url_json_with">Update feed URL (JSON with version, url, notes; blank = none)</label><input id="s-feed" placeholder="https://example.com/llmhost/latest.json"></div>
+      <div><label data-i18n="lbl.staff_picks_list_url_catalog">Staff-picks list URL (catalog.json format; blank = built-in list only)</label><input id="s-catalog" placeholder="https://example.com/llmhost/catalog.json"></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0" title="Once a day, compares your downloaded models with Hugging Face" data-i18n-title="tt.once_a_day_compares_your"><input type="checkbox" id="s-modelupd" style="width:auto"> Check downloaded models for newer versions daily</label><label style="margin:6px 0" title="After the first answer, the loaded model suggests a short title (skipped while it is busy)" data-i18n-title="tt.after_the_first_answer_the"><input type="checkbox" id="s-autotitle" style="width:auto"> Name new chats automatically</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live" data-i18n-title="tt.claude_code_and_similar_clients"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)" data-i18n-title="tt.writes_the_last_v1_messages"><input type="checkbox" id="s-logbodies" style="width:auto"> Keep request and response bodies in the Requests view <span class="dim">(your prompts; redacted, 8 KB each)</span></label><label style="margin:6px 0"><input type="checkbox" id="s-metricspub" style="width:auto"> Serve /metrics without an API token</label><label style="margin:6px 0"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
+      <div><label data-i18n="lbl.load_guardrail_refuse_loads_that">Load guardrail (refuse loads that exceed memory)</label><select id="s-guard"><option value="off" data-i18n="opt.off">off</option><option value="balanced" data-i18n="opt.balanced">balanced</option><option value="strict" data-i18n="opt.strict">strict</option></select></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0" title="Integrated GPUs then stop borrowing system RAM" data-i18n-title="tt.integrated_gpus_then_stop_borrowing"><input type="checkbox" id="s-dedicated" style="width:auto"> Limit offload to dedicated GPU memory</label></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0" title="Open the prompt-template section of the load dialog by default" data-i18n-title="tt.open_the_prompt_template_section"><input type="checkbox" id="s-showtpl" style="width:auto"> Always show the prompt template when loading</label></div>
       <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-cors" style="width:auto"> CORS</label><label style="margin:6px 0"><input type="checkbox" id="s-anthropic" style="width:auto"> Anthropic-compatible API (/v1/messages)</label><label style="margin:6px 0"><input type="checkbox" id="s-autoload" style="width:auto"> Auto-load model on request</label></div>
     </div>
-    <h3>Default load parameters</h3>
+    <h3 data-i18n="h.default_load_parameters">Default load parameters</h3>
     <div class="grid2" id="s-load"></div>
-    <p><button class="b" onclick="saveSettings()">Save settings</button> <span class="dim" id="s-msg">Host, port, key and backend changes take effect after restarting the app.</span></p>
+    <p><button class="b" onclick="saveSettings()" data-i18n="btn.save_settings">Save settings</button> <span class="dim" id="s-msg">Host, port, key and backend changes take effect after restarting the app.</span></p>
   </div>
-  <h2>API tokens</h2>
+  <h2 data-i18n="h.api_tokens">API tokens</h2>
   <div class="card" style="max-width:760px">
     <label><input type="checkbox" id="s-auth" style="width:auto"> Require an API token for /v1 and /api requests <span class="dim">(save settings to apply; this window keeps working)</span></label>
     <div id="tokens" style="margin-top:8px"></div>
-    <div class="row" style="margin-top:10px"><input id="tk-name" placeholder="token name (e.g. my-laptop)"><button class="b" onclick="createToken()">Create token</button></div>
+    <div class="row" style="margin-top:10px"><input id="tk-name" placeholder="token name (e.g. my-laptop)" data-i18n-placeholder="ph.token_name_e_g_my"><button class="b" onclick="createToken()" data-i18n="btn.create_token">Create token</button></div>
     <div id="tk-perms" class="row" style="flex-wrap:wrap;margin-top:6px"></div>
     <pre class="log" id="tk-secret" style="display:none;margin-top:8px"></pre>
   </div>
-  <h2>API</h2>
+  <h2 data-i18n="h.api">API</h2>
   <div class="card"><pre class="log" id="apiex"></pre></div>
 </section>
 
@@ -377,130 +386,131 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
   </div>
 </section>
 
-<section id="requests" class="col"><h2>Requests</h2>
+<section id="requests" class="col"><h2 data-i18n="btn.requests">Requests</h2>
   <div class="row" style="flex-wrap:wrap;gap:8px">
-    <input id="rq-model" placeholder="model" style="width:140px"><input id="rq-status" placeholder="status (200, 4xx, error)" style="width:150px"><input id="rq-q" placeholder="search" style="width:160px">
+    <input id="rq-model" placeholder="model" style="width:140px"><input id="rq-status" placeholder="status (200, 4xx, error)" data-i18n-placeholder="ph.status_200_4xx_error" style="width:150px"><input id="rq-q" placeholder="search" style="width:160px">
     <label class="dim"><input type="checkbox" id="rq-live" checked style="width:auto"> live</label>
-    <button class="b sec" onclick="loadRequests()">Refresh</button><button class="b sec" onclick="clearRequests()">Clear</button>
+    <button class="b sec" onclick="loadRequests()" data-i18n="btn.refresh">Refresh</button><button class="b sec" onclick="clearRequests()" data-i18n="btn.clear">Clear</button>
     <span class="dim" id="rq-info"></span>
   </div>
   <div id="rq-list" style="overflow:auto;flex:1;margin-top:8px"></div>
 </section>
-<section id="logs" class="col"><h2>Logs</h2><pre class="log" id="logbox" style="flex:1"></pre></section>
+<section id="logs" class="col"><h2 data-i18n="btn.logs">Logs</h2><pre class="log" id="logbox" style="flex:1"></pre></section>
 </main>
 
 <dialog id="toolcalldlg">
-  <h2>Allow tool call?</h2>
+  <h2 data-i18n="h.allow_tool_call">Allow tool call?</h2>
   <div>The model wants to call <b id="tc-name"></b> with:</div>
   <pre class="log" id="tc-args" style="max-height:220px"></pre>
   <div class="row" style="justify-content:flex-end;margin-top:10px">
-    <button class="b sec" id="tc-deny">Deny</button>
-    <button class="b sec" id="tc-always" title="Do not ask again for this tool during this session">Always allow this tool</button>
-    <button class="b" id="tc-allow">Allow once</button>
+    <button class="b sec" id="tc-deny" data-i18n="btn.deny">Deny</button>
+    <button class="b sec" id="tc-always" title="Do not ask again for this tool during this session" data-i18n-title="tt.do_not_ask_again_for" data-i18n="btn.always_allow_this_tool">Always allow this tool</button>
+    <button class="b" id="tc-allow" data-i18n="btn.allow_once">Allow once</button>
   </div>
 </dialog>
 
 <dialog id="loaddlg">
-  <h2 id="loaddlg-title">Load model</h2>
+  <h2 id="loaddlg-title" data-i18n="h.load_model">Load model</h2>
   <div><span id="loadname" class="dim"></span> <span class="tag" id="l-badge"></span></div>
   <div class="grid2">
-    <div><label>Device</label><select id="l-device"><option value="cpu" selected>CPU only (default)</option><option value="auto">GPU: auto (fit to VRAM) - ~1 CPU core busy</option><option value="gpu">GPU: all layers - ~1 CPU core busy</option></select></div>
-    <div><label>GPU layers (blank = by device)</label><input type="number" id="l-gpulayers"></div>
+    <div><label data-i18n="lbl.device">Device</label><select id="l-device"><option value="cpu" selected data-i18n="opt.cpu_only_default">CPU only (default)</option><option value="auto" data-i18n="opt.gpu_auto_fit_to_vram">GPU: auto (fit to VRAM) - ~1 CPU core busy</option><option value="gpu" data-i18n="opt.gpu_all_layers_1_cpu">GPU: all layers - ~1 CPU core busy</option></select></div>
+    <div><label data-i18n="lbl.gpu_layers_blank_by_device">GPU layers (blank = by device)</label><input type="number" id="l-gpulayers"></div>
     <div><label><input type="checkbox" id="l-useratio" style="width:auto"> Offload a share of the layers</label>
       <div class="row"><input type="range" id="l-gpuratio" min="0" max="100" step="1" value="50"><span id="l-ratio-out" class="dim"></span></div></div>
-    <div><label>Context length</label><input type="number" id="l-ctx" value="4096"></div>
-    <div><label id="l-threads-label">CPU threads (0 = default: physical cores)</label><input type="number" id="l-threads" value="0"></div>
-    <div><label>Batch threads (0 = default)</label><input type="number" id="l-bthreads" value="0"></div>
-    <div><label>CPU affinity (blank = any)</label><input type="text" id="l-affinity" placeholder="0-15, node:1, physical"></div>
-    <div><label>Thread priority</label><select id="l-prio"><option value="normal">normal</option><option value="high">high</option><option value="low">low</option></select></div>
-    <div><label>Batch size</label><input type="number" id="l-batch" value="512"></div>
-    <div><label>Idle TTL minutes (0 = never)</label><input type="number" id="l-ttl" value="0"></div>
-    <div><label>K cache type</label><select id="l-kvk"><option>f16</option><option>q8_0</option><option>q4_0</option></select></div>
-    <div><label>V cache type</label><select id="l-kvv"><option>f16</option><option>q8_0</option><option>q4_0</option></select></div>
-    <div><label>Identifier (API name)</label><input id="l-id"></div>
-    <div><label>Main GPU index</label><input type="number" id="l-main" value="0"></div>
-    <div><label>Max concurrent predictions</label><input type="number" id="l-conc" value="4" min="1" max="16"></div>
-    <div><label>Draft model (speculative decoding)</label><select id="l-draft"><option value="">none</option></select></div>
-    <div><label>Draft tokens per step (0 = 6)</label><input type="number" id="l-drafttokens" value="0" min="0" max="64"></div>
+    <div><label data-i18n="lbl.context_length">Context length</label><input type="number" id="l-ctx" value="4096"></div>
+    <div><label id="l-threads-label" data-i18n="lbl.cpu_threads_0_default_physical">CPU threads (0 = default: physical cores)</label><input type="number" id="l-threads" value="0"></div>
+    <div><label data-i18n="lbl.batch_threads_0_default">Batch threads (0 = default)</label><input type="number" id="l-bthreads" value="0"></div>
+    <div><label data-i18n="lbl.cpu_affinity_blank_any">CPU affinity (blank = any)</label><input type="text" id="l-affinity" placeholder="0-15, node:1, physical"></div>
+    <div><label data-i18n="lbl.thread_priority">Thread priority</label><select id="l-prio"><option value="normal" data-i18n="opt.normal">normal</option><option value="high" data-i18n="opt.high">high</option><option value="low" data-i18n="opt.low">low</option></select></div>
+    <div><label data-i18n="lbl.batch_size">Batch size</label><input type="number" id="l-batch" value="512"></div>
+    <div><label data-i18n="lbl.idle_ttl_minutes_0_never">Idle TTL minutes (0 = never)</label><input type="number" id="l-ttl" value="0"></div>
+    <div><label data-i18n="lbl.k_cache_type">K cache type</label><select id="l-kvk"><option>f16</option><option>q8_0</option><option>q4_0</option></select></div>
+    <div><label data-i18n="lbl.v_cache_type">V cache type</label><select id="l-kvv"><option>f16</option><option>q8_0</option><option>q4_0</option></select></div>
+    <div><label data-i18n="lbl.identifier_api_name">Identifier (API name)</label><input id="l-id"></div>
+    <div><label data-i18n="lbl.main_gpu_index">Main GPU index</label><input type="number" id="l-main" value="0"></div>
+    <div><label data-i18n="lbl.max_concurrent_predictions">Max concurrent predictions</label><input type="number" id="l-conc" value="4" min="1" max="16"></div>
+    <div><label data-i18n="lbl.draft_model_speculative_decoding">Draft model (speculative decoding)</label><select id="l-draft"><option value="" data-i18n="opt.none">none</option></select></div>
+    <div><label data-i18n="lbl.draft_tokens_per_step_0">Draft tokens per step (0 = 6)</label><input type="number" id="l-drafttokens" value="0" min="0" max="64"></div>
   </div>
-  <div class="grid2"><div><label>Flash attention</label><select id="l-flash"><option value="auto">auto (recommended)</option><option value="on">on</option><option value="off">off</option></select></div></div>
-  <div id="l-lora" style="display:none"><label>LoRA adapters (fine-tunes applied on top of this model)</label><div id="l-lora-list"></div></div>
+  <div class="grid2"><div><label data-i18n="lbl.flash_attention">Flash attention</label><select id="l-flash"><option value="auto" data-i18n="opt.auto_recommended">auto (recommended)</option><option value="on" data-i18n="opt.on">on</option><option value="off" data-i18n="opt.off">off</option></select></div></div>
+  <div id="l-lora" style="display:none"><label data-i18n="lbl.lora_adapters_fine_tunes_applied">LoRA adapters (fine-tunes applied on top of this model)</label><div id="l-lora-list"></div></div>
   <div id="l-embed" class="grid2" style="display:none">
-    <div><label>Pooling (how token vectors become one)</label><select id="l-pooling"><option value="auto">auto (the model's own)</option><option value="mean">mean</option><option value="cls">cls</option><option value="last">last token</option><option value="rank">rank (reranker score)</option><option value="none">none</option></select></div>
-    <div><label>Tokens per step (0 = context length)</label><input type="number" id="l-embbatch" value="0" min="0"></div>
+    <div><label data-i18n="lbl.pooling_how_token_vectors_become">Pooling (how token vectors become one)</label><select id="l-pooling"><option value="auto" data-i18n="opt.auto_the_model_s_own">auto (the model's own)</option><option value="mean">mean</option><option value="cls">cls</option><option value="last" data-i18n="opt.last_token">last token</option><option value="rank" data-i18n="opt.rank_reranker_score">rank (reranker score)</option><option value="none" data-i18n="opt.none">none</option></select></div>
+    <div><label data-i18n="lbl.tokens_per_step_0_context">Tokens per step (0 = context length)</label><input type="number" id="l-embbatch" value="0" min="0"></div>
     <div><label><input type="checkbox" id="l-normalize" checked style="width:auto"> Normalise vectors to length 1</label></div>
   </div>
   <div id="l-moe" class="grid2" style="display:none">
-    <div><label>Experts in system memory: layers (-1 = all, 0 = off)</label><input type="number" id="l-moecpu" value="0" min="-1"></div>
-    <div><label>Experts used per token (0 = model default)</label><input type="number" id="l-moeexp" value="0" min="0"></div>
+    <div><label data-i18n="lbl.experts_in_system_memory_layers">Experts in system memory: layers (-1 = all, 0 = off)</label><input type="number" id="l-moecpu" value="0" min="-1"></div>
+    <div><label data-i18n="lbl.experts_used_per_token_0">Experts used per token (0 = model default)</label><input type="number" id="l-moeexp" value="0" min="0"></div>
   </div>
-  <details id="l-template" style="margin:8px 0"><summary style="cursor:pointer">Prompt template</summary>
-    <div class="grid2"><div><label>Template</label><select id="l-tpl-mode"><option value="auto">the model's own (auto)</option><option value="jinja">Jinja</option><option value="manual">Manual prefixes / suffixes</option></select></div></div>
+  <details id="l-template" style="margin:8px 0"><summary style="cursor:pointer" data-i18n="sum.prompt_template">Prompt template</summary>
+    <div class="grid2"><div><label data-i18n="lbl.template">Template</label><select id="l-tpl-mode"><option value="auto" data-i18n="opt.the_model_s_own_auto">the model's own (auto)</option><option value="jinja">Jinja</option><option value="manual" data-i18n="opt.manual_prefixes_suffixes">Manual prefixes / suffixes</option></select></div></div>
     <div id="l-tpl-info" class="dim" style="margin:4px 0"></div>
     <div id="l-tpl-jinja" style="display:none">
-      <label>Jinja chat template</label><textarea id="l-tpl-text" rows="8" spellcheck="false" style="font-family:monospace"></textarea>
-      <button class="b sec" id="l-tpl-fetch" type="button">Start from the model's template</button>
+      <label data-i18n="lbl.jinja_chat_template">Jinja chat template</label><textarea id="l-tpl-text" rows="8" spellcheck="false" style="font-family:monospace"></textarea>
+      <button class="b sec" id="l-tpl-fetch" type="button" data-i18n="btn.start_from_the_model_s">Start from the model's template</button>
     </div>
     <div id="l-tpl-manual" style="display:none">
       <div class="dim">Write <code>\n</code> for a line break.</div>
       <div class="grid2">
-        <div><label>System prefix</label><input id="l-tpl-sys-p"></div><div><label>System suffix</label><input id="l-tpl-sys-s"></div>
-        <div><label>User prefix</label><input id="l-tpl-usr-p"></div><div><label>User suffix</label><input id="l-tpl-usr-s"></div>
-        <div><label>Assistant prefix</label><input id="l-tpl-ast-p"></div><div><label>Assistant suffix</label><input id="l-tpl-ast-s"></div>
-        <div><label>Tool prefix</label><input id="l-tpl-tool-p"></div><div><label>Tool suffix</label><input id="l-tpl-tool-s"></div>
-        <div><label>Start of prompt (BOS text, usually empty)</label><input id="l-tpl-bos"></div><div><label>Answer prefix (blank = assistant prefix)</label><input id="l-tpl-gen"></div>
+        <div><label data-i18n="lbl.system_prefix">System prefix</label><input id="l-tpl-sys-p"></div><div><label data-i18n="lbl.system_suffix">System suffix</label><input id="l-tpl-sys-s"></div>
+        <div><label data-i18n="lbl.user_prefix">User prefix</label><input id="l-tpl-usr-p"></div><div><label data-i18n="lbl.user_suffix">User suffix</label><input id="l-tpl-usr-s"></div>
+        <div><label data-i18n="lbl.assistant_prefix">Assistant prefix</label><input id="l-tpl-ast-p"></div><div><label data-i18n="lbl.assistant_suffix">Assistant suffix</label><input id="l-tpl-ast-s"></div>
+        <div><label data-i18n="lbl.tool_prefix">Tool prefix</label><input id="l-tpl-tool-p"></div><div><label data-i18n="lbl.tool_suffix">Tool suffix</label><input id="l-tpl-tool-s"></div>
+        <div><label data-i18n="lbl.start_of_prompt_bos_text">Start of prompt (BOS text, usually empty)</label><input id="l-tpl-bos"></div><div><label data-i18n="lbl.answer_prefix_blank_assistant_prefix">Answer prefix (blank = assistant prefix)</label><input id="l-tpl-gen"></div>
       </div>
-      <label>Stop strings (comma separated)</label><input id="l-tpl-stop">
+      <label data-i18n="lbl.stop_strings_comma_separated">Stop strings (comma separated)</label><input id="l-tpl-stop">
     </div>
-    <button class="b sec" id="l-tpl-preview" type="button" style="margin-top:6px">Preview the prompt</button>
+    <button class="b sec" id="l-tpl-preview" type="button" style="margin-top:6px" data-i18n="btn.preview_the_prompt">Preview the prompt</button>
     <pre id="l-tpl-out" style="display:none;white-space:pre-wrap;max-height:200px;overflow:auto;border:1px solid var(--line,#444);padding:6px;margin-top:6px"></pre>
   </details>
   <label><input type="checkbox" id="l-mmap" checked style="width:auto"> Use mmap</label>
   <label><input type="checkbox" id="l-mlock" style="width:auto"> Keep model in RAM (mlock)</label>
   <label><input type="checkbox" id="l-emb" style="width:auto"> Embedding model</label>
   <label><input type="checkbox" id="l-vision" checked style="width:auto"> Vision: load the multimodal projector (mmproj) if present</label>
-  <details style="margin-top:10px" id="l-gpubox"><summary class="dim">GPUs (devices, priority order, split)</summary>
+  <details style="margin-top:10px" id="l-gpubox"><summary class="dim" data-i18n="sum.gpus_devices_priority_order_split">GPUs (devices, priority order, split)</summary>
     <div class="dim" style="font-size:12px;margin:6px 0">Tick the GPUs to use. The order is the priority: the model stays on the first GPU when it fits there and spills over to the next ones. Ratios are relative shares (blank = automatic).</div>
     <div id="l-gpus"></div>
-    <div class="grid2"><div><label>Split mode</label><select id="l-splitmode"><option value="layer">layer (default)</option><option value="row">row</option><option value="none">single GPU (first ticked)</option></select></div></div>
+    <div class="grid2"><div><label data-i18n="lbl.split_mode">Split mode</label><select id="l-splitmode"><option value="layer" data-i18n="opt.layer_default">layer (default)</option><option value="row">row</option><option value="none" data-i18n="opt.single_gpu_first_ticked">single GPU (first ticked)</option></select></div></div>
   </details>
   <div id="l-fit" class="card" style="margin-top:10px;font-size:12px"></div>
-  <details style="margin-top:10px"><summary class="dim">Inference defaults for this model</summary>
+  <details style="margin-top:10px"><summary class="dim" data-i18n="sum.inference_defaults_for_this_model">Inference defaults for this model</summary>
     <div class="grid2">
-      <div><label>Temperature</label><input type="number" step="0.05" id="g-temperature"></div>
-      <div><label>Top P</label><input type="number" step="0.01" id="g-top_p"></div>
-      <div><label>Top K</label><input type="number" id="g-top_k"></div>
-      <div><label>Min P</label><input type="number" step="0.01" id="g-min_p"></div>
-      <div><label>Repeat penalty</label><input type="number" step="0.01" id="g-repeat"></div>
-      <div><label>Max tokens (-1 = no limit)</label><input type="number" id="g-max"></div>
+      <div><label data-i18n="lbl.temperature">Temperature</label><input type="number" step="0.05" id="g-temperature"></div>
+      <div><label data-i18n="lbl.top_p">Top P</label><input type="number" step="0.01" id="g-top_p"></div>
+      <div><label data-i18n="lbl.top_k">Top K</label><input type="number" id="g-top_k"></div>
+      <div><label data-i18n="lbl.min_p">Min P</label><input type="number" step="0.01" id="g-min_p"></div>
+      <div><label data-i18n="lbl.repeat_penalty">Repeat penalty</label><input type="number" step="0.01" id="g-repeat"></div>
+      <div><label data-i18n="lbl.max_tokens_1_no_limit">Max tokens (-1 = no limit)</label><input type="number" id="g-max"></div>
     </div>
-    <label>System prompt</label><textarea id="g-system" rows="3"></textarea>
+    <label data-i18n="lbl.system_prompt">System prompt</label><textarea id="g-system" rows="3"></textarea>
   </details>
   <div class="row" style="margin-top:14px;justify-content:flex-end;flex-wrap:wrap">
     <span id="l-msg" class="dim" style="flex:1"></span>
-    <button class="b sec" id="l-clear" style="display:none" title="Forget the saved defaults for this model">Reset</button>
-    <button class="b sec" id="l-save" title="Save the load and inference settings as this model's defaults">Save as default</button>
-    <button class="b sec" onclick="document.getElementById('loaddlg').close()">Close</button>
-    <button class="b red" id="l-force" style="display:none" title="Load although the memory estimate says it will not fit">Load anyway</button>
-    <button class="b" id="l-go">Load</button>
+    <button class="b sec" id="l-clear" style="display:none" title="Forget the saved defaults for this model" data-i18n-title="tt.forget_the_saved_defaults_for" data-i18n="btn.reset">Reset</button>
+    <button class="b sec" id="l-save" title="Save the load and inference settings as this model's defaults" data-i18n-title="tt.save_the_load_and_inference" data-i18n="btn.save_as_default">Save as default</button>
+    <button class="b sec" onclick="document.getElementById('loaddlg').close()" data-i18n="btn.close">Close</button>
+    <button class="b red" id="l-force" style="display:none" title="Load although the memory estimate says it will not fit" data-i18n-title="tt.load_although_the_memory_estimate" data-i18n="btn.load_anyway">Load anyway</button>
+    <button class="b" id="l-go" data-i18n="btn.load">Load</button>
   </div>
 </dialog>
 
 <dialog id="preset-import" style="max-width:560px;width:92vw">
-  <div style="display:flex;justify-content:space-between"><h3>Import a preset</h3><button class="b sec" onclick="$('preset-import').close()">✕</button></div>
+  <div style="display:flex;justify-content:space-between"><h3 data-i18n="h.import_a_preset">Import a preset</h3><button class="b sec" onclick="$('preset-import').close()">✕</button></div>
   <div class="dim">Paste the JSON, pick a <code>.preset.json</code> / <code>.llmpreset</code> file (or drop it on this window), or give an https address (GitHub file links work).</div>
   <textarea id="pi-text" rows="5" placeholder="{ &quot;name&quot;: &quot;…&quot;, &quot;inference&quot;: { … } }" style="margin-top:6px"></textarea>
   <div class="row" style="margin-top:6px"><input id="pi-url" placeholder="https://…/my.preset.json"><input type="file" id="pi-file" accept=".json,.llmpreset,application/json"></div>
-  <div class="row" style="margin-top:6px"><button class="b" onclick="presetPreview()">Check</button></div>
+  <div class="row" style="margin-top:6px"><button class="b" onclick="presetPreview()" data-i18n="btn.check">Check</button></div>
   <div id="pi-preview" style="margin-top:8px"></div>
 </dialog>
-<dialog id="shortcut-help" style="max-width:520px;width:92vw"><div style="display:flex;justify-content:space-between"><h3>Keyboard shortcuts</h3><button class="b sec" onclick="$('shortcut-help').close()">✕</button></div><div id="shortcut-help-body"></div></dialog>
-<dialog id="quickopen" style="max-width:560px;width:92vw;padding:0"><input id="quickopen-input" placeholder="Jump to a chat, load a model, run a command…" style="width:100%;box-sizing:border-box;border-radius:0"><div id="quickopen-list"></div></dialog>
+<dialog id="shortcut-help" style="max-width:520px;width:92vw"><div style="display:flex;justify-content:space-between"><h3 data-i18n="h.keyboard_shortcuts">Keyboard shortcuts</h3><button class="b sec" onclick="$('shortcut-help').close()">✕</button></div><div id="shortcut-help-body"></div></dialog>
+<dialog id="quickopen" style="max-width:560px;width:92vw;padding:0"><input id="quickopen-input" placeholder="Jump to a chat, load a model, run a command…" data-i18n-placeholder="ph.jump_to_a_chat_load" style="width:100%;box-sizing:border-box;border-radius:0"><div id="quickopen-list"></div></dialog>
 <script src="/ui/marked.js"></script>
 <script src="/ui/purify.js"></script>
 <script src="/ui/hljs.js"></script>
 <script src="/ui/katex.js"></script>
 <script src="/ui/core.js"></script>
+<script src="/ui/i18n.js"></script>
 <script src="/ui/shell.js"></script>
 <script src="/ui/chat.js"></script>
 <script src="/ui/render.js"></script>
@@ -516,7 +526,9 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/settings.js"></script>
 <script src="/ui/system.js"></script>
 <script src="/ui/help.js"></script>
+<script src="/ui/theme.js"></script>
 <script src="/ui/hardware.js"></script>
 <script src="/ui/features.js"></script>
+<script>initI18n();</script>
 </body>
 </html>

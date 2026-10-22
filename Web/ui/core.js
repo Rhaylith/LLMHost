@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmt = b => { if (!b) return '–'; const u=['B','KB','MB','GB','TB']; let i=0; while (b>=1024&&i<4){b/=1024;i++} return b.toFixed(i>1?2:0)+' '+u[i]; };
+const fmt = b => { if (!b) return '–'; const u=['B','KB','MB','GB','TB']; let i=0; while (b>=1024&&i<4){b/=1024;i++} return (typeof nf === 'function' ? nf(b, i>1?2:0) : b.toFixed(i>1?2:0))+' '+u[i]; };
 let apiKey = localStorage.getItem('apikey') || '';
 // the app window opens the page with a per-process token (?k=...): use it and remove it from the address
 { const k = new URLSearchParams(location.search).get('k'); if (k) { apiKey = k; history.replaceState(null, '', location.pathname); } }

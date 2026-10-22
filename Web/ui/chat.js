@@ -88,7 +88,7 @@ function renderMsgs() {
         <div class="row" style="margin-top:4px">${m.role === 'user' ? `<button class="b" onclick="saveEdit('${m.id}', true)">Save &amp; resubmit</button>` : ''}<button class="b sec" onclick="saveEdit('${m.id}', false)">Save</button><button class="b sec" onclick="cancelEdit()">Cancel</button></div>`;
     } else body = `${m.images?.length ? `<div class="thumbs">${m.images.map(u => `<img src="${u}">`).join('')}</div>` : ''}${renderReasoning(m, i === conv.messages.length - 1)}${m.content || !calls ? `<div class="body ${m.role === 'assistant' ? 'md' : ''}">${m.role === 'assistant' ? renderAnswer(m.content) : md(m.content)}</div>` : ''}${calls}`;
     const src = m.sources?.length ? `<details class="sources"><summary class="dim">Sources (${m.sources.length})</summary>${m.sources.map(s => `<div class="toolcall"><b>[${s.n}]</b> ${esc(s.doc)}${s.chunk ? ' · part ' + s.chunk : ''}<br><span class="dim">${esc(s.preview)}…</span></div>`).join('')}</details>` : '';
-    return `<div class="msg ${m.role}" data-msg="${m.id}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} ${nav}${acts}</div>${body}${src}${msgFooter(m)}</div>`;
+    return `<div class="msg ${m.role}" data-msg="${m.id}"><div class="who">${m.role === 'user' ? t('chat.you') : t('chat.assistant')} ${nav}${acts}</div>${body}${src}${msgFooter(m)}</div>`;
   }).join('');
   $('msgs').scrollTop = $('msgs').scrollHeight;
   if (typeof scheduleCtxBar === 'function') scheduleCtxBar();
