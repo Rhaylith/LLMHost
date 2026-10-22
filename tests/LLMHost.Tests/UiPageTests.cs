@@ -19,6 +19,35 @@ public class UiPageTests : IClassFixture<ServerFixture>
         return sb.ToString();
     }
 
+
+    [Fact]
+    public async Task TheRenderingLibrariesAreServedFromTheApp_NothingComesFromTheInternet()
+    {
+        string html = await _f.Http.GetStringAsync("/");
+        foreach (var tag in System.Text.RegularExpressions.Regex.Matches(html, @"(?:src|href)=""([^""]+)""").Select(m => m.Groups[1].Value))
+            Assert.StartsWith("/ui/", tag);                                           // every script and style sheet is local
+        foreach (var (file, marker) in new[] { ("marked.js", "marked"), ("purify.js", "DOMPurify"), ("hljs.js", "hljs"), ("katex.js", "katex"), ("katex.css", "KaTeX_Main"), ("hljs-theme.css", ".hljs-keyword"), ("render.js", "renderMarkdown") })
+        {
+            string body = await _f.Http.GetStringAsync("/ui/" + file);
+            Assert.Contains(marker, body);
+        }
+        string css = await _f.Http.GetStringAsync("/ui/katex.css");
+        Assert.DoesNotContain("url(fonts/", css);                                     // fonts are inlined, no extra requests
+        Assert.Contains("data:font/woff2;base64,", css);
+    }
+
+    [Fact]
+    public async Task TheRendererEscapesRawHtmlAndOnlyAllowsSafeLinks()
+    {
+        // the renderer itself runs in the browser; these guard the pieces the page relies on
+        string js = await _f.Http.GetStringAsync("/ui/render.js");
+        Assert.Contains("DOMPurify.sanitize", js);
+        Assert.Contains("html(h) { return escapeHtml(", js);                         // raw HTML from a model is shown as text
+        Assert.Contains("rel=\"noopener noreferrer\"", js);
+        Assert.Contains("SAFE_HREF = /^(https?:|mailto:|#)/i", js);
+        Assert.Contains("trust: false", js);                                           // KaTeX: no \href / \includegraphics from model output
+        Assert.Contains("window.renderSelfTest", js);
+    }
     [Fact]
     public async Task EveryScriptAndTheStylesheetAreServed()
     {

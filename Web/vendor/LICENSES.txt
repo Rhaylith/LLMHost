@@ -1,0 +1,9 @@
+Third-party code shipped inside the web UI (embedded as resources; nothing is loaded from the internet):
+
+marked 12.0.2            MIT           https://github.com/markedjs/marked
+DOMPurify 3.1.6          Apache-2.0 / MPL-2.0   https://github.com/cure53/DOMPurify
+highlight.js 11.9.0      BSD-3-Clause  https://github.com/highlightjs/highlight.js   (common languages bundle)
+KaTeX 0.16.11            MIT           https://github.com/KaTeX/KaTeX                 (CSS with the woff2 fonts inlined)
+
+The files are the unmodified minified builds from the projects' npm / CDN releases, except katex.css, whose font references
+were replaced by inline data URIs so that no separate font files are needed.

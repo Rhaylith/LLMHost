@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LLMHost — Local LLM</title>
+<link rel="stylesheet" href="/ui/katex.css">
+<link rel="stylesheet" href="/ui/hljs-theme.css">
 <link rel="stylesheet" href="/ui/app.css">
 </head>
 <body>
@@ -433,9 +435,14 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 
 <dialog id="shortcut-help" style="max-width:520px;width:92vw"><div style="display:flex;justify-content:space-between"><h3>Keyboard shortcuts</h3><button class="b sec" onclick="$('shortcut-help').close()">✕</button></div><div id="shortcut-help-body"></div></dialog>
 <dialog id="quickopen" style="max-width:560px;width:92vw;padding:0"><input id="quickopen-input" placeholder="Jump to a chat, load a model, run a command…" style="width:100%;box-sizing:border-box;border-radius:0"><div id="quickopen-list"></div></dialog>
+<script src="/ui/marked.js"></script>
+<script src="/ui/purify.js"></script>
+<script src="/ui/hljs.js"></script>
+<script src="/ui/katex.js"></script>
 <script src="/ui/core.js"></script>
 <script src="/ui/shell.js"></script>
 <script src="/ui/chat.js"></script>
+<script src="/ui/render.js"></script>
 <script src="/ui/chats.js"></script>
 <script src="/ui/chatsettings.js"></script>
 <script src="/ui/shortcuts.js"></script>

@@ -86,7 +86,7 @@ function renderMsgs() {
     if (editing === m.id) {
       body = `<textarea id="edit-${m.id}" rows="4" style="margin-top:4px">${esc(m.content)}</textarea>
         <div class="row" style="margin-top:4px">${m.role === 'user' ? `<button class="b" onclick="saveEdit('${m.id}', true)">Save &amp; resubmit</button>` : ''}<button class="b sec" onclick="saveEdit('${m.id}', false)">Save</button><button class="b sec" onclick="cancelEdit()">Cancel</button></div>`;
-    } else body = `${m.images?.length ? `<div class="thumbs">${m.images.map(u => `<img src="${u}">`).join('')}</div>` : ''}${m.reasoning ? `<div class="think">${esc(m.reasoning)}</div>` : ''}${m.content || !calls ? `<div class="body">${md(m.content)}</div>` : ''}${calls}`;
+    } else body = `${m.images?.length ? `<div class="thumbs">${m.images.map(u => `<img src="${u}">`).join('')}</div>` : ''}${renderReasoning(m, i === conv.messages.length - 1)}${m.content || !calls ? `<div class="body ${m.role === 'assistant' ? 'md' : ''}">${m.role === 'assistant' ? renderAnswer(m.content) : md(m.content)}</div>` : ''}${calls}`;
     const src = m.sources?.length ? `<details class="sources"><summary class="dim">Sources (${m.sources.length})</summary>${m.sources.map(s => `<div class="toolcall"><b>[${s.n}]</b> ${esc(s.doc)}${s.chunk ? ' · part ' + s.chunk : ''}<br><span class="dim">${esc(s.preview)}…</span></div>`).join('')}</details>` : '';
     return `<div class="msg ${m.role}" data-msg="${m.id}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} ${nav}${acts}</div>${body}${src}${msgFooter(m)}</div>`;
   }).join('');
@@ -249,8 +249,8 @@ async function streamReply(reply, msgs, params, tools) {
       const d = line.slice(5).trim(); if (d === '[DONE]') continue;
       const j = JSON.parse(d);
       const dl = j.choices?.[0]?.delta;
-      if (dl?.reasoning_content) { reply.reasoning = (reply.reasoning || '') + dl.reasoning_content; tokTimes.push(performance.now()); renderMsgs(); }
-      if (dl?.content) { reply.content += dl.content; tokTimes.push(performance.now()); renderMsgs(); }
+      if (dl?.reasoning_content) { reply.thinkStart ??= performance.now(); reply.reasoning = (reply.reasoning || '') + dl.reasoning_content; tokTimes.push(performance.now()); renderMsgs(); }
+      if (dl?.content) { if (reply.thinkStart && reply.thinkMs == null) reply.thinkMs = performance.now() - reply.thinkStart; reply.content += dl.content; tokTimes.push(performance.now()); renderMsgs(); }
       for (const tc of dl?.tool_calls || []) {
         const c = calls[tc.index] ??= {id:'', name:'', arguments:''};
         if (tc.id) c.id = tc.id;
@@ -258,7 +258,7 @@ async function streamReply(reply, msgs, params, tools) {
         if (tc.function?.arguments) c.arguments += tc.function.arguments;
         reply.toolCalls = calls.filter(Boolean); renderMsgs();
       }
-      if (j.stats) reply.stats = {tokens: j.stats.completion_tokens, promptTokens: j.stats.prompt_tokens, tokensPerSecond: j.stats.tokens_per_second, ttftSeconds: j.stats.time_to_first_token, generationSeconds: j.stats.generation_time, stopReason: j.stats.finish_reason, promptCachedTokens: j.stats.cached_prompt_tokens, draftTokens: j.stats.draft_tokens, draftAccepted: j.stats.draft_accepted};
+      if (j.stats) reply.stats = {tokens: j.stats.completion_tokens, promptTokens: j.stats.prompt_tokens, tokensPerSecond: j.stats.tokens_per_second, ttftSeconds: j.stats.time_to_first_token, generationSeconds: j.stats.generation_time, stopReason: j.stats.finish_reason, promptCachedTokens: j.stats.cached_prompt_tokens, draftTokens: j.stats.draft_tokens, draftAccepted: j.stats.draft_accepted, thinkSeconds: reply.thinkMs ? +(reply.thinkMs / 1000).toFixed(1) : undefined};
       if (j.stats) reply.meta = `${j.usage?.completion_tokens ?? ''} tokens · ${j.stats.tokens_per_second} tok/s · first token ${j.stats.time_to_first_token}s` + (j.stats.cached_prompt_tokens ? ` · ${j.stats.cached_prompt_tokens} prompt tokens cached` : '');
     }
   }

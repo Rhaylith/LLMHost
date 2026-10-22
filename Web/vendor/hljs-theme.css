@@ -1,0 +1,11 @@
+/* small highlight.js theme; colours follow the page's light / dark variables */
+.hljs{color:var(--fg)}
+.hljs-comment,.hljs-quote{color:var(--dim);font-style:italic}
+.hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-type,.hljs-doctag{color:#c678dd}
+.hljs-string,.hljs-regexp,.hljs-addition,.hljs-meta .hljs-string{color:#98c379}
+.hljs-number,.hljs-symbol,.hljs-bullet,.hljs-variable,.hljs-template-variable{color:#d19a66}
+.hljs-title,.hljs-section,.hljs-function .hljs-title,.hljs-name{color:#61afef}
+.hljs-attr,.hljs-attribute,.hljs-built_in,.hljs-class .hljs-title{color:#e5c07b}
+.hljs-meta,.hljs-selector-id,.hljs-selector-class,.hljs-tag{color:#56b6c2}
+.hljs-deletion{color:#e06c75}
+.hljs-emphasis{font-style:italic}.hljs-strong{font-weight:bold}

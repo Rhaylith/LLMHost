@@ -93,3 +93,25 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 #quickopen-list .qo{padding:7px 12px;cursor:pointer}
 #quickopen-list .qo.on,#quickopen-list .qo:hover{background:var(--panel2)}
 #params label.diff::after{content:" ●";color:var(--acc2)}
+/* rendered Markdown */
+.msg .body.md{white-space:normal}
+.md p{margin:0 0 .7em}.md p:last-child{margin-bottom:0}
+.md h1,.md h2,.md h3,.md h4{margin:.9em 0 .4em;line-height:1.25;text-transform:none;letter-spacing:0;color:inherit}
+.md h1{font-size:1.4em}.md h2{font-size:1.2em}.md h3{font-size:1.05em}.md h4{font-size:1em}
+.md ul,.md ol{margin:.3em 0 .7em;padding-left:1.5em}
+.md li>input[type=checkbox]{margin-right:6px;width:auto}
+.md blockquote{margin:.5em 0;padding:.1em 12px;border-left:3px solid var(--line);color:var(--dim)}
+.md hr{border:0;border-top:1px solid var(--line);margin:1em 0}
+.md a{color:var(--acc2)}
+.md code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.92em}
+.md table{border-collapse:collapse;margin:.6em 0;display:block;overflow:auto;max-width:100%}
+.md th,.md td{border:1px solid var(--line);padding:5px 10px}.md th{background:var(--panel2)}
+.md .code{margin:.6em 0;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.md .code-head{display:flex;justify-content:space-between;align-items:center;background:var(--panel2);padding:3px 10px;font-size:12px;color:var(--dim)}
+.md .code-head .copy{background:none;border:1px solid var(--line);color:var(--dim);border-radius:4px;cursor:pointer;font-size:11px;padding:1px 8px}
+.md .code pre{margin:0;padding:10px 12px;overflow:auto;background:var(--bg)}
+.md .code code{background:none;padding:0;font-size:.9em}
+.md .katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0}
+details.think{color:var(--dim);border-left:2px solid var(--line);padding-left:10px;margin:4px 0 8px}
+details.think>summary{cursor:pointer;font-style:italic}
+details.think .think-body{white-space:pre-wrap;font-style:italic;margin-top:4px}

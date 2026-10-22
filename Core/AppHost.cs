@@ -192,4 +192,6 @@ public class MessageStats
     public int? DraftAccepted { get; set; }
     /// <summary>Seconds the model needed to load for this request (only when it was loaded on demand).</summary>
     public double? LoadSeconds { get; set; }
+    /// <summary>How long the model reasoned before the answer started ("Thought for 12 s").</summary>
+    public double? ThinkSeconds { get; set; }
 }

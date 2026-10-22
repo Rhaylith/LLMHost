@@ -29,7 +29,7 @@ public class MessageStatsApiTests : IClassFixture<ServerFixture>
         string id = "st" + Guid.NewGuid().ToString("N")[..8];
         const string chat = """
             {"title":"stats","messages":[{"id":"a","role":"user","content":"q"},
-              {"id":"b","parentId":"a","role":"assistant","content":"x","stats":{"tokens":12,"tokensPerSecond":31.5,"ttftSeconds":0.42,"stopReason":"length","promptCachedTokens":7,"draftTokens":10,"draftAccepted":6,"loadSeconds":2.5}}]}
+              {"id":"b","parentId":"a","role":"assistant","content":"x","stats":{"tokens":12,"tokensPerSecond":31.5,"ttftSeconds":0.42,"stopReason":"length","promptCachedTokens":7,"draftTokens":10,"draftAccepted":6,"loadSeconds":2.5,"thinkSeconds":12.4}}]}
             """;
         Assert.True((await _f.Http.PutAsync("/api/chats/" + id, Body(chat))).IsSuccessStatusCode);
         var back = JsonNode.Parse(await _f.Http.GetStringAsync("/api/chats/" + id))!;
@@ -40,6 +40,7 @@ public class MessageStatsApiTests : IClassFixture<ServerFixture>
         Assert.Equal(7, (int)s["promptCachedTokens"]!);
         Assert.Equal(6, (int)s["draftAccepted"]!);
         Assert.Equal(2.5, (double)s["loadSeconds"]!);
+        Assert.Equal(12.4, (double)s["thinkSeconds"]!);
         Assert.Null(back["messages"]![0]!["stats"]);
         await _f.Http.DeleteAsync("/api/chats/" + id);
     }
