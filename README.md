@@ -14,6 +14,13 @@ This page says what exists and how to reach it. How each feature is built and wh
 
 | File | What it holds |
 |---|---|
+| [feature-inference.md](feature-inference.md) | Loading and running models: GPU share, threads, prompt cache, speculative decoding, templates, samplers, MoE, LoRA, embeddings, hardware monitor. |
+| [feature-models.md](feature-models.md) | Discover, downloads, gated models, library folders, update check, per-model defaults. |
+| [feature-chat.md](feature-chat.md) | Chats, folders, search, attachments and documents, compare mode, rendering, shortcuts, presets and sharing. |
+| [feature-server-api.md](feature-server-api.md) | OpenAI / Anthropic / native / legacy APIs, tokens, JIT loading, HTTPS and limits, request log, metrics, MCP. |
+| [feature-cli.md](feature-cli.md) | Verbs, `--json`, exit codes. |
+| [feature-linked-devices.md](feature-linked-devices.md) | Pairing and using models of your other computers. |
+| [feature-desktop-app.md](feature-desktop-app.md) | Window, interface modes, themes, languages, first-run wizard, updates, notifications. |
 | [implementation-plan.md](implementation-plan.md) | The design of every feature, one section per item (§1 inference … §9 desktop). Each finished item ends with an **As built** paragraph that says what was actually done, where the code is and what was left out. Section numbers are used below, e.g. "plan §6.3". |
 | [todo.md](todo.md) | The feature checklist: what is done (`[x]`) and what is still open. |
 | [docs/adding-options.md](docs/adding-options.md) | The checklist for adding a load or generation option (declare → clone → validate → use → API → UI → tests) and how the interface modes hide advanced options. |
