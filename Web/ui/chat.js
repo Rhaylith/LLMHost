@@ -29,7 +29,7 @@ function fromStored(list, leaf) {        // stored messages -> tree (chats saved
   const all = list.map(m => {
     const node = {id: m.id || rid(), parent: m.id ? (m.parentId ?? null) : prev, role: m.role, content: m.content, reasoning: m.reasoning || '',
       toolCalls: m.toolCalls || undefined, toolCallId: m.toolCallId, name: m.name, images: m.images || [],
-      meta: m.tokensPerSecond ? `${m.completionTokens} tokens · ${m.tokensPerSecond} tok/s` : ''};
+      stats: m.stats || null, meta: m.stats ? '' : m.tokensPerSecond ? `${m.completionTokens} tokens · ${m.tokensPerSecond} tok/s` : ''};
     prev = node.id; return node;
   });
   return {all, leaf: leaf && all.some(n => n.id === leaf) ? leaf : all.length ? all[all.length - 1].id : null};
@@ -88,16 +88,17 @@ function renderMsgs() {
         <div class="row" style="margin-top:4px">${m.role === 'user' ? `<button class="b" onclick="saveEdit('${m.id}', true)">Save &amp; resubmit</button>` : ''}<button class="b sec" onclick="saveEdit('${m.id}', false)">Save</button><button class="b sec" onclick="cancelEdit()">Cancel</button></div>`;
     } else body = `${m.images?.length ? `<div class="thumbs">${m.images.map(u => `<img src="${u}">`).join('')}</div>` : ''}${m.reasoning ? `<div class="think">${esc(m.reasoning)}</div>` : ''}${m.content || !calls ? `<div class="body">${md(m.content)}</div>` : ''}${calls}`;
     const src = m.sources?.length ? `<details class="sources"><summary class="dim">Sources (${m.sources.length})</summary>${m.sources.map(s => `<div class="toolcall"><b>[${s.n}]</b> ${esc(s.doc)}${s.chunk ? ' · part ' + s.chunk : ''}<br><span class="dim">${esc(s.preview)}…</span></div>`).join('')}</details>` : '';
-    return `<div class="msg ${m.role}" data-msg="${m.id}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} ${nav}${acts}</div>${body}${src}${m.meta ? `<div class="meta">${esc(m.meta)}</div>` : ''}</div>`;
+    return `<div class="msg ${m.role}" data-msg="${m.id}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} ${nav}${acts}</div>${body}${src}${msgFooter(m)}</div>`;
   }).join('');
   $('msgs').scrollTop = $('msgs').scrollHeight;
+  if (typeof scheduleCtxBar === 'function') scheduleCtxBar();
 }
 async function persist() {
   const body = {title: conv.title, model: $('p-model').value || null, systemPrompt: $('p-system').value || null, generation: genForServer(),
     activeLeaf: conv.messages.length ? conv.messages[conv.messages.length - 1].id : null,
     documents: (conv.docs || []).map(d => ({id:d.id, name:d.name, chars:d.chars})),
     messages: conv.all.map(m => ({id:m.id, parentId:m.parent, role:m.role, content:m.content, reasoning:m.reasoning || null, images:m.images?.length ? m.images : null,
-      toolCalls:m.toolCalls?.length ? m.toolCalls : null, toolCallId:m.toolCallId || null, name:m.role === 'tool' ? m.name : null}))};
+      toolCalls:m.toolCalls?.length ? m.toolCalls : null, toolCallId:m.toolCallId || null, name:m.role === 'tool' ? m.name : null, stats:m.stats || null}))};
   const saved = await api('/api/chats/' + conv.id, {method:'PUT', body});
   conv.title = saved.title; renderChatList();
 }
@@ -257,6 +258,7 @@ async function streamReply(reply, msgs, params, tools) {
         if (tc.function?.arguments) c.arguments += tc.function.arguments;
         reply.toolCalls = calls.filter(Boolean); renderMsgs();
       }
+      if (j.stats) reply.stats = {tokens: j.stats.completion_tokens, promptTokens: j.stats.prompt_tokens, tokensPerSecond: j.stats.tokens_per_second, ttftSeconds: j.stats.time_to_first_token, generationSeconds: j.stats.generation_time, stopReason: j.stats.finish_reason, promptCachedTokens: j.stats.cached_prompt_tokens, draftTokens: j.stats.draft_tokens, draftAccepted: j.stats.draft_accepted};
       if (j.stats) reply.meta = `${j.usage?.completion_tokens ?? ''} tokens · ${j.stats.tokens_per_second} tok/s · first token ${j.stats.time_to_first_token}s` + (j.stats.cached_prompt_tokens ? ` · ${j.stats.cached_prompt_tokens} prompt tokens cached` : '');
     }
   }

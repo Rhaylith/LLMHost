@@ -83,3 +83,8 @@ dialog::backdrop{background:#0008}
 #ctxmenu hr{border:0;border-top:1px solid var(--line);margin:3px 0}
 .msg.flash{animation:flash 1.5s}
 @keyframes flash{0%,60%{background:var(--panel2)}}
+#ctxbar{max-width:860px;width:100%;margin:0 auto;padding:2px 12px;font-size:12px}
+#ctxbar .track{height:5px;background:var(--panel2);border-radius:3px;overflow:hidden}
+#ctxbar i{display:block;height:100%;background:var(--ok)}
+#ctxbar.amber i{background:#d9a400}#ctxbar.red i{background:var(--acc)}
+.msg .meta .more-stats{display:none}.msg:hover .meta .more-stats{display:inline}

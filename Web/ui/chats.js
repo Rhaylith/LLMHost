@@ -183,3 +183,39 @@ async function maybeAutoTitle() {
   if (answers !== 1) return;
   try { const r = await api(`/api/chats/${conv.id}/auto-title`, {method:'POST'}); if (r.source !== 'unchanged') { conv.title = r.title; renderChatList(); } } catch (e) {}
 }
+
+// ---------------------------------------------------------------- per-message stats and the context bar
+function msgFooter(m) {
+  const s = m.stats;
+  if (!s) return m.meta ? `<div class="meta">${esc(m.meta)}</div>` : '';
+  const parts = [`${s.tokens ?? '?'} tokens`, `${s.tokensPerSecond ?? '?'} tok/s`, `first token ${s.ttftSeconds ?? '?'}s`];
+  const more = [];
+  if (s.stopReason) more.push('stopped: ' + s.stopReason);
+  if (s.promptTokens != null) more.push(`${s.promptTokens} prompt tokens` + (s.promptCachedTokens ? ` (${s.promptCachedTokens} from cache)` : ''));
+  if (s.generationSeconds != null) more.push(`generated in ${s.generationSeconds}s`);
+  if (s.loadSeconds) more.push(`model load ${s.loadSeconds}s`);
+  if (s.draftTokens) more.push(`draft accepted ${s.draftAccepted}/${s.draftTokens} (${Math.round(100 * s.draftAccepted / s.draftTokens)}%)`);
+  return `<div class="meta" title="${esc(more.join(' · '))}">${esc(parts.join(' · '))}<span class="more-stats"> · ${esc(more.join(' · '))}</span></div>`;
+}
+let ctxTimer = null;
+function scheduleCtxBar() { clearTimeout(ctxTimer); ctxTimer = setTimeout(updateCtxBar, 300); }
+async function updateCtxBar() {
+  const bar = $('ctxbar');
+  try {
+    const maxTokens = Math.max(0, Number($('p-max_tokens')?.value) || 0);
+    const r = await api('/api/context/usage', {method:'POST', body: {
+      model: $('p-model').value || null, system: $('p-system').value || null, input: $('input').value,
+      messages: conv.messages.filter(m => m.role !== 'tool' || m.content).map(m => ({role: m.role, content: m.content || ''})),
+      documentIds: (conv.docs || []).map(d => d.id), maxTokens}});
+    if (!r.loaded) { bar.style.display = 'none'; return; }
+    const pct = Math.min(100, r.percent);
+    bar.style.display = 'block';
+    bar.className = pct >= 90 ? 'red' : pct >= 70 ? 'amber' : 'green';
+    bar.querySelector('i').style.width = pct + '%';
+    bar.querySelector('span').textContent = `${r.used.toLocaleString()} / ${r.context.toLocaleString()} tokens (${r.percent}%)` + (pct >= 90 ? ' · when full: ' + r.overflowPolicy : '');
+    bar.title = `Messages and system prompt: ${r.prompt}\nTools: ${r.tools}\nAttached documents: ${r.documents}${r.documentsEstimated ? ' (estimate)' : ''}\nLeft for the answer: ${r.remaining}\nIf the window fills up: ${r.overflowPolicy}`;
+  } catch (e) { bar.style.display = 'none'; }
+}
+$('input').addEventListener('input', scheduleCtxBar);
+$('p-system').addEventListener('input', scheduleCtxBar);
+$('p-model').addEventListener('change', scheduleCtxBar);

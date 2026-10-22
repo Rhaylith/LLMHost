@@ -428,6 +428,11 @@ public partial class ApiServer
         cached_prompt_tokens = s.CachedTokens,
         time_to_first_token = Math.Round(s.TimeToFirstTokenMs / 1000.0, 3),
         generation_time = Math.Round((s.TotalMs - s.TimeToFirstTokenMs) / 1000.0, 3),
+        completion_tokens = s.CompletionTokens,
+        prompt_tokens = s.PromptTokens,
+        finish_reason = s.FinishReason,
+        draft_tokens = s.DraftTokens,
+        draft_accepted = s.DraftAccepted,
     };
 
 
@@ -1345,6 +1350,36 @@ public partial class ApiServer
             var imported = ChatTransfer.Import(json);
             foreach (var c in imported) _host.Chats.Save(c);
             await WriteJson(ctx, new { imported = imported.Count, chats = imported.Select(ChatSummary) });
+        });
+
+        // ---- how full the context window would be for a conversation (system prompt, messages, the text being typed, tools, attachments)
+        app.MapPost("/api/context/usage", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            string? modelId = body["model"]?.GetValue<string>();
+            var rt = _host.Models.Loaded.FirstOrDefault(r => r.Identifier == modelId && !r.Model.IsEmbedding) ?? _host.Models.Loaded.FirstOrDefault(r => !r.Model.IsEmbedding);
+            if (rt == null) { await WriteJson(ctx, new { loaded = false }); return; }
+            var msgs = new List<ChatMessage>();
+            if (body["system"]?.GetValue<string>() is { Length: > 0 } sys) msgs.Add(new ChatMessage("system", sys));
+            foreach (var m in body["messages"] as JsonArray ?? new())
+                msgs.Add(new ChatMessage(m?["role"]?.GetValue<string>() ?? "user", m?["content"]?.GetValue<string>() ?? ""));
+            if (body["input"]?.GetValue<string>() is { Length: > 0 } draft) msgs.Add(new ChatMessage("user", draft));
+            int promptTokens = msgs.Count == 0 ? 0 : rt.CountTokens(rt.ApplyChatTemplate(msgs, true));
+            int toolTokens = body["tools"] is { } tools ? rt.CountTokens(tools is JsonValue tv && tv.TryGetValue<string>(out var ts) ? ts : tools.ToJsonString()) : 0;
+            // attached documents go into the prompt whole when they fit, otherwise as the best passages: an estimate of ~3.5 characters per token, at most a third of the window
+            long docChars = 0;
+            foreach (var d in body["documentIds"] as JsonArray ?? new()) docChars += _documents.Get(d?.GetValue<string>() ?? "")?.Text.Length ?? 0;
+            int context = (int)rt.ContextSize;
+            int docTokens = (int)Math.Min(docChars / 3.5, context / 3.0);
+            int reserve = body["maxTokens"]?.GetValue<int>() ?? 0;
+            int used = promptTokens + toolTokens + docTokens;
+            await WriteJson(ctx, new
+            {
+                loaded = true, model = rt.Identifier, prompt = promptTokens, tools = toolTokens, documents = docTokens, documentsEstimated = docChars > 0,
+                used, context, reserve, remaining = Math.Max(0, context - used - Math.Max(0, reserve)),
+                percent = context > 0 ? Math.Round(100.0 * used / context, 1) : 0,
+                overflowPolicy = _host.GenerationDefaultsFor(rt.Model.Id).ContextOverflow,
+            });
         });
 
         // ---- chat folders

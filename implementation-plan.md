@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management (21 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats (22 of ~50).
 
 ---
 
@@ -410,13 +410,15 @@ behind no feature flag (same URL). Add a Playwright smoke test (launch host, ope
 * Reasoning: collapsible `<details>` block, auto-collapsed when answer starts, shows "Thought for 12 s".
 * Tests: renderer unit tests in a headless JS test (vitest) for XSS payloads (`<img onerror>`, `javascript:` links).
 
-#### §4.5 Token counter & per-message stats — **S**
+#### ✅ §4.5 Token counter & per-message stats — **S**
 * `POST /v1/tokenize` already exists; add `POST /api/chats/{id}/tokens` (or use client-side debounce 300 ms) returning
   `{prompt, context, remaining}` for the composed prompt incl. system prompt, attachments (RAG-in-context size) and tools.
   Context bar under the input: green < 70 %, amber < 90 %, red ≥ 90 %, tooltip with breakdown; warning shows the active
   overflow policy (§1.5).
 * Per-message stats: persist `{tokens, tokensPerSecond, ttftSeconds, stopReason, loadSeconds, promptCachedTokens,
   draftAccepted}` on each assistant message (already produced by `GenerationStats`); small footer on hover/expanded.
+
+**As built:** `POST /api/context/usage` (`model?`, `system?`, `messages[]`, `input?` = the text being typed, `tools?`, `documentIds[]`, `maxTokens?`) renders the conversation with the loaded model's chat template and counts it: `{prompt, tools, documents, used, context, remaining, percent, overflowPolicy}` (`loaded:false` when no chat model is loaded). Attached documents are an estimate (about 3.5 characters per token, at most a third of the window) and are marked as such. UI: a bar under the input, updated 300 ms after typing, a message change or a model change; green below 70 %, amber below 90 %, red from 90 %, with the overflow policy named once it is nearly full and the breakdown in the tooltip. Per-message stats: the final stream chunk (and the non-streaming `stats` object) now also carry `completion_tokens`, `prompt_tokens`, `finish_reason`, `draft_tokens` and `draft_accepted`; the UI stores them on the assistant message (`StoredMessage.Stats`: tokens, tok/s, time to first token, generation time, stop reason, prompt and cached tokens, draft acceptance) and shows a footer that expands on hover. Deviation: `loadSeconds` is part of the stored format but is not filled in yet (the request path does not report how long an on-demand load took), and tool-call turns are counted from the messages as sent, not from the tool schemas the server later adds.
 
 #### §4.6 Keyboard shortcuts — **S**
 Central `shortcuts.js` registry with a help overlay (`?`) and rebinding stored in settings: `Ctrl+N` new chat,

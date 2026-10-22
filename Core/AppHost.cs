@@ -22,6 +22,8 @@ public class StoredMessage
     /// <summary>Identity inside the conversation tree; edits and regenerations become siblings (same <see cref="ParentId"/>).</summary>
     public string? Id { get; set; }
     public string? ParentId { get; set; }
+    /// <summary>What the generation of this assistant message measured (tokens, speed, time to first token, stop reason, cache hits, draft acceptance).</summary>
+    public MessageStats? Stats { get; set; }
 }
 
 public class ConversationDocument
@@ -172,4 +174,20 @@ public class AppHost : IDisposable
         (modelId != null ? ModelDefaults.GenerationFor(modelId) : null) ?? Settings.DefaultGeneration;
 
     public void Dispose() { _updateTimer.Dispose(); Mcp.Dispose(); Models.Dispose(); }
+}
+
+/// <summary>Per-message numbers kept with an assistant message; all optional, older chats have none.</summary>
+public class MessageStats
+{
+    public int? Tokens { get; set; }
+    public int? PromptTokens { get; set; }
+    public double? TokensPerSecond { get; set; }
+    public double? TtftSeconds { get; set; }
+    public double? GenerationSeconds { get; set; }
+    public string? StopReason { get; set; }
+    public int? PromptCachedTokens { get; set; }
+    public int? DraftTokens { get; set; }
+    public int? DraftAccepted { get; set; }
+    /// <summary>Seconds the model needed to load for this request (only when it was loaded on demand).</summary>
+    public double? LoadSeconds { get; set; }
 }
