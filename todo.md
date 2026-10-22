@@ -70,7 +70,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** Download manager: pause/resume, queue with concurrency limit, persist jobs across restarts, disk-space check, SHA-256 verification, retry/back-off, mmproj companion download
 - [x] **P1** Download by URL / `user/model` / pasted Hugging Face link; **import** existing `.gguf` files (`lms import` equivalent: copy/move/link into `publisher/model/file.gguf`)
 - [x] **P2** Capability badges (vision, tool use, reasoning, embedding, MoE) and richer model card (README, license, architecture, max context)
-- [ ] **P2** Discover filters/sorting (size, quantization, family, downloads, updated, "fits my GPU"), pagination, updatable curated "staff picks"
+- [x] **P2** Discover filters/sorting (size, quantization, family, downloads, updated, "fits my GPU"), pagination, updatable curated "staff picks"
 - [ ] **P2** Gated-model flow (token validation, access-request guidance)
 - [ ] **P2** Model update check (newer revision/quant available)
 - [ ] **P2** Models-directory management (change/move, multiple folders, disk usage per model)

@@ -72,6 +72,8 @@ public class ModelCardTests
     [InlineData("owner/name", true)]
     [InlineData("a.b/c-d_e", true)]
     [InlineData("../etc/passwd", false)]
+    [InlineData("../x", false)]
+    [InlineData("a/..", false)]
     [InlineData("owner/name/extra", false)]
     [InlineData("owner", false)]
     [InlineData("", false)]

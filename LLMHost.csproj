@@ -36,6 +36,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Web\index.html" LogicalName="index.html" />
+    <EmbeddedResource Include="Models\catalog.json" LogicalName="catalog.json" />
   </ItemGroup>
 
 </Project>

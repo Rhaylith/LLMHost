@@ -51,25 +51,70 @@ public static partial class HuggingFace
         return req;
     }
 
-    public static async Task<IReadOnlyList<RemoteModel>> SearchAsync(string query, int limit = 25, CancellationToken ct = default)
+    /// <summary>Search options of the Discover page. Sort: trending | downloads | likes | updated.</summary>
+    public record HfSearch(string Query = "", string Sort = "downloads", string? Family = null, string? Pipeline = null, int Limit = 25,
+        string? Cursor = null, bool Vision = false, bool Tools = false, bool Reasoning = false);
+
+    public record SearchPage(IReadOnlyList<RemoteModel> Items, string? NextCursor);
+
+    /// <summary>The Hugging Face list URL for a search (always limited to GGUF repositories).</summary>
+    public static string SearchUrl(HfSearch s)
     {
-        var url = $"https://huggingface.co/api/models?search={Uri.EscapeDataString(query)}&filter=gguf&sort=downloads&direction=-1&limit={limit}";
-        using var resp = await Http.SendAsync(Request(url), ct);
+        string sort = (s.Sort ?? "").ToLowerInvariant() switch { "trending" => "trendingScore", "likes" => "likes", "updated" => "lastModified", _ => "downloads" };
+        var sb = new System.Text.StringBuilder("https://huggingface.co/api/models?filter=gguf");
+        if (!string.IsNullOrWhiteSpace(s.Query)) sb.Append("&search=").Append(Uri.EscapeDataString(s.Query.Trim()));
+        if (!string.IsNullOrWhiteSpace(s.Family) && Regex.IsMatch(s.Family, @"^[A-Za-z0-9._-]{1,40}$")) sb.Append("&filter=").Append(Uri.EscapeDataString(s.Family));
+        string? pipeline = !string.IsNullOrWhiteSpace(s.Pipeline) ? s.Pipeline : s.Vision ? "image-text-to-text" : null;
+        if (pipeline != null && Regex.IsMatch(pipeline, @"^[a-z0-9-]{1,40}$")) sb.Append("&pipeline_tag=").Append(pipeline);
+        sb.Append("&sort=").Append(sort).Append("&direction=-1&limit=").Append(Math.Clamp(s.Limit, 1, 100));
+        if (!string.IsNullOrEmpty(s.Cursor) && Regex.IsMatch(s.Cursor, @"^[A-Za-z0-9_%=.~-]{1,2000}$")) sb.Append("&cursor=").Append(s.Cursor);
+        return sb.ToString();
+    }
+
+    /// <summary>The cursor of the <c>rel="next"</c> entry of a Link header (null when there is no further page).</summary>
+    public static string? NextCursor(string? linkHeader)
+    {
+        if (string.IsNullOrEmpty(linkHeader)) return null;
+        foreach (var part in linkHeader.Split(','))
+        {
+            if (!part.Contains("rel=\"next\"", StringComparison.OrdinalIgnoreCase)) continue;
+            var m = Regex.Match(part, @"<([^>]+)>");
+            if (!m.Success) continue;
+            var q = Regex.Match(m.Groups[1].Value, @"[?&]cursor=([^&]+)");
+            return q.Success ? q.Groups[1].Value : null;
+        }
+        return null;
+    }
+
+    public static async Task<SearchPage> SearchPageAsync(HfSearch s, CancellationToken ct = default)
+    {
+        using var resp = await Http.SendAsync(Request(SearchUrl(s)), ct);
         resp.EnsureSuccessStatusCode();
+        string? next = resp.Headers.TryGetValues("Link", out var links) ? NextCursor(string.Join(",", links)) : null;
         using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
         var list = new List<RemoteModel>();
         foreach (var e in doc.RootElement.EnumerateArray())
         {
-            list.Add(new RemoteModel(
+            var item = new RemoteModel(
                 e.GetProperty("id").GetString()!,
                 e.TryGetProperty("downloads", out var d) ? d.GetInt64() : 0,
                 e.TryGetProperty("likes", out var l) ? l.GetInt64() : 0,
                 e.TryGetProperty("lastModified", out var m) ? m.GetString() : null,
                 e.TryGetProperty("pipeline_tag", out var p) ? p.GetString() : null,
-                e.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array ? tg.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : null));
+                e.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array ? tg.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : null);
+            // tools / reasoning have no Hugging Face filter of their own: judged from the tags and the name (approximate)
+            if (s.Tools || s.Reasoning)
+            {
+                var c = RemoteCapabilities.FromTags(item.Tags, item.Pipeline, item.Id);
+                if ((s.Tools && !c.Tools) || (s.Reasoning && !c.Reasoning)) continue;
+            }
+            list.Add(item);
         }
-        return list;
+        return new SearchPage(list, next);
     }
+
+    public static async Task<IReadOnlyList<RemoteModel>> SearchAsync(string query, int limit = 25, CancellationToken ct = default) =>
+        (await SearchPageAsync(new HfSearch(query, "downloads", Limit: limit), ct)).Items;
 
     [GeneratedRegex(@"(IQ\d_[A-Z]+|Q\d_K_[SML]|Q\d_K|Q\d_[01]|MXFP4|BF16|FP16|F16|F32)", RegexOptions.IgnoreCase)]
     private static partial Regex QuantRegex();

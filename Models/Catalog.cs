@@ -1,3 +1,10 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Reflection;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using LLMHostProject.Core;
+
 namespace LLMHostProject.Models;
 
 public record CatalogEntry(string Key, string Family, string Name, string Params, string Repo,
@@ -7,56 +14,120 @@ public record CatalogEntry(string Key, string Family, string Name, string Params
     public bool IsVision => Tags.Contains("vision");
 }
 
-/// <summary>Curated list of major open-weight model families published as GGUF on Hugging Face.</summary>
+
+/// <summary>
+/// Curated list of major open-weight model families published as GGUF on Hugging Face ("staff picks"). The built-in list is the embedded
+/// <c>catalog.json</c>; <c>settings.catalogUrl</c> can point at a newer copy, which is validated, cached under <c>cache/catalog.json</c> and
+/// used from then on (ETag revalidation). A bad or unreachable remote list never replaces a working one.
+/// </summary>
 public static class Catalog
 {
-    public static readonly IReadOnlyList<CatalogEntry> Entries = new CatalogEntry[]
+    private static readonly object Gate = new();
+    private static IReadOnlyList<CatalogEntry>? _entries;
+    private static string _updated = "";
+    private static string _source = "built-in";
+
+    public static IReadOnlyList<CatalogEntry> Entries { get { EnsureLoaded(); return _entries!; } }
+    /// <summary>Date of the list (the <c>updated</c> field of the JSON).</summary>
+    public static string Updated { get { EnsureLoaded(); return _updated; } }
+    /// <summary>built-in | cached copy of the remote list.</summary>
+    public static string Source { get { EnsureLoaded(); return _source; } }
+
+    private static string CacheFile => Path.Combine(AppPaths.Root, "cache", "catalog.json");
+    private static string EtagFile => Path.Combine(AppPaths.Root, "cache", "catalog.etag");
+
+    private static void EnsureLoaded()
     {
-        new("llama3.2-1b", "Llama", "Llama 3.2 1B Instruct", "1B", "bartowski/Llama-3.2-1B-Instruct-GGUF", "Q8_0", new[]{"chat","tiny"}),
-        new("llama3.2-3b", "Llama", "Llama 3.2 3B Instruct", "3B", "bartowski/Llama-3.2-3B-Instruct-GGUF", "Q4_K_M", new[]{"chat","small"}),
-        new("llama3.1-8b", "Llama", "Llama 3.1 8B Instruct", "8B", "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF", "Q4_K_M", new[]{"chat","tools"}),
-        new("llama3.3-70b", "Llama", "Llama 3.3 70B Instruct", "70B", "bartowski/Llama-3.3-70B-Instruct-GGUF", "Q4_K_M", new[]{"chat","large"}),
+        if (_entries != null) return;
+        lock (Gate)
+        {
+            if (_entries != null) return;
+            try
+            {
+                if (File.Exists(CacheFile))
+                {
+                    var (e, u) = Parse(File.ReadAllText(CacheFile));
+                    (_entries, _updated, _source) = (e, u, "remote (cached)");
+                    return;
+                }
+            }
+            catch { /* fall back to the built-in list */ }
+            (_entries, _updated) = Parse(BuiltInJson());
+            _source = "built-in";
+        }
+    }
 
-        new("qwen2.5-0.5b", "Qwen", "Qwen2.5 0.5B Instruct", "0.5B", "Qwen/Qwen2.5-0.5B-Instruct-GGUF", "q4_k_m", new[]{"chat","tiny"}, "Good for a quick smoke test"),
-        new("qwen2.5-7b", "Qwen", "Qwen2.5 7B Instruct", "7B", "bartowski/Qwen2.5-7B-Instruct-GGUF", "Q4_K_M", new[]{"chat","tools"}),
-        new("qwen2.5-coder-7b", "Qwen", "Qwen2.5 Coder 7B Instruct", "7B", "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF", "Q4_K_M", new[]{"code"}),
-        new("qwen3-8b", "Qwen", "Qwen3 8B", "8B", "unsloth/Qwen3-8B-GGUF", "Q4_K_M", new[]{"chat","reasoning","tools"}),
-        new("qwen3-14b", "Qwen", "Qwen3 14B", "14B", "unsloth/Qwen3-14B-GGUF", "Q4_K_M", new[]{"chat","reasoning","tools"}),
-        new("qwen3-30b-a3b", "Qwen", "Qwen3 30B-A3B (MoE)", "30B", "unsloth/Qwen3-30B-A3B-GGUF", "Q4_K_M", new[]{"chat","reasoning","moe"}),
+    /// <summary>Forget the loaded list (tests, and after the cache file changed).</summary>
+    public static void Reset() { lock (Gate) { _entries = null; } }
 
-        new("mistral-7b", "Mistral", "Mistral 7B Instruct v0.3", "7B", "bartowski/Mistral-7B-Instruct-v0.3-GGUF", "Q4_K_M", new[]{"chat"}),
-        new("mistral-nemo-12b", "Mistral", "Mistral Nemo Instruct 12B", "12B", "bartowski/Mistral-Nemo-Instruct-2407-GGUF", "Q4_K_M", new[]{"chat"}),
-        new("mistral-small-24b", "Mistral", "Mistral Small 24B Instruct", "24B", "bartowski/Mistral-Small-24B-Instruct-2501-GGUF", "Q4_K_M", new[]{"chat","tools"}),
+    private static string BuiltInJson()
+    {
+        using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("catalog.json") ?? throw new InvalidOperationException("catalog.json is not embedded.");
+        using var r = new StreamReader(s);
+        return r.ReadToEnd();
+    }
 
-        new("gemma2-9b", "Gemma", "Gemma 2 9B IT", "9B", "bartowski/gemma-2-9b-it-GGUF", "Q4_K_M", new[]{"chat"}),
-        new("gemma3-4b", "Gemma", "Gemma 3 4B IT", "4B", "unsloth/gemma-3-4b-it-GGUF", "Q4_K_M", new[]{"chat","small","vision"}),
-        new("gemma3-12b", "Gemma", "Gemma 3 12B IT", "12B", "unsloth/gemma-3-12b-it-GGUF", "Q4_K_M", new[]{"chat","vision"}),
-        new("gemma3-27b", "Gemma", "Gemma 3 27B IT", "27B", "unsloth/gemma-3-27b-it-GGUF", "Q4_K_M", new[]{"chat","large","vision"}),
+    /// <summary>Checks the schema and returns the entries. Throws <see cref="FormatException"/> naming the first problem.</summary>
+    public static (IReadOnlyList<CatalogEntry> Entries, string Updated) Parse(string json)
+    {
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(json); } catch (JsonException ex) { throw new FormatException("The catalog is not valid JSON: " + ex.Message); }
+        using (doc)
+        {
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("entries", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                throw new FormatException("The catalog needs an 'entries' array.");
+            string updated = root.TryGetProperty("updated", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString()! : "";
+            var list = new List<CatalogEntry>();
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int i = 0;
+            foreach (var e in arr.EnumerateArray())
+            {
+                string Str(string name, bool required = true)
+                {
+                    if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString())) return v.GetString()!;
+                    if (required) throw new FormatException($"Catalog entry {i}: '{name}' is missing.");
+                    return "";
+                }
+                string key = Str("key"), repo = Str("repo");
+                if (!HuggingFace.ValidRepo(repo)) throw new FormatException($"Catalog entry '{key}': '{repo}' is not a Hugging Face repository (owner/name).");
+                if (!keys.Add(key)) throw new FormatException($"Catalog entry '{key}' appears twice.");
+                var tags = e.TryGetProperty("tags", out var t) && t.ValueKind == JsonValueKind.Array ? t.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x != "").ToArray() : Array.Empty<string>();
+                list.Add(new CatalogEntry(key, Str("family"), Str("name"), Str("params", false), repo, Str("recommendedQuant", false), tags, Str("notes", false)));
+                i++;
+            }
+            if (list.Count == 0) throw new FormatException("The catalog has no entries.");
+            return (list, updated);
+        }
+    }
 
-        new("smolvlm-256m", "SmolVLM", "SmolVLM 256M Instruct", "256M", "ggml-org/SmolVLM-256M-Instruct-GGUF", "Q8_0", new[]{"vision","tiny"}, "Smallest vision model; good for a smoke test (~270 MB with projector)"),
-        new("smolvlm2-2.2b", "SmolVLM", "SmolVLM2 2.2B Instruct", "2.2B", "ggml-org/SmolVLM2-2.2B-Instruct-GGUF", "Q4_K_M", new[]{"vision","small"}),
-        new("qwen2.5-vl-3b", "Qwen", "Qwen2.5-VL 3B Instruct", "3B", "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF", "Q4_K_M", new[]{"vision","small"}),
-        new("qwen2.5-vl-7b", "Qwen", "Qwen2.5-VL 7B Instruct", "7B", "ggml-org/Qwen2.5-VL-7B-Instruct-GGUF", "Q4_K_M", new[]{"vision"}),
-        new("pixtral-12b", "Mistral", "Pixtral 12B", "12B", "ggml-org/pixtral-12b-GGUF", "Q4_K_M", new[]{"vision"}),
+    /// <summary>Downloads <paramref name="url"/> (conditional on the stored ETag), validates it and makes it the current list.</summary>
+    /// <returns>true when a newer list was installed, false when the cached one is still current.</returns>
+    public static async Task<bool> RefreshAsync(string url, CancellationToken ct = default)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")) throw new ArgumentException("The catalog URL must be an http(s) address.");
+        var req = new HttpRequestMessage(HttpMethod.Get, uri);
+        try { if (File.Exists(EtagFile) && File.Exists(CacheFile)) req.Headers.IfNoneMatch.Add(EntityTagHeaderValue.Parse(File.ReadAllText(EtagFile).Trim())); } catch { }
+        using var resp = await HuggingFace.Client.SendAsync(req, ct);
+        if (resp.StatusCode == HttpStatusCode.NotModified) return false;
+        resp.EnsureSuccessStatusCode();
+        string body = await resp.Content.ReadAsStringAsync(ct);
+        if (body.Length > 2_000_000) throw new FormatException("The catalog is unreasonably large.");
+        var (entries, updated) = Parse(body);                               // throws before anything is stored
+        Directory.CreateDirectory(Path.GetDirectoryName(CacheFile)!);
+        File.WriteAllText(CacheFile, body);
+        if (resp.Headers.ETag != null) File.WriteAllText(EtagFile, resp.Headers.ETag.ToString()); else File.Delete(EtagFile);
+        lock (Gate) { _entries = entries; _updated = updated; _source = "remote (cached)"; }
+        return true;
+    }
 
-        new("phi-4", "Phi", "Phi-4 14B", "14B", "bartowski/phi-4-GGUF", "Q4_K_M", new[]{"chat","reasoning"}),
-        new("phi-3.5-mini", "Phi", "Phi-3.5 Mini Instruct", "3.8B", "bartowski/Phi-3.5-mini-instruct-GGUF", "Q4_K_M", new[]{"chat","small"}),
+    /// <summary>Removes the cached remote list and goes back to the built-in one.</summary>
+    public static void UseBuiltIn()
+    {
+        try { File.Delete(CacheFile); File.Delete(EtagFile); } catch { }
+        Reset();
+    }
 
-        new("deepseek-r1-qwen-7b", "DeepSeek", "DeepSeek R1 Distill Qwen 7B", "7B", "unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF", "Q4_K_M", new[]{"reasoning"}),
-        new("deepseek-r1-llama-8b", "DeepSeek", "DeepSeek R1 Distill Llama 8B", "8B", "unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF", "Q4_K_M", new[]{"reasoning"}),
-        new("deepseek-r1-qwen-14b", "DeepSeek", "DeepSeek R1 Distill Qwen 14B", "14B", "unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF", "Q4_K_M", new[]{"reasoning"}),
-
-        new("gpt-oss-20b", "OpenAI", "gpt-oss 20B", "20B", "unsloth/gpt-oss-20b-GGUF", "Q4_K_M", new[]{"chat","reasoning","moe"}),
-
-        new("granite-3.1-8b", "IBM Granite", "Granite 3.1 8B Instruct", "8B", "bartowski/granite-3.1-8b-instruct-GGUF", "Q4_K_M", new[]{"chat","tools"}),
-        new("smollm2-1.7b", "SmolLM", "SmolLM2 1.7B Instruct", "1.7B", "bartowski/SmolLM2-1.7B-Instruct-GGUF", "Q8_0", new[]{"chat","tiny"}),
-
-        new("nomic-embed-v1.5", "Embedding", "Nomic Embed Text v1.5", "137M", "nomic-ai/nomic-embed-text-v1.5-GGUF", "Q4_K_M", new[]{"embeddings"}),
-        new("bge-small-en-v1.5", "Embedding", "BGE Small English v1.5", "33M", "ggml-org/bge-small-en-v1.5-Q8_0-GGUF", "Q8_0", new[]{"embeddings","tiny"}, "Small and fast; a good first embedding model"),
-        new("bge-m3", "Embedding", "BGE M3 (multilingual)", "568M", "gpustack/bge-m3-GGUF", "Q4_K_M", new[]{"embeddings"}),
-        new("bge-reranker-v2-m3", "Embedding", "BGE Reranker v2 m3", "568M", "gpustack/bge-reranker-v2-m3-GGUF", "Q4_K_M", new[]{"rerank"}, "Cross-encoder: use it with /v1/rerank"),
-        new("qwen3-reranker-0.6b", "Embedding", "Qwen3 Reranker 0.6B", "0.6B", "Mungert/Qwen3-Reranker-0.6B-GGUF", "q4_k_m", new[]{"rerank","small"}, "Cross-encoder; not yet tried with this app"),
-    };
 
     public static CatalogEntry? Find(string keyOrRepo) =>
         Entries.FirstOrDefault(e => e.Key.Equals(keyOrRepo, StringComparison.OrdinalIgnoreCase)

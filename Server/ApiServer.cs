@@ -881,15 +881,36 @@ public partial class ApiServer
         });
 
         app.MapGet("/api/models/catalog", async ctx =>
-            await WriteJson(ctx, Catalog.Entries));
+            await WriteJson(ctx, new { updated = Catalog.Updated, source = Catalog.Source, url = _host.Settings.CatalogUrl, entries = Catalog.Entries }));
+
+        // fetch the optional remote staff-picks list now (settings.catalogUrl); a bad list is refused and the current one stays
+        app.MapPost("/api/models/catalog/refresh", async ctx =>
+        {
+            string? url = _host.Settings.CatalogUrl;
+            if (string.IsNullOrWhiteSpace(url)) { await WriteError(ctx, 400, "No catalog address is set (settings.catalogUrl).", "invalid_request_error"); return; }
+            bool changed;
+            try { changed = await Catalog.RefreshAsync(url, ctx.RequestAborted); }
+            catch (FormatException ex) { await WriteError(ctx, 422, ex.Message, "invalid_catalog"); return; }
+            await WriteJson(ctx, new { changed, updated = Catalog.Updated, source = Catalog.Source, count = Catalog.Entries.Count });
+        });
 
         app.MapGet("/api/models/search", async ctx =>
-            await WriteJson(ctx, (await HuggingFace.SearchAsync(Q(ctx, "q"), 30, ctx.RequestAborted)).Select(m => new
+        {
+            bool Flag(string n) => Q(ctx, n) is "1" or "true";
+            int.TryParse(Q(ctx, "limit"), out var limit);
+            var page = await HuggingFace.SearchPageAsync(new HuggingFace.HfSearch(Q(ctx, "q") ?? "", Q(ctx, "sort") ?? "downloads", Q(ctx, "family"), Q(ctx, "pipeline"),
+                limit > 0 ? limit : 30, Q(ctx, "cursor"), Flag("vision"), Flag("tools"), Flag("reasoning")), ctx.RequestAborted);
+            await WriteJson(ctx, new
             {
-                m.Id, m.Downloads, m.Likes, m.LastModified, m.Pipeline,
-                license = m.Tags?.FirstOrDefault(t => t.StartsWith("license:"))?[8..],
-                capabilities = RemoteCapabilities.FromTags(m.Tags, m.Pipeline, m.Id).ToApi(),
-            })));
+                next = page.NextCursor,
+                items = page.Items.Select(m => new
+                {
+                    m.Id, m.Downloads, m.Likes, m.LastModified, m.Pipeline,
+                    license = m.Tags?.FirstOrDefault(t => t.StartsWith("license:"))?[8..],
+                    capabilities = RemoteCapabilities.FromTags(m.Tags, m.Pipeline, m.Id).ToApi(),
+                }),
+            });
+        });
 
         // card data + README of a Hugging Face repository (cached 24 h)
         app.MapGet("/api/models/card", async ctx =>
@@ -921,9 +942,26 @@ public partial class ApiServer
             });
         });
 
+        // files of a repository; optional filters: quant (name, case-insensitive), minSize / maxSize (GB), fits=gpu|ram (approximate, from this machine)
         app.MapGet("/api/models/files", async ctx =>
-            await WriteJson(ctx, (await HuggingFace.ListFilesAsync(Q(ctx, "repo"), ctx.RequestAborted))
-                .Select(f => new { f.Repo, f.FileName, f.SizeBytes, f.Quant, f.IsSplit, f.Shards, vision = f.HasVision, mmproj = f.MmprojFile, mmprojBytes = f.MmprojSize })));
+        {
+            var files = (await HuggingFace.ListFilesAsync(Q(ctx, "repo"), ctx.RequestAborted)).AsEnumerable();
+            if (Q(ctx, "quant") is { Length: > 0 } qn) files = files.Where(f => f.Quant.Contains(qn, StringComparison.OrdinalIgnoreCase));
+            double gb = 1024.0 * 1024 * 1024;
+            if (double.TryParse(Q(ctx, "minSize"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lo)) files = files.Where(f => f.TotalDownloadBytes >= lo * gb);
+            if (double.TryParse(Q(ctx, "maxSize"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var hi)) files = files.Where(f => f.TotalDownloadBytes <= hi * gb);
+            var hw = Hardware.Detect();
+            long vram = hw.Gpus.Select(g => g.UsableBytes).DefaultIfEmpty(0).Max();
+            long ram = Hardware.MemoryStatus().Available;
+            bool FitsGpu(RemoteFile f) => vram > 0 && f.TotalDownloadBytes < vram * 0.85;
+            bool FitsRam(RemoteFile f) => f.TotalDownloadBytes < ram * 0.85;
+            files = Q(ctx, "fits") switch { "gpu" => files.Where(FitsGpu), "ram" => files.Where(FitsRam), _ => files };
+            await WriteJson(ctx, files.Select(f => new
+            {
+                f.Repo, f.FileName, f.SizeBytes, f.Quant, f.IsSplit, f.Shards, vision = f.HasVision, mmproj = f.MmprojFile, mmprojBytes = f.MmprojSize,
+                fitsGpu = FitsGpu(f), fitsRam = FitsRam(f),
+            }));
+        });
 
         // "will it fit?" estimate for a model + load settings (query values override the model's / global defaults)
         app.MapGet("/api/models/estimate", async ctx =>

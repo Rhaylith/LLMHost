@@ -34,6 +34,9 @@ public static class SettingsValidator
         if (!string.IsNullOrWhiteSpace(s.UpdateFeedUrl) &&
             !(Uri.TryCreate(s.UpdateFeedUrl, UriKind.Absolute, out var u) && u.Scheme is "http" or "https"))
             e.Add(new("updateFeedUrl", "Update feed must be an http(s) URL."));
+        if (!string.IsNullOrWhiteSpace(s.CatalogUrl) &&
+            !(Uri.TryCreate(s.CatalogUrl, UriKind.Absolute, out var cu) && cu.Scheme is "http" or "https"))
+            e.Add(new("catalogUrl", "Catalog address must be an http(s) URL."));
         if (!string.IsNullOrWhiteSpace(s.ModelsDirectory))
         {
             try { Path.GetFullPath(s.ModelsDirectory); }

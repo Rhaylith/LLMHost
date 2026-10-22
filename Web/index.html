@@ -172,6 +172,17 @@ dialog::backdrop{background:#0008}
 <section id="discover" class="col">
   <h2>Discover models</h2>
   <div class="row"><input id="q" placeholder="Search Hugging Face for GGUF models (e.g. llama, qwen, mistral)…"><button class="b" onclick="search()">Search</button></div>
+  <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:8px">
+    <label class="dim">Sort <select id="d-sort" onchange="search()"><option value="downloads">most downloaded</option><option value="trending">trending</option><option value="likes">most liked</option><option value="updated">recently updated</option></select></label>
+    <label class="dim">Family <input id="d-family" placeholder="llama, qwen2, gemma3…" style="width:150px"></label>
+    <label class="dim"><input type="checkbox" id="d-vision" style="width:auto"> vision</label>
+    <label class="dim"><input type="checkbox" id="d-tools" style="width:auto"> tools</label>
+    <label class="dim"><input type="checkbox" id="d-reason" style="width:auto"> reasoning</label>
+    <span class="dim">File list:</span>
+    <label class="dim">Quant <input id="d-quant" placeholder="Q4_K_M" style="width:90px"></label>
+    <label class="dim">Max GB <input id="d-maxsize" type="number" min="0" step="1" style="width:70px"></label>
+    <label class="dim">Fits <select id="d-fits"><option value="">any</option><option value="gpu">my GPU</option><option value="ram">my RAM</option></select></label>
+  </div>
   <div class="row" style="margin-top:8px"><input id="dl-input" placeholder="…or paste a Hugging Face link, user/model[:quant], user/model/file.gguf, or a direct .gguf URL"><button class="b" onclick="downloadInput()">Download</button></div>
   <div id="dl-msg" class="dim" style="min-height:18px"></div>
   <div id="results"></div>
@@ -210,6 +221,7 @@ dialog::backdrop{background:#0008}
       <div><label>Hugging Face token</label><input id="s-hftoken" type="password"></div>
       <div><label>Max concurrent downloads</label><input type="number" id="s-maxdl" min="1" max="8"></div>
       <div><label>Update feed URL (JSON with version, url, notes; blank = none)</label><input id="s-feed" placeholder="https://example.com/llmhost/latest.json"></div>
+      <div><label>Staff-picks list URL (catalog.json format; blank = built-in list only)</label><input id="s-catalog" placeholder="https://example.com/llmhost/catalog.json"></div>
       <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
       <div><label>Load guardrail (refuse loads that exceed memory)</label><select id="s-guard"><option value="off">off</option><option value="balanced">balanced</option><option value="strict">strict</option></select></div>
       <div><label>&nbsp;</label><label style="margin:6px 0" title="Integrated GPUs then stop borrowing system RAM"><input type="checkbox" id="s-dedicated" style="width:auto"> Limit offload to dedicated GPU memory</label></div>
@@ -1181,12 +1193,12 @@ async function del(id) { if (confirm('Delete ' + id + ' from disk?')) { await ap
 
 // ---------------------------------------------------------------- discover
 async function renderCatalog() {
-  const cat = await api('/api/models/catalog');
+  const catData = await api('/api/models/catalog'); const cat = catData.entries;
   const card = e => `<div class="card"><b>${esc(e.name)}</b> <span class="tag">${esc(e.family)}</span><span class="tag">${esc(e.params)}</span>${e.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}
     <div class="dim">${esc(e.repo)} ${esc(e.notes || '')}</div>
     <div style="margin-top:6px"><button class="b" onclick='showFiles(${JSON.stringify(e.repo)})'>Choose quantization…</button>
     <button class="b sec" onclick='dl(${JSON.stringify(e.repo)}, null, ${JSON.stringify(e.recommendedQuant)})'>Download ${esc(e.recommendedQuant)}</button></div></div>`;
-  $('catalog').innerHTML = '<h4>LLMs</h4>' + cat.filter(e => !e.isVision).map(card).join('')
+  $('catalog').innerHTML = `<div class="dim">Staff picks · updated ${esc(catData.updated || 'unknown')} · ${esc(catData.source)}${catData.url ? ' <button class="b sec" onclick="refreshCatalog()">Refresh</button>' : ''}</div>` + '<h4>LLMs</h4>' + cat.filter(e => !e.isVision).map(card).join('')
     + '<h4>Image models (vision)</h4>' + cat.filter(e => e.isVision).map(card).join('');
 }
 // ---------------------------------------------------------------- model badges and detail drawer
@@ -1234,24 +1246,57 @@ async function showLocalInfo(id) {
       <table>${rows.map(r => `<tr><th style="text-align:left">${esc(r[0])}</th><td>${esc(String(r[1]))}</td></tr>`).join('')}</table>`);
   } catch (e) { openDrawer(`<span class="err">${esc(e.message)}</span>`); }
 }
-async function search() {
-  const q = $('q').value.trim(); if (!q) return;
-  $('results').innerHTML = '<span class="dim">Searching…</span>';
+// Discover filters are remembered between visits
+const DISC_KEYS = ['d-sort', 'd-family', 'd-vision', 'd-tools', 'd-reason', 'd-quant', 'd-maxsize', 'd-fits'];
+function discSave() { try { localStorage.setItem('discoverFilters', JSON.stringify(Object.fromEntries(DISC_KEYS.map(k => [k, $(k).type === 'checkbox' ? $(k).checked : $(k).value])))); } catch (e) {} }
+function discLoad() {
   try {
-    const r = await api('/api/models/search?q=' + encodeURIComponent(q));
-    $('results').innerHTML = '<table><tr><th>Repository</th><th>Downloads</th><th>Likes</th><th></th></tr>' + r.map(m =>
-      `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)} ${licenseTag(m.license, '')}</td><td>${m.downloads.toLocaleString()}</td><td>${m.likes}</td><td style="white-space:nowrap"><button class="b sec" onclick='showFiles(${JSON.stringify(m.id)})'>Files</button> <button class="b sec" title="README, licence and details" onclick='showCard(${JSON.stringify(m.id)})'>Details</button></td></tr>`).join('') + '</table>';
+    const s = JSON.parse(localStorage.getItem('discoverFilters') || '{}');
+    DISC_KEYS.forEach(k => { if (k in s) { if ($(k).type === 'checkbox') $(k).checked = !!s[k]; else $(k).value = s[k]; } });
+  } catch (e) {}
+}
+let searchNext = null, searchQuery = '';
+function searchParams(cursor) {
+  const p = new URLSearchParams({q: searchQuery, sort: $('d-sort').value});
+  if ($('d-family').value.trim()) p.set('family', $('d-family').value.trim());
+  if ($('d-vision').checked) p.set('vision', '1'); if ($('d-tools').checked) p.set('tools', '1'); if ($('d-reason').checked) p.set('reasoning', '1');
+  if (cursor) p.set('cursor', cursor);
+  return p.toString();
+}
+function resultRow(m) {
+  return `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)} ${licenseTag(m.license, '')}</td><td>${m.downloads.toLocaleString()}</td><td>${m.likes}</td><td>${esc((m.lastModified || '').slice(0, 10))}</td><td style="white-space:nowrap"><button class="b sec" onclick='showFiles(${JSON.stringify(m.id)})'>Files</button> <button class="b sec" title="README, licence and details" onclick='showCard(${JSON.stringify(m.id)})'>Details</button></td></tr>`;
+}
+async function search(more) {
+  discSave();
+  if (!more) { searchQuery = $('q').value.trim(); searchNext = null; }
+  if (!more && !searchQuery && $('d-sort').value === 'downloads' && !$('d-family').value.trim() && !$('d-vision').checked && !$('d-tools').checked && !$('d-reason').checked) return;
+  if (!more) $('results').innerHTML = '<span class="dim">Searching…</span>';
+  try {
+    const r = await api('/api/models/search?' + searchParams(more ? searchNext : null));
+    searchNext = r.next;
+    const rows = r.items.map(resultRow).join('');
+    if (more) { const t = $('results').querySelector('tbody'); t.insertAdjacentHTML('beforeend', rows); }
+    else $('results').innerHTML = '<table><tbody><tr><th>Repository</th><th>Downloads</th><th>Likes</th><th>Updated</th><th></th></tr>' + rows + '</tbody></table>' + (r.items.length ? '' : '<span class="dim">Nothing found.</span>');
+    $('results').querySelector('#more-results')?.remove();
+    if (searchNext) $('results').insertAdjacentHTML('beforeend', '<div id="more-results" style="margin-top:8px"><button class="b sec" onclick="search(true)">Load more</button></div>');
   } catch (e) { $('results').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
+async function refreshCatalog() {
+  try { const r = await api('/api/models/catalog/refresh', {method:'POST'}); await renderCatalog(); if (!r.changed) alert('The staff-picks list is already up to date.'); }
+  catch (e) { alert(e.message); }
+}
 $('q').onkeydown = e => { if (e.key === 'Enter') search(); };
+discLoad();
 async function showFiles(repo) {
   $('results').innerHTML = '<span class="dim">Loading files…</span>';
   try {
-    const f = await api('/api/models/files?repo=' + encodeURIComponent(repo));
+    discSave();
+    const fp = new URLSearchParams({repo}); if ($('d-quant').value.trim()) fp.set('quant', $('d-quant').value.trim()); if ($('d-maxsize').value) fp.set('maxSize', $('d-maxsize').value); if ($('d-fits').value) fp.set('fits', $('d-fits').value);
+    const f = await api('/api/models/files?' + fp.toString());
     const vram = (status?.hardware?.gpus || []).reduce((a, g) => Math.max(a, g.usableBytes ?? g.vramBytes), 0);
     $('results').innerHTML = `<h3>${esc(repo)}</h3><table><tr><th>Quant</th><th>Size</th><th>File</th><th>Fit</th><th></th></tr>` + f.map(x =>
       `<tr><td>${esc(x.quant)}</td><td>${fmt(x.sizeBytes)}</td><td>${esc(x.fileName)}${x.isSplit ? ' <span class="tag">split</span>' : ''}${x.vision ? ` <span class="tag">vision +${fmt(x.mmprojBytes)}</span>` : ''}</td>
-       <td>${vram && x.sizeBytes < vram * .85 ? '<span class="ok">fits GPU</span>' : '<span class="dim">RAM/partial</span>'}</td>
+       <td>${x.fitsGpu ? '<span class="ok">fits GPU</span>' : x.fitsRam ? '<span class="dim">fits RAM</span>' : '<span class="err">too large</span>'}</td>
        <td><button class="b" onclick='dl(${JSON.stringify(repo)}, ${JSON.stringify(x.fileName)})'>Download</button></td></tr>`).join('') + '</table>';
   } catch (e) { $('results').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
@@ -1337,7 +1382,7 @@ async function loadSettings() {
   $('s-modelsdir').value = s.modelsDirectory || ''; $('s-modelsdir').placeholder = status.modelsDirectory + ' (default: DownloadedModels in the working directory)'; $('s-hftoken').value = s.huggingFaceToken || '';
   $('s-cors').checked = s.cors; $('s-anthropic').checked = s.anthropicApi; $('s-autoload').checked = s.autoLoadOnRequest;
   $('s-maxdl').value = s.maxConcurrentDownloads || 2;
-  $('s-feed').value = s.updateFeedUrl || ''; $('s-updates').checked = !!s.checkUpdates; $("s-tray").checked = !!s.minimizeToTray; $('s-debug').checked = !!s.debugRequests; $('s-reastext').checked = s.anthropicReasoningAsText !== false;
+  $('s-catalog').value = s.catalogUrl || '';   $('s-feed').value = s.updateFeedUrl || ''; $('s-updates').checked = !!s.checkUpdates; $("s-tray").checked = !!s.minimizeToTray; $('s-debug').checked = !!s.debugRequests; $('s-reastext').checked = s.anthropicReasoningAsText !== false;
   $('s-guard').value = s.loadGuardrail || 'balanced'; $('s-dedicated').checked = !!s.limitToDedicatedGpuMemory;
   $('s-showtpl').checked = !!s.alwaysShowTemplate;
   window._settings = s;
@@ -1506,7 +1551,7 @@ async function saveSettings() {
   s.modelsDirectory = $('s-modelsdir').value.trim() || null; s.huggingFaceToken = $('s-hftoken').value || null;
   s.cors = $('s-cors').checked; s.anthropicApi = $('s-anthropic').checked; s.autoLoadOnRequest = $('s-autoload').checked;
   s.maxConcurrentDownloads = Number($('s-maxdl').value) || 2; s.requireAuth = $('s-auth').checked;
-  s.updateFeedUrl = $('s-feed').value.trim() || null; s.checkUpdates = $('s-updates').checked; s.minimizeToTray = $('s-tray').checked; s.debugRequests = $('s-debug').checked; s.anthropicReasoningAsText = $('s-reastext').checked;
+  s.catalogUrl = $('s-catalog').value.trim() || null;   s.updateFeedUrl = $('s-feed').value.trim() || null; s.checkUpdates = $('s-updates').checked; s.minimizeToTray = $('s-tray').checked; s.debugRequests = $('s-debug').checked; s.anthropicReasoningAsText = $('s-reastext').checked;
   s.loadGuardrail = $('s-guard').value; s.limitToDedicatedGpuMemory = $('s-dedicated').checked;
   s.alwaysShowTemplate = $('s-showtpl').checked;
   $('s-load').querySelectorAll('[data-k]').forEach(el => { const k = el.dataset.k; s.defaultLoad[k] = el.tagName === 'SELECT' ? el.value : (el.value === '' ? null : (isNaN(el.value) ? el.value : Number(el.value))); });
@@ -1515,7 +1560,7 @@ async function saveSettings() {
   try { await api('/api/settings', {method:'PUT', body: s}); }
   catch (e) {
     if (!e.errors) { $('s-msg').textContent = e.message; return; }
-    const ids = {host:'s-host', port:'s-port', backend:'s-backend', apiKey:'s-apikey', modelsDirectory:'s-modelsdir', maxConcurrentDownloads:'s-maxdl', updateFeedUrl:'s-feed', loadGuardrail:'s-guard'};
+    const ids = {host:'s-host', port:'s-port', backend:'s-backend', apiKey:'s-apikey', modelsDirectory:'s-modelsdir', maxConcurrentDownloads:'s-maxdl', updateFeedUrl:'s-feed', catalogUrl:'s-catalog', loadGuardrail:'s-guard'};
     for (const er of e.errors) {
       const el = $(ids[er.field]) || document.querySelector(`#s-load [data-k="${er.field.split('.').pop()}"]`);
       if (el) { el.classList.add('bad'); el.title = er.message; }

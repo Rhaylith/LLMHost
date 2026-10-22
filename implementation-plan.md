@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity , §3.1 capability badges and model card (15 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks (16 of ~50).
 
 ---
 
@@ -318,7 +318,7 @@ Deviations: no `Poll` option and no `llama_numa_init` (LLamaSharp does not expos
 
 **As built:** `Models/ModelCard.cs`. `GgufInfo` now also reads `general.license`, `general.base_model.0.name`, `general.repo_url` and `general.organization`. `GET /api/models/info?id=` returns the architecture table of a downloaded model (layers, heads, experts, context, vocabulary, licence, base model). `GET /api/models/card?repo=` returns card data and the README of a Hugging Face repository (front matter stripped, cached 24 h under `cache/hf/`, stale copy used when offline, repository ids validated, a 401/403 answers `gated`). `GET /api/models/search` now carries licence and `capabilities` guessed from HF tags and the name (`RemoteCapabilities.FromTags`). `LicenseInfo.Classify` sorts licence ids into open / restricted / noncommercial / unknown and produces a warning for the last two. UI: badge row (👁 vision, 🎧 audio, 🔧 tools, 🧠 reasoning, ⚙ MoE, 📐 embedding, ↕ rerank) in Discover results and My Models, a detail drawer with README, licence warning, base model and, for downloaded models, the architecture table. The README is shown through a small escaping renderer (everything HTML-escaped first, links only for http/https), so no HTML from a README reaches the page. Deviations: badges in the chat model picker were not added; the remote badges are tag-based guesses (flagged by the "unknown" licence / no tags), the downloaded ones come from the real GGUF headers.
 
-#### §3.2 Discover filters, sorting, pagination, staff picks — **M**
+#### ✅ §3.2 Discover filters, sorting, pagination, staff picks — **M**
 * `/api/models/search` parameters: `sort (trending|downloads|likes|updated)`, `quant`, `minSize/maxSize`, `family` (HF
   `tags`/`pipeline_tag`), `fits=gpu|ram|any`, `vision/tools/reasoning` (tag-based), `limit`, `cursor` (HF returns `Link` header
   for pagination → pass through). "Fits my GPU" is client-side from the per-file list using `FitEstimator`
@@ -327,6 +327,8 @@ Deviations: no `Poll` option and no `llama_numa_init` (LLamaSharp does not expos
   (`settings.catalogUrl`, default a raw-file URL of the project repo; off in offline mode, ETag caching, signature not needed
   — schema-validated only). UI shows "updated <date>".
 * Persist filter state in `localStorage`.
+
+**As built:** `GET /api/models/search` takes `q`, `sort` (trending|downloads|likes|updated), `family` (an HF tag such as `llama` or `qwen2`), `pipeline`, `vision` (pipeline `image-text-to-text`), `tools`, `reasoning` (judged from tags and names, so approximate), `limit` and `cursor`; it answers `{items, next}` where `next` is the cursor from Hugging Face's `Link` header (`HuggingFace.SearchUrl` / `NextCursor`; user text is escaped and only safe values are forwarded). `GET /api/models/files` takes `quant`, `minSize`, `maxSize` (GB) and `fits=gpu|ram` and reports `fitsGpu` / `fitsRam` per file (largest usable VRAM and free RAM, 85 % rule: approximate). The staff picks moved to the embedded `Models/catalog.json`; `Catalog` validates the schema (repo ids, unique keys), can fetch a newer copy from `settings.catalogUrl` (`POST /api/models/catalog/refresh`, ETag revalidation, cached in `cache/catalog.json`, a bad list is refused and the old one stays) and reports `updated` and `source`. The UI has sort / family / capability / quant / size / fits controls, "Load more" paging, an "updated <date>" line with a Refresh button, and remembers the filters in `localStorage`. Deviation: `settings.catalogUrl` defaults to empty (no project repository URL exists yet), so the remote refresh is off until one is set; there is no separate offline-mode switch to honour.
 
 #### §3.3 Gated-model flow — **S**
 * Token validation: `GET https://huggingface.co/api/whoami-v2` with Bearer → show account name or "invalid" in Settings.

@@ -71,7 +71,7 @@ public static partial class HuggingFace
     private static string CardCacheFile(string repo) =>
         Path.Combine(AppPaths.Root, "cache", "hf", Regex.Replace(repo.ToLowerInvariant(), @"[^a-z0-9._-]", "_") + ".json");
 
-    public static bool ValidRepo(string repo) => Regex.IsMatch(repo ?? "", @"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$");
+    public static bool ValidRepo(string repo) => Regex.IsMatch(repo ?? "", @"^(?!\.+/)[A-Za-z0-9._-]+/(?!\.+$)[A-Za-z0-9._-]+$");
 
     /// <summary>Card data and README of a repository; cached for 24 hours under <c>cache/hf/</c> (a stale copy is used when the network fails).</summary>
     public static async Task<ModelCard> GetCardAsync(string repo, CancellationToken ct = default, bool refresh = false)
