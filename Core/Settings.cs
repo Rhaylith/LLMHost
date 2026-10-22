@@ -353,6 +353,8 @@ public class AppSettings
     public NetworkSettings Network { get; set; } = new();
     /// <summary>Serve /metrics without an API token.</summary>
     public bool MetricsPublic { get; set; }
+    /// <summary>Linking your own devices (see <see cref="LinkSettings"/>).</summary>
+    public LinkSettings Link { get; set; } = new();
     /// <summary>Downloads running at the same time; the rest wait in the queue.</summary>
     public int MaxConcurrentDownloads { get; set; } = 2;
     public bool VerboseNativeLog { get; set; }
@@ -477,7 +479,7 @@ public class AppSettings
     {
         ModelsDirectory = other.ModelsDirectory; ExtraModelsDirectories = other.ExtraModelsDirectories ?? new(); Host = other.Host; Port = other.Port; ApiKey = other.ApiKey; RequireAuth = other.RequireAuth;
         Cors = other.Cors; AnthropicApi = other.AnthropicApi; Backend = other.Backend;
-        CatalogUrl = other.CatalogUrl; CheckModelUpdates = other.CheckModelUpdates; AutoTitleChats = other.AutoTitleChats; Shortcuts = other.Shortcuts ?? new(); HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest; Jit = other.Jit ?? new(); Network = other.Network ?? new(); MetricsPublic = other.MetricsPublic;
+        CatalogUrl = other.CatalogUrl; CheckModelUpdates = other.CheckModelUpdates; AutoTitleChats = other.AutoTitleChats; Shortcuts = other.Shortcuts ?? new(); HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest; Jit = other.Jit ?? new(); Network = other.Network ?? new(); MetricsPublic = other.MetricsPublic; Link = other.Link ?? new();
         MaxConcurrentDownloads = Math.Clamp(other.MaxConcurrentDownloads, 1, 8);
         LimitToDedicatedGpuMemory = other.LimitToDedicatedGpuMemory;
         Runtime = string.IsNullOrWhiteSpace(other.Runtime) ? "auto" : other.Runtime;

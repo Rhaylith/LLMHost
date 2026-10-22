@@ -105,6 +105,7 @@ public class Shell
         };
         try
         {
+            Out.ExitCode = 0;
             bool ok = await DispatchAsync(command, args);
             return ok ? 0 : Out.ExitCode != 0 ? Out.ExitCode : ExitCodes.Generic;
         }
@@ -117,27 +118,70 @@ public class Shell
 
     // ===================================================================== link / login / clone / push / dev
 
-    private static readonly string[] LinkVerbs = { "enable", "disable", "status", "set-device-name", "set-preferred-device" };
+    private static readonly string[] LinkVerbs = { "enable", "disable", "status", "set-device-name", "set-preferred-device", "pair", "peers", "unpair", "permissions" };
 
-    /// <summary>link enable|disable|status|set-device-name &lt;name&gt;|set-preferred-device &lt;device&gt; — asks the server's /api/link/*.</summary>
+    /// <summary>
+    /// link enable | disable | status | set-device-name &lt;name&gt; | set-preferred-device &lt;device|local&gt; | pair start | pair &lt;address&gt; &lt;code&gt; [--own-address url] |
+    /// peers | unpair &lt;device&gt; | permissions &lt;device&gt; chat,load,manage. Talks to the running daemon (or this process's server); without one the settings are changed directly.
+    /// </summary>
     private async Task<bool> LinkVerbAsync(Args a)
     {
         string sub = a.Positional.FirstOrDefault() ?? "status";
-        if (!LinkVerbs.Contains(sub)) { Ui.Error("usage: link enable | disable | status | set-device-name <name> | set-preferred-device <device>", ExitCodes.Usage); return false; }
-        string? arg = a.Positional.Skip(1).FirstOrDefault();
-        if (sub is "set-device-name" or "set-preferred-device" && arg == null) { Ui.Error($"usage: link {sub} <value>", ExitCodes.Usage); return false; }
+        if (!LinkVerbs.Contains(sub)) { Ui.Error("usage: link enable | disable | status | set-device-name <name> | set-preferred-device <device|local> | pair start | pair <address> <code> | peers | unpair <device> | permissions <device> <chat,load,manage>", ExitCodes.Usage); return false; }
+        string? arg = a.Positional.Skip(1).FirstOrDefault(), arg2 = a.Positional.Skip(2).FirstOrDefault();
+        if (sub is "set-device-name" or "set-preferred-device" or "unpair" && arg == null) { Ui.Error($"usage: link {sub} <value>", ExitCodes.Usage); return false; }
 
         var daemon = await Daemon.ProbeAsync();
-        string baseUrl = daemon?.Info.Url ?? _server.Url ?? "";
-        if (baseUrl.Length == 0) { Ui.Error("Linking devices is not available in this build.", ExitCodes.Usage); return false; }
-        using var http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(15) };
+        string baseUrl = daemon?.Info.Url ?? (_server.Running ? _server.Url! : "");
+        if (baseUrl.Length == 0)
+        {
+            // no server: the settings can still be changed, pairing needs a server that answers the other device
+            if (sub is "pair") { Ui.Error("Pairing needs a running server: start it with 'daemon up' (or 'serve') first.", ExitCodes.Unreachable); return false; }
+            var s = _host.Settings.Link;
+            switch (sub)
+            {
+                case "enable": s.Enabled = true; break;
+                case "disable": s.Enabled = false; break;
+                case "set-device-name": s.DeviceName = arg!; break;
+                case "set-preferred-device": s.PreferredDevice = arg == "local" ? "" : arg!; break;
+                case "unpair": if (!_host.Link.RemovePeer(arg!)) { Ui.Error("No such device.", ExitCodes.NotFound); return false; } break;
+                case "permissions": if (arg == null || arg2 == null || !_host.Link.SetPermissions(arg, arg2.Split(','))) { Ui.Error("usage: link permissions <device> <chat,load,manage>", ExitCodes.Usage); return false; } break;
+            }
+            _host.Settings.Save();
+            var view = new { enabled = s.Enabled, deviceId = _host.Link.DeviceId, name = _host.Link.DeviceName, preferredDevice = s.PreferredDevice, peers = sub == "status" || sub == "peers" ? (object)_host.Link.Views() : Array.Empty<object>() };
+            if (Out.IsJson) Out.Result(sub == "peers" ? _host.Link.Views() : view);
+            else Ui.Info(sub == "peers" ? string.Join("\n", _host.Link.Peers.Select(p => $"{p.Name}  {p.Address}  [{string.Join(",", p.Permissions)}]")) : $"Linking {(s.Enabled ? "on" : "off")}  this device: {view.name} ({view.deviceId})  preferred: {(s.PreferredDevice.Length == 0 ? "this device" : s.PreferredDevice)}");
+            return true;
+        }
+
+        using var http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(30) };
         if (!string.IsNullOrEmpty(daemon?.Info.Token)) http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", daemon!.Value.Info.Token);
-        var body = new StringContent(sub switch { "set-device-name" => JsonSerializer.Serialize(new { name = arg }), "set-preferred-device" => JsonSerializer.Serialize(new { device = arg }), _ => "{}" }, Encoding.UTF8, "application/json");
-        using var resp = sub == "status" ? await http.GetAsync("/api/link/status") : await http.PostAsync("/api/link/" + sub.Replace("set-", "").Replace("-", "/"), body);
+        HttpMethod method = HttpMethod.Post; string path; object? body = null;
+        switch (sub)
+        {
+            case "status": method = HttpMethod.Get; path = "/api/link/status"; break;
+            case "peers": method = HttpMethod.Get; path = "/api/link/peers"; break;
+            case "enable": case "disable": path = "/api/link/" + sub; break;
+            case "set-device-name": path = "/api/link/name"; body = new { name = arg }; break;
+            case "set-preferred-device": path = "/api/link/preferred"; body = new { device = arg }; break;
+            case "unpair": method = HttpMethod.Delete; path = "/api/link/peers/" + Uri.EscapeDataString(arg!); break;
+            case "permissions": method = HttpMethod.Put; path = $"/api/link/peers/{Uri.EscapeDataString(arg ?? "")}/permissions"; body = new { permissions = (arg2 ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries) }; break;
+            default: // pair
+                if (arg == "start") { path = "/api/link/pair/start"; break; }
+                if (arg == null || arg2 == null) { Ui.Error("usage: link pair start   |   link pair <address> <code> [--own-address <url>]", ExitCodes.Usage); return false; }
+                path = "/api/link/pair"; body = new { address = arg, code = arg2, ownAddress = a.Value("own-address") ?? "" }; break;
+        }
+        using var resp = await http.SendAsync(new HttpRequestMessage(method, path) { Content = body == null ? null : new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") });
         string text = await resp.Content.ReadAsStringAsync();
-        if ((int)resp.StatusCode == 501) { Ui.Error("Linking devices is not available in this build.", ExitCodes.Usage); return false; }
-        if (!resp.IsSuccessStatusCode) { Ui.Error(text, (int)resp.StatusCode is 401 or 403 ? ExitCodes.Unauthorized : (int)resp.StatusCode == 404 ? ExitCodes.NotFound : ExitCodes.Generic); return false; }
-        if (Out.IsJson) Console.WriteLine(text); else Ui.Info(text);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string msg = JsonNode.Parse(text)?["error"]?["message"]?.GetValue<string>() ?? text;
+            Ui.Error(msg, (int)resp.StatusCode is 401 or 403 ? ExitCodes.Unauthorized : (int)resp.StatusCode == 404 ? ExitCodes.NotFound : (int)resp.StatusCode is 502 ? ExitCodes.Unreachable : ExitCodes.Generic);
+            return false;
+        }
+        if (Out.IsJson) Out.Stdout.WriteLine(text);
+        else if (sub == "pair" && arg == "start") { var j = JsonNode.Parse(text)!; Ui.Info($"Pairing code: {Ui.Bold((string)j["code"]!)}  (valid {(int)j["expiresInMinutes"]!} minutes). Type it on the other device: link pair <this device's address> <code>"); }
+        else Ui.Info(text);
         return true;
     }
 

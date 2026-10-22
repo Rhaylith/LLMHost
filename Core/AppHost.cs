@@ -148,6 +148,8 @@ public class AppHost : IDisposable
     public ModelDefaultsStore ModelDefaults { get; } = new();
     public McpManager Mcp { get; } = new();
     public ModelUpdateChecker Updates { get; }
+    /// <summary>Identity, peers and signed requests between your own devices (tests give a host its own).</summary>
+    public LinkManager Link { get; set; }
     public ModelDirectoryManager Directories { get; }
     private readonly System.Threading.Timer _updateTimer;
     /// <summary>Completed when something (the API, a service stop) asks the process to shut down.</summary>
@@ -161,6 +163,7 @@ public class AppHost : IDisposable
         Models = new ModelManager(Library, ModelDefaults);
         Downloads = new DownloadManager { MaxConcurrent = Settings.MaxConcurrentDownloads };
         Updates = new ModelUpdateChecker(Library);
+        Link = new LinkManager(Path.Combine(AppPaths.Root, "link"), () => Settings.Link);
         ChatSearch = new ChatSearchIndex(Chats);
         Directories = new ModelDirectoryManager(Library, Downloads, () => Models.Loaded.Select(r => r.Model.Path));
         // the daily check (when switched on): first one a few minutes after start, then every 24 hours

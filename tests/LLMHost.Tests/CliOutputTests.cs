@@ -165,12 +165,17 @@ public class CliOutputTests : IDisposable
     }
 
     [Fact]
-    public async Task LinkVerbsReportThatTheyAreNotAvailable()
+    public async Task LinkStatusAndPeersWorkWithoutAServerAndBadUsageIsRefused()
     {
-        Assert.Equal(2, await Run("link", "status"));
-        Assert.Contains("not available", _err.ToString());
+        Assert.Equal(0, await Run("link", "status", "--json"));
+        var j = JsonNode.Parse(_out.ToString())!;
+        Assert.False(string.IsNullOrEmpty((string)j["deviceId"]!));
+        Assert.NotNull(j["enabled"]);
         Assert.Equal(2, await Run("link", "bogus"));
         Assert.Equal(2, await Run("link", "set-device-name"));                      // the value is missing
+        Assert.Equal(2, await Run("link", "unpair"));
+        int rc = await Run("link", "pair", "http://127.0.0.1:9", "123456");
+        Assert.True(rc == 5, rc + " " + _err);
     }
 
     [Fact]

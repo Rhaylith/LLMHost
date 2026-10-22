@@ -122,14 +122,14 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 ## 7. CLI (parity with `lms`)
 
 - [x] **P1** Missing verbs: `server start|stop|status`, `daemon up|down|status|update`, `log stream`, `import`, `runtime` (list/get/select/update), `load --identifier --gpu max|auto|<0–1> --context-length`, `unload --all`, `ls`/`ps` with `--json`, `get` interactive search+quant picker, `chat` against a running server
-- [ ] **P2** `link` verbs (`enable|disable|status|set-device-name|set-preferred-device`) once LM Link-style remoting exists
+- [x] **P2** `link` verbs (`enable|disable|status|set-device-name|set-preferred-device`) once LM Link-style remoting exists
 - [ ] **P2** `login` / `push` / `clone` / `dev` equivalents if a hub/plugin concept is added
 - [x] **P2** Machine-readable output (`--json`), stable exit codes, quiet mode
 - [ ] **P3** Shell completion scripts, richer line editing (history, multi-line editor, Ctrl+R)
 
 ## 8. Remote / multi-device
 
-- [ ] **P2** **LM Link equivalent**: connect your own devices into a private encrypted network (Tailscale-style or WireGuard), list remote models, route load/chat to a preferred device from UI, CLI and API
+- [x] **P2** **LM Link equivalent**: connect your own devices into a private encrypted network (Tailscale-style or WireGuard), list remote models, route load/chat to a preferred device from UI, CLI and API
 - [ ] **P3** Pair mobile/remote clients (web UI already works over LAN; add auth + discovery)
 
 ## 9. Desktop application & UX

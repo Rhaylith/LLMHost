@@ -4,7 +4,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('main > section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
   if (b.dataset.tab === 'models') { refreshModels(); refreshDownloads(); }
   if (b.dataset.tab === 'discover') { refreshDownloads(); renderCatalog(); }
-  if (b.dataset.tab === 'settings') { renderDisk(); loadSettings(); loadRuntimes(); loadTokens(); loadMcp(false); }
+  if (b.dataset.tab === 'settings') { renderLink(); renderDisk(); loadSettings(); loadRuntimes(); loadTokens(); loadMcp(false); }
   if (b.dataset.tab === 'help') initHelp();
 });
 
@@ -17,6 +17,7 @@ async function refreshStatus() {
     $('status').innerHTML = `${esc(status.backend)} backend<br>${l.length} model(s) loaded`;
     const sel = $('p-model'), cur = sel.value;
     sel.innerHTML = '<option value="">(auto / load on demand)</option>' + l.filter(m => !m.isEmbedding).map(m => `<option>${esc(m.id)}</option>`).join('');
+    if (typeof addRemoteModels === 'function') await addRemoteModels(sel);
     if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur; else if (l.length) sel.value = l.find(m => !m.isEmbedding)?.id ?? '';
   } catch (e) { $('status').textContent = 'offline'; }
 }

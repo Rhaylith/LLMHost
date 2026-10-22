@@ -118,7 +118,8 @@ public partial class ApiServer
             if (ctx.Request.Method == "OPTIONS") { ctx.Response.StatusCode = 204; return; }
 
             bool guarded = ctx.Request.Path.StartsWithSegments("/v1") || ctx.Request.Path.StartsWithSegments("/api");
-            if (guarded)
+            if (guarded && await RefusedPeerAsync(ctx)) return;
+            if (guarded && !ctx.Items.ContainsKey("link.peer"))
             {
                 int denied = Auth.Authorize(ctx.Request, out string why);
                 if (denied != 0)
@@ -166,6 +167,7 @@ public partial class ApiServer
                         if (cfg.Logging.LogBodies) le.RequestBody = RequestLog.Clean(peek.ToJsonString());
                     }
                     string? tooMuch = RequestCaps.Check(peek, lim.MaxChoices, lim.MaxTokens);
+                    if (tooMuch == null && await TryProxyLinkAsync(ctx, peek)) return;
                     if (tooMuch != null) { await WriteError(ctx, 400, tooMuch, "invalid_request_error"); return; }
                 }
             }
@@ -197,15 +199,18 @@ public partial class ApiServer
         MapMcp(app);
         MapDocuments(app);
         MapLegacy(app);
+        MapLink(app);
         MapManagement(app);
 
         await app.StartAsync();
+        _linkTimer = new System.Threading.Timer(_ => { try { RefreshPeersAsync().GetAwaiter().GetResult(); } catch { } }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(30));
         _app = app;
         LogBuffer.Add("server", $"Listening on {Url}");
     }
 
     public async Task StopAsync()
     {
+        _linkTimer?.Dispose(); _linkTimer = null;
         var app = _app;
         _app = null;
         if (app != null) { await app.StopAsync(); await app.DisposeAsync(); }
@@ -296,7 +301,7 @@ public partial class ApiServer
         id = r.Identifier,
         @object = "model",
         created = new DateTimeOffset(r.LoadedAt).ToUnixTimeSeconds(),
-        owned_by = "llmhost",
+        owned_by = "llmhost", device = Link.DeviceName,
         state = "loaded",
         context_length = r.ContextSize,
         capabilities = r.Capabilities.ToApi(),
@@ -313,8 +318,11 @@ public partial class ApiServer
             {
                 string id = Path.GetFileNameWithoutExtension(m.FileName);
                 if (loaded.Any(l => l.Identifier == id)) continue;
-                data.Add(new { id, @object = "model", created = 0, owned_by = "local", state = "not-loaded", size = m.SizeBytes, capabilities = m.Capabilities.ToApi() });
+                data.Add(new { id, @object = "model", created = 0, owned_by = "local", state = "not-loaded", size = m.SizeBytes, capabilities = m.Capabilities.ToApi(), device = Link.DeviceName });
             }
+            if (Link.Enabled && !ctx.Items.ContainsKey("link.peer"))
+                foreach (var p in Link.Peers)
+                    foreach (var rm in Link.ModelsOf(p.Id)) data.Add(new { id = p.Name + "/" + rm.Id, @object = "model", created = 0, owned_by = p.Name, state = rm.Loaded ? "loaded" : "not-loaded", device = p.Name, remote = true });
             await WriteJson(ctx, new { @object = "list", data });
         });
 
@@ -1663,8 +1671,6 @@ public partial class ApiServer
                 live.Gpus.Where(g => g.ProcessDedicatedBytes.HasValue).Select(g => (g.Index.ToString(), g.ProcessDedicatedBytes!.Value))));
         });
 
-        // ---- linking devices: reserved (see §8.1); until it exists every call says so with 501
-        app.Map("/api/link/{**rest}", async ctx => await WriteError(ctx, 501, "Linking devices is not available in this build.", "link_unavailable"));
 
         // ---- chat folders
         object FolderDto(ChatFolder f) => new { f.Id, f.Name, f.ParentId, f.Order };

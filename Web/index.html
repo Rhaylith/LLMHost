@@ -158,6 +158,10 @@
   <h2>Hardware</h2>
   <div class="card" id="hw"></div>
   <div class="card" id="hwlive-card"><h2>Live load</h2><div id="hwlive-body" class="dim">Reading…</div></div>
+  <div class="card" id="link-card"><h2>Linked devices</h2>
+    <div class="dim">Use the models of your other computers as if they were here. Your devices must reach each other on a network you already have (a LAN, Tailscale, ZeroTier, WireGuard). Off by default; every device has to be paired with a short code, and each paired device only gets the permissions you give it.</div>
+    <div id="link-body" style="margin-top:8px"></div>
+  </div>
   <div class="card" id="net-card"><h2>Network and limits</h2>
     <div class="dim">Changes to the address list, limits and HTTPS apply after restarting the server (the list and request limits apply at once).</div>
     <div class="grid2">
@@ -500,6 +504,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/render.js"></script>
 <script src="/ui/chats.js"></script>
 <script src="/ui/chatsettings.js"></script>
+<script src="/ui/link.js"></script>
 <script src="/ui/requests.js"></script>
 <script src="/ui/presetshare.js"></script>
 <script src="/ui/panes.js"></script>

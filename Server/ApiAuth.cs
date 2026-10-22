@@ -40,6 +40,7 @@ public static class Scopes
         bool read = method.Equals("GET", StringComparison.OrdinalIgnoreCase) || method.Equals("HEAD", StringComparison.OrdinalIgnoreCase);
         if (path.StartsWith("/v1/embeddings") || path.StartsWith("/api/v0/embeddings")) return Embeddings;
         if (path == "/api/tls/cert") return null;
+        if (path == "/api/link/pair/accept") return null;                       // protected by the pairing code instead of a token
         if (path == "/metrics") return ModelsRead;                                // a public certificate is not a secret
         if (path.StartsWith("/api/v0/models")) return ModelsRead;
         if (path.StartsWith("/api/v0/")) return Chat;
