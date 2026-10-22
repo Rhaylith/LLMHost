@@ -317,6 +317,8 @@ public class AppSettings
     public string? HuggingFaceToken { get; set; }
     /// <summary>Optional address of a newer staff-picks list (catalog.json format). Empty = use only the built-in list.</summary>
     public string? CatalogUrl { get; set; }
+    /// <summary>Look for newer versions of downloaded models once a day (needs network access to Hugging Face). Off by default.</summary>
+    public bool CheckModelUpdates { get; set; }
     public bool AutoLoadOnRequest { get; set; } = true;
     /// <summary>Downloads running at the same time; the rest wait in the queue.</summary>
     public int MaxConcurrentDownloads { get; set; } = 2;
@@ -442,7 +444,7 @@ public class AppSettings
     {
         ModelsDirectory = other.ModelsDirectory; Host = other.Host; Port = other.Port; ApiKey = other.ApiKey; RequireAuth = other.RequireAuth;
         Cors = other.Cors; AnthropicApi = other.AnthropicApi; Backend = other.Backend;
-        CatalogUrl = other.CatalogUrl; HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest;
+        CatalogUrl = other.CatalogUrl; CheckModelUpdates = other.CheckModelUpdates; HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest;
         MaxConcurrentDownloads = Math.Clamp(other.MaxConcurrentDownloads, 1, 8);
         LimitToDedicatedGpuMemory = other.LimitToDedicatedGpuMemory;
         Runtime = string.IsNullOrWhiteSpace(other.Runtime) ? "auto" : other.Runtime;

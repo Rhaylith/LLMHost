@@ -261,6 +261,7 @@ public class ModelLibrary
                     f.Delete();
             }
             else File.Delete(m.Path);
+            try { File.Delete(ModelSidecar.PathFor(m.Path)); } catch { }
             _cache.Remove(m.Path);
             return true;
         }

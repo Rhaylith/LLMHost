@@ -124,6 +124,8 @@ public class AppHost : IDisposable
     public PresetStore Presets { get; } = new();
     public ModelDefaultsStore ModelDefaults { get; } = new();
     public McpManager Mcp { get; } = new();
+    public ModelUpdateChecker Updates { get; }
+    private readonly System.Threading.Timer _updateTimer;
     /// <summary>Completed when something (the API, a service stop) asks the process to shut down.</summary>
     public TaskCompletionSource Shutdown { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -134,11 +136,18 @@ public class AppHost : IDisposable
         Directory.CreateDirectory(Settings.ResolvedModelsDirectory);
         Models = new ModelManager(Library, ModelDefaults);
         Downloads = new DownloadManager { MaxConcurrent = Settings.MaxConcurrentDownloads };
+        Updates = new ModelUpdateChecker(Library);
+        // the daily check (when switched on): first one a few minutes after start, then every 24 hours
+        _updateTimer = new System.Threading.Timer(_ =>
+        {
+            if (!Settings.CheckModelUpdates) return;
+            try { Updates.CheckAsync().GetAwaiter().GetResult(); } catch (Exception ex) { LogBuffer.Add("download", "Update check failed: " + ex.Message); }
+        }, null, TimeSpan.FromMinutes(5), TimeSpan.FromHours(24));
     }
 
     /// <summary>Generation defaults for a request to <paramref name="modelId"/>: per-model settings, else the global ones.</summary>
     public GenerationOptions GenerationDefaultsFor(string? modelId) =>
         (modelId != null ? ModelDefaults.GenerationFor(modelId) : null) ?? Settings.DefaultGeneration;
 
-    public void Dispose() { Mcp.Dispose(); Models.Dispose(); }
+    public void Dispose() { _updateTimer.Dispose(); Mcp.Dispose(); Models.Dispose(); }
 }

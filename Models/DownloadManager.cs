@@ -41,6 +41,8 @@ public class DownloadJob
     public string? FinalPath { get; set; }
     public bool Verified { get; set; }
     public int Attempt { get; set; }
+    /// <summary>An update: the file that is already on disk is kept until the new one is complete and verified, then swapped in.</summary>
+    public bool Replace { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 
     internal CancellationTokenSource? Cts { get; set; }
@@ -64,6 +66,7 @@ internal class DownloadRecord
     public string? Error { get; set; }
     public string? FinalPath { get; set; }
     public bool Verified { get; set; }
+    public bool Replace { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -95,7 +98,7 @@ public class DownloadManager
 
     // ------------------------------------------------------------------ creating jobs
 
-    public DownloadJob Start(RemoteFile file, bool includeMmproj = true)
+    public DownloadJob Start(RemoteFile file, bool includeMmproj = true, bool replace = false)
     {
         var existing = _jobs.Values.FirstOrDefault(j => j.Repo == file.Repo && j.FileName == file.FileName
                                                         && j.State is DownloadState.Queued or DownloadState.Downloading or DownloadState.Paused);
@@ -117,11 +120,11 @@ public class DownloadManager
         string[] repoParts = file.Repo.Split('/');
         string destDir = Path.Combine(AppSettings.Current.ResolvedModelsDirectory, repoParts[0], repoParts.Length > 1 ? repoParts[1] : "_");
         long total = includeMmproj && file.MmprojFile != null ? file.TotalDownloadBytes : file.SizeBytes;
-        return Enqueue(file.Repo, file.FileName, parts, destDir, total);
+        return Enqueue(file.Repo, file.FileName, parts, destDir, total, replace);
     }
 
     /// <summary>Downloads an arbitrary GGUF URL (not necessarily Hugging Face).</summary>
-    public DownloadJob StartUrl(string url, string? publisher = null, string? sha256 = null)
+    public DownloadJob StartUrl(string url, string? publisher = null, string? sha256 = null, bool replace = false)
     {
         var uri = new Uri(url);
         string name = Path.GetFileName(Uri.UnescapeDataString(uri.AbsolutePath));
@@ -130,18 +133,18 @@ public class DownloadManager
         string pub = Sanitize(publisher ?? uri.Host);
         string destDir = Path.Combine(AppSettings.Current.ResolvedModelsDirectory, pub, Sanitize(Path.GetFileNameWithoutExtension(name)));
         var part = new DownloadPart { Name = name, Url = url, Sha256 = string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim().ToLowerInvariant() };
-        return Enqueue(pub + "/" + Path.GetFileNameWithoutExtension(name), name, new List<DownloadPart> { part }, destDir, 0);
+        return Enqueue(pub + "/" + Path.GetFileNameWithoutExtension(name), name, new List<DownloadPart> { part }, destDir, 0, replace);
     }
 
     private static string Sanitize(string s) =>
         string.Concat(s.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '_')).Trim('.');
 
-    private DownloadJob Enqueue(string repo, string fileName, List<DownloadPart> parts, string destDir, long total)
+    private DownloadJob Enqueue(string repo, string fileName, List<DownloadPart> parts, string destDir, long total, bool replace = false)
     {
         var job = new DownloadJob
         {
             Repo = repo, FileName = fileName, Parts = parts, DestinationDirectory = destDir, TotalBytes = total,
-            Sequence = Interlocked.Increment(ref _sequence),
+            Sequence = Interlocked.Increment(ref _sequence), Replace = replace,
         };
         _jobs[job.Id] = job;
         Persist();
@@ -257,7 +260,7 @@ public class DownloadManager
                 {
                     Id = j.Id, Sequence = j.Sequence, Repo = j.Repo, FileName = j.FileName, Parts = j.Parts,
                     DestinationDirectory = j.DestinationDirectory, State = j.State.ToString(), TotalBytes = j.TotalBytes,
-                    Error = j.Error, FinalPath = j.FinalPath, Verified = j.Verified, CreatedAt = j.CreatedAt,
+                    Error = j.Error, FinalPath = j.FinalPath, Verified = j.Verified, CreatedAt = j.CreatedAt, Replace = j.Replace,
                 }).ToList();
                 Directory.CreateDirectory(Path.GetDirectoryName(_stateFile)!);
                 File.WriteAllText(_stateFile, JsonSerializer.Serialize(records, Json.Options));
@@ -280,7 +283,7 @@ public class DownloadManager
                 var j = new DownloadJob
                 {
                     Id = r.Id, Sequence = r.Sequence, Repo = r.Repo, FileName = r.FileName, Parts = r.Parts,
-                    DestinationDirectory = r.DestinationDirectory, TotalBytes = r.TotalBytes, CreatedAt = r.CreatedAt,
+                    DestinationDirectory = r.DestinationDirectory, TotalBytes = r.TotalBytes, CreatedAt = r.CreatedAt, Replace = r.Replace,
                     // jobs that were running come back paused; the server resumes them (see ResumeInterrupted)
                     State = wasActive ? DownloadState.Paused : state,
                     Error = r.Error, FinalPath = r.FinalPath, Verified = r.Verified,
@@ -303,7 +306,7 @@ public class DownloadManager
             string final = Path.Combine(job.DestinationDirectory, p.FileName);
             try
             {
-                if (File.Exists(final)) n += new FileInfo(final).Length;
+                if (File.Exists(final) && !job.Replace) n += new FileInfo(final).Length;
                 else if (File.Exists(final + ".part")) n += new FileInfo(final + ".part").Length;
             }
             catch { }
@@ -312,6 +315,26 @@ public class DownloadManager
     }
 
     // ------------------------------------------------------------------ the transfer
+
+    /// <summary>Writes the <c>.llmhost.json</c> next to a finished Hugging Face download (see <see cref="ModelSidecar"/>); the commit is looked up in the background.</summary>
+    private static void RememberOrigin(DownloadJob job)
+    {
+        if (job.Parts.Count == 0 || !job.Parts[0].Url.StartsWith("https://huggingface.co/", StringComparison.OrdinalIgnoreCase) || !HuggingFace.ValidRepo(job.Repo)) return;
+        string path = Path.Combine(job.DestinationDirectory, job.Parts[0].FileName);
+        var sha = job.Parts.ToDictionary(p => p.Name, p => string.IsNullOrEmpty(p.Sha256) ? null : p.Sha256);
+        var sidecar = new ModelSidecar(job.Repo, job.Parts[0].FileName, sha, null, DateTime.UtcNow);
+        sidecar.Write(path);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                var info = await HuggingFace.GetRepoInfoAsync(job.Repo, cts.Token);
+                if (info?.Sha != null) (sidecar with { Revision = info.Sha }).Write(path);
+            }
+            catch { /* the revision is a nicety; the hashes already decide */ }
+        });
+    }
 
     private static bool Retryable(Exception ex) => ex switch
     {
@@ -335,7 +358,7 @@ public class DownloadManager
             foreach (var p in job.Parts)
             {
                 string final = Path.Combine(job.DestinationDirectory, p.FileName);
-                if (File.Exists(final)) continue;
+                if (File.Exists(final) && !job.Replace) continue;
                 long have = File.Exists(final + ".part") ? new FileInfo(final + ".part").Length : 0;
                 if (p.Size > 0) missing += Math.Max(0, p.Size - have);
             }
@@ -361,6 +384,7 @@ public class DownloadManager
             job.Note = null;
             job.State = DownloadState.Completed;
             job.Verified = job.Parts.All(p => !string.IsNullOrEmpty(p.Sha256) && p.Checked);
+            RememberOrigin(job);
             LogBuffer.Add("download", $"Completed {job.Repo}/{job.FileName}" + (job.Verified ? " (SHA-256 verified)" : ""));
         }
         catch (OperationCanceledException)
@@ -394,7 +418,7 @@ public class DownloadManager
     private async Task DownloadPartWithRetryAsync(DownloadJob job, DownloadPart part, CancellationToken ct)
     {
         string final = Path.Combine(job.DestinationDirectory, part.FileName);
-        if (File.Exists(final)) return;
+        if (File.Exists(final) && !job.Replace) return;
 
         for (int attempt = 1; ; attempt++)
         {

@@ -222,7 +222,7 @@ dialog::backdrop{background:#0008}
       <div><label>Max concurrent downloads</label><input type="number" id="s-maxdl" min="1" max="8"></div>
       <div><label>Update feed URL (JSON with version, url, notes; blank = none)</label><input id="s-feed" placeholder="https://example.com/llmhost/latest.json"></div>
       <div><label>Staff-picks list URL (catalog.json format; blank = built-in list only)</label><input id="s-catalog" placeholder="https://example.com/llmhost/catalog.json"></div>
-      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0" title="Once a day, compares your downloaded models with Hugging Face"><input type="checkbox" id="s-modelupd" style="width:auto"> Check downloaded models for newer versions daily</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
       <div><label>Load guardrail (refuse loads that exceed memory)</label><select id="s-guard"><option value="off">off</option><option value="balanced">balanced</option><option value="strict">strict</option></select></div>
       <div><label>&nbsp;</label><label style="margin:6px 0" title="Integrated GPUs then stop borrowing system RAM"><input type="checkbox" id="s-dedicated" style="width:auto"> Limit offload to dedicated GPU memory</label></div>
       <div><label>&nbsp;</label><label style="margin:6px 0" title="Open the prompt-template section of the load dialog by default"><input type="checkbox" id="s-showtpl" style="width:auto"> Always show the prompt template when loading</label></div>
@@ -943,8 +943,9 @@ async function refreshModels() {
     status.loaded.map(m => `<tr><td>${esc(m.id)} ${m.vision ? '<span class="tag">vision</span>' : ''}</td><td class="ok">${m.device.toUpperCase()}</td><td>${m.gpuLayers >= 999 ? 'all' : m.gpuLayers}</td><td>${m.threads}</td><td>${m.contextSize}</td><td>${fmt(m.sizeBytes)}</td><td>${m.requests}</td>
       <td style="white-space:nowrap">${m.isEmbedding ? '' : `<button class="b sec" title="Open PowerShell with Claude Code using this model" onclick='launchClaudeCode(${JSON.stringify(m.id)})'>Claude Code</button> `}<button class="b sec" title="Load a second instance of this model (shares the weights; own context and settings)" onclick='loadAnother(${JSON.stringify(m.modelId)})'>+ instance</button> <button class="b sec" title="Measure generation speed at several thread counts" onclick='testThreads(${JSON.stringify(m.id)}, this)'>Test threads</button> <button class="b sec" onclick="unload('${esc(m.id)}')">Eject</button></td></tr>`).join('') + '</table>' : '<span class="dim">Nothing loaded.</span>';
   const local = await api('/api/models/local');
-  $('local').innerHTML = local.length ? `<table><tr><th>Model</th><th>Arch</th><th>Quant</th><th>Context</th><th>Size</th><th></th></tr>` +
-    local.map(m => `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)}</td><td>${esc(m.architecture)}</td><td>${esc(m.quantization)}</td><td>${m.contextLength || ''}</td><td>${fmt(m.sizeBytes)}</td>
+  updateMap = Object.fromEntries(((await api('/api/models/updates').catch(() => ({results: []}))).results || []).map(r => [r.modelId, r]));
+  $('local').innerHTML = local.length ? `<div class="row" style="margin-bottom:6px"><button class="b sec" title="Compare your downloaded files with Hugging Face" onclick="checkUpdates(this)">Check for updates</button><span class="dim" id="upd-msg"></span></div><table><tr><th>Model</th><th>Arch</th><th>Quant</th><th>Context</th><th>Size</th><th></th></tr>` +
+    local.map(m => `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)} ${updateBadge(m)}</td><td>${esc(m.architecture)}</td><td>${esc(m.quantization)}</td><td>${m.contextLength || ''}</td><td>${fmt(m.sizeBytes)}</td>
       <td style="white-space:nowrap">${m.loadedAs ? '<span class="ok">loaded</span>' : `<button class="b" onclick='openLoad(${JSON.stringify(m.id)}, ${m.isEmbedding})'>Load</button>`}
       <button class="b sec" title="Default load and inference settings for this model" onclick='openLoad(${JSON.stringify(m.id)}, ${m.isEmbedding}, "defaults")'>⚙</button>
       <button class="b sec" title="Architecture, licence and capabilities" onclick='showLocalInfo(${JSON.stringify(m.id)})'>Details</button>
@@ -1220,6 +1221,29 @@ function mdLite(md) {
        .replace(/<!--[\s\S]*?-->/g, '');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<pre>' + blocks[i] + '</pre>');
 }
+// ---------------------------------------------------------------- model update check
+let updateMap = {};
+function updateBadge(m) {
+  const u = updateMap[m.id];
+  if (!u) return '';
+  if (u.status === 'update') return `<span class="tag warn" title="${esc(u.message || '')}">update available</span> <button class="b sec" ${m.loadedAs ? 'disabled title="Eject the model first"' : ''} onclick='applyUpdate(${JSON.stringify(m.id)}, this)'>Update</button>`;
+  if (u.status === 'renamed') return `<span class="tag warn" title="${esc(u.message || '')}">repo moved</span>`;
+  if (u.status === 'missing') return `<span class="tag warn" title="${esc(u.message || '')}">not in repo any more</span>`;
+  if (u.status === 'current') return '<span class="tag" title="Same checksum as Hugging Face">up to date</span>';
+  if (u.status === 'error') return `<span class="tag err" title="${esc(u.message || '')}">check failed</span>`;
+  return '<span class="tag" title="' + esc(u.message || '') + '">unknown</span>';
+}
+async function checkUpdates(btn) {
+  btn.disabled = true; $('upd-msg').textContent = 'Checking…';
+  try { const r = await api('/api/models/updates/check', {method:'POST', body:{}}); await refreshModels(); $('upd-msg').textContent = r.updatesAvailable.length ? r.updatesAvailable.length + ' update(s) available' : 'Everything is up to date (or unknown).'; }
+  catch (e) { $('upd-msg').textContent = e.message; btn.disabled = false; }
+}
+async function applyUpdate(id, btn) {
+  if (!confirm('Download the newer version of ' + id + '? The current file stays until the new one is complete and verified.')) return;
+  btn.disabled = true;
+  try { await api('/api/models/updates/apply', {method:'POST', body:{id}}); refreshDownloads(); }
+  catch (e) { alert(e.message); btn.disabled = false; }
+}
 // ---------------------------------------------------------------- gated models and the Hugging Face token
 function openExternal(url) { if (/^https:\/\/huggingface\.co\//.test(url || '')) window.open(url, '_blank', 'noopener,noreferrer'); }
 function errHtml(e, retry) {
@@ -1399,7 +1423,7 @@ async function loadSettings() {
   $('s-modelsdir').value = s.modelsDirectory || ''; $('s-modelsdir').placeholder = status.modelsDirectory + ' (default: DownloadedModels in the working directory)'; $('s-hftoken').value = s.huggingFaceToken || '';
   $('s-cors').checked = s.cors; $('s-anthropic').checked = s.anthropicApi; $('s-autoload').checked = s.autoLoadOnRequest;
   $('s-maxdl').value = s.maxConcurrentDownloads || 2;
-  $('s-catalog').value = s.catalogUrl || '';   $('s-feed').value = s.updateFeedUrl || ''; $('s-updates').checked = !!s.checkUpdates; $("s-tray").checked = !!s.minimizeToTray; $('s-debug').checked = !!s.debugRequests; $('s-reastext').checked = s.anthropicReasoningAsText !== false;
+  $('s-catalog').value = s.catalogUrl || '';   $('s-feed').value = s.updateFeedUrl || ''; $('s-updates').checked = !!s.checkUpdates; $('s-modelupd').checked = !!s.checkModelUpdates; $("s-tray").checked = !!s.minimizeToTray; $('s-debug').checked = !!s.debugRequests; $('s-reastext').checked = s.anthropicReasoningAsText !== false;
   $('s-guard').value = s.loadGuardrail || 'balanced'; $('s-dedicated').checked = !!s.limitToDedicatedGpuMemory;
   $('s-showtpl').checked = !!s.alwaysShowTemplate;
   window._settings = s;
@@ -1568,7 +1592,7 @@ async function saveSettings() {
   s.modelsDirectory = $('s-modelsdir').value.trim() || null; s.huggingFaceToken = $('s-hftoken').value || null;
   s.cors = $('s-cors').checked; s.anthropicApi = $('s-anthropic').checked; s.autoLoadOnRequest = $('s-autoload').checked;
   s.maxConcurrentDownloads = Number($('s-maxdl').value) || 2; s.requireAuth = $('s-auth').checked;
-  s.catalogUrl = $('s-catalog').value.trim() || null;   s.updateFeedUrl = $('s-feed').value.trim() || null; s.checkUpdates = $('s-updates').checked; s.minimizeToTray = $('s-tray').checked; s.debugRequests = $('s-debug').checked; s.anthropicReasoningAsText = $('s-reastext').checked;
+  s.catalogUrl = $('s-catalog').value.trim() || null;   s.updateFeedUrl = $('s-feed').value.trim() || null; s.checkUpdates = $('s-updates').checked; s.checkModelUpdates = $('s-modelupd').checked; s.minimizeToTray = $('s-tray').checked; s.debugRequests = $('s-debug').checked; s.anthropicReasoningAsText = $('s-reastext').checked;
   s.loadGuardrail = $('s-guard').value; s.limitToDedicatedGpuMemory = $('s-dedicated').checked;
   s.alwaysShowTemplate = $('s-showtpl').checked;
   $('s-load').querySelectorAll('[data-k]').forEach(el => { const k = el.dataset.k; s.defaultLoad[k] = el.tagName === 'SELECT' ? el.value : (el.value === '' ? null : (isNaN(el.value) ? el.value : Number(el.value))); });

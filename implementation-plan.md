@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow (17 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check (18 of ~50).
 
 ---
 
@@ -339,7 +339,7 @@ Deviations: no `Poll` option and no `llama_numa_init` (LLamaSharp does not expos
 
 **As built:** `HuggingFace.WhoAmIAsync` and `POST /api/hf/whoami` (`{token?}`; checks the typed token before it is saved, or the saved one) report the account name or why the token is invalid; the Settings token field has a **Check** button. A 401/403 from the repo listing, the card, or the file download throws `GatedModelException`: the API answers **403 `{error:{type:"gated", code:"gated", repo, accessUrl}}`**, and a download job ends in the new state **`needs-access`** (JSON) with `accessUrl` instead of a generic failure. The UI shows "This model requires accepting a licence on Hugging Face" with **Open on Hugging Face** (https://huggingface.co only, `noopener`) and **Retry** in the file list, the detail drawer and the downloads list; a job can be resumed from that state. The token is stored with **DPAPI** (`Core/SecretStore.cs`, current Windows user, `dpapi:` prefix) in `settings.json`; it stays plain text in memory and in `GET /api/settings`. A clear-text token from an older version is encrypted the first time the file is read; a token that cannot be decrypted (other Windows user) is dropped with a log line. Deviation: the migration is done in `AppSettings.Load` instead of a numbered X1 step, because it depends on the Windows account, not on the file format.
 
-#### §3.4 Model update check — **M**
+#### ✅ §3.4 Model update check — **M**
 * At download time store `{repo, file, revision(sha), lfsSha256, etag}` in a sidecar `<file>.llmhost.json` (backfill for
   existing files by hashing is **not** done; those show "unknown").
 * `POST /api/models/updates/check` (and background daily check if enabled): for each tracked file query
@@ -347,6 +347,8 @@ Deviations: no `Poll` option and no `llama_numa_init` (LLamaSharp does not expos
   whose name changed (`-GGUF` successor via `modelId` redirect). Result `updatesAvailable[]`; UI badge in My Models;
   "Update" = new download job that replaces atomically (download to `.part`, verify SHA, swap, keep old until success).
 * Rate-limit and honour offline mode.
+
+**As built:** `Models/ModelUpdates.cs`. Every finished Hugging Face download writes `<file>.llmhost.json` (repo, file name, LFS SHA-256 of each part, later the repository's commit once it is known; deleted with the model). Files without one (downloaded earlier, imported) show **unknown**; they are not hashed afterwards. `POST /api/models/updates/check {id?}` asks the tree API once per repository (300 ms pause between repositories, gated/unreachable repos report `error`), compares the checksums (`ModelUpdateChecker.Compare`: current / update / missing / unknown, every shard of a split model must match) and notices a moved repository (`renamed`); `GET /api/models/updates` returns the last results and `POST /api/models/updates/apply {id}` starts the download of the newer file as a job with `Replace`: it goes to `.part`, is verified against the published SHA-256 and only then moved over the old file, so the old one survives a failed or cancelled update (refused while the model is loaded). `settings.checkModelUpdates` (off by default) runs the check five minutes after start and then daily. UI: "Check for updates" in My Models, a badge per model (update available + Update button, repo moved, not in repo any more, up to date, unknown) and the daily-check box in Settings. Deviation: "newer quant files of the same base name" are not reported (the tree API has no dates to say which quant is newer); there is no offline-mode switch to honour, the check is simply off unless asked for.
 
 #### §3.5 Models-directory management — **M**
 * Multiple library roots: `settings.modelsDirectories[]` (first = download target); `ModelLibrary` merges them, ids stay

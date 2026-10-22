@@ -918,6 +918,27 @@ public partial class ApiServer
             });
         });
 
+        // ---- model update check: last results, run a check now, and fetch the newer version of a file
+        app.MapGet("/api/models/updates", async ctx => await WriteJson(ctx, new { enabled = _host.Settings.CheckModelUpdates, results = _host.Updates.Last }));
+        app.MapPost("/api/models/updates/check", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var r = await _host.Updates.CheckAsync(body["id"]?.GetValue<string>(), ctx.RequestAborted);
+            await WriteJson(ctx, new { checkedCount = r.Count, updatesAvailable = r.Where(x => x.Status is "update" or "renamed").ToList(), results = r });
+        });
+        app.MapPost("/api/models/updates/apply", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var m = _host.Library.Find(body["id"]?.GetValue<string>() ?? "") ?? throw new FileNotFoundException("Model not found");
+            if (_host.Models.Loaded.Any(l => l.Model.Path == m.Path)) { await WriteError(ctx, 400, "Unload the model before updating it", "invalid_request_error"); return; }
+            var sc = ModelSidecar.Read(m.Path) ?? throw new InvalidOperationException("The origin of this file is not known, so there is nothing to compare or fetch.");
+            var file = (await HuggingFace.ListFilesAsync(sc.Repo, ctx.RequestAborted))
+                .FirstOrDefault(f => f.Shards.Contains(sc.FileName, StringComparer.OrdinalIgnoreCase) || f.FileName.Equals(sc.FileName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new FileNotFoundException("The file is no longer in the repository.");
+            // the old files stay until the new ones are complete and verified, then they are swapped in
+            await WriteJson(ctx, JobDto(_host.Downloads.Start(file, includeMmproj: m.MmprojPath != null, replace: true)));
+        });
+
         // card data + README of a Hugging Face repository (cached 24 h)
         app.MapGet("/api/models/card", async ctx =>
         {
