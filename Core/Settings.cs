@@ -304,6 +304,26 @@ public class AppSettings
             return full;
         }
     }
+    /// <summary>More library folders that are read like the main one (models are found there, downloads and imports go to <see cref="ModelsDirectory"/>).</summary>
+    public List<string> ExtraModelsDirectories { get; set; } = new();
+
+    /// <summary>All library folders, the download target first. The first folder wins when the same id exists in two of them.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ModelRoots
+    {
+        get
+        {
+            var roots = new List<string> { ResolvedModelsDirectory };
+            foreach (var raw in ExtraModelsDirectories ?? new())
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                string full;
+                try { full = Path.GetFullPath(raw); } catch { continue; }
+                if (!roots.Any(r => string.Equals(Path.TrimEndingDirectorySeparator(r), Path.TrimEndingDirectorySeparator(full), StringComparison.OrdinalIgnoreCase))) roots.Add(full);
+            }
+            return roots;
+        }
+    }
     public string Host { get; set; } = "127.0.0.1";
     public int Port { get; set; } = 1234;
     public string? ApiKey { get; set; }
@@ -442,7 +462,7 @@ public class AppSettings
 
     public void Replace(AppSettings other)
     {
-        ModelsDirectory = other.ModelsDirectory; Host = other.Host; Port = other.Port; ApiKey = other.ApiKey; RequireAuth = other.RequireAuth;
+        ModelsDirectory = other.ModelsDirectory; ExtraModelsDirectories = other.ExtraModelsDirectories ?? new(); Host = other.Host; Port = other.Port; ApiKey = other.ApiKey; RequireAuth = other.RequireAuth;
         Cors = other.Cors; AnthropicApi = other.AnthropicApi; Backend = other.Backend;
         CatalogUrl = other.CatalogUrl; CheckModelUpdates = other.CheckModelUpdates; HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest;
         MaxConcurrentDownloads = Math.Clamp(other.MaxConcurrentDownloads, 1, 8);

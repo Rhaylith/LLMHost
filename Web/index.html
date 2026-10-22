@@ -201,6 +201,14 @@ dialog::backdrop{background:#0008}
   <h2>Hardware</h2>
   <div class="card" id="hw"></div>
   <div class="card" id="hwlive-card"><h2>Live load</h2><div id="hwlive-body" class="dim">Reading…</div></div>
+  <div class="card" id="disk-card"><h2>Model folders and disk</h2>
+    <div id="disk-body" class="dim">Reading…</div>
+    <div class="row" style="margin-top:8px"><input id="dir-add" placeholder="Another folder with models (read like the main one)"><button class="b sec" onclick="dirAdd()">Add folder</button></div>
+    <div class="row" style="margin-top:8px"><input id="dir-to" placeholder="New main folder, e.g. D:\Models">
+      <select id="dir-mode"><option value="move">move the files</option><option value="copy">copy the files</option><option value="switchOnly">only switch (files already there)</option></select>
+      <button class="b" onclick="dirMove()">Apply</button></div>
+    <div id="dir-job" class="dim" style="margin-top:6px"></div>
+  </div>
   <h2>MCP servers</h2>
   <div class="card" style="max-width:760px">
     <div class="dim" style="margin-bottom:6px">mcp.json (Cursor notation): local servers with command / args / env, remote servers with url / headers.</div>
@@ -507,7 +515,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('main > section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
   if (b.dataset.tab === 'models') { refreshModels(); refreshDownloads(); }
   if (b.dataset.tab === 'discover') { refreshDownloads(); renderCatalog(); }
-  if (b.dataset.tab === 'settings') { loadSettings(); loadRuntimes(); loadTokens(); loadMcp(false); }
+  if (b.dataset.tab === 'settings') { renderDisk(); loadSettings(); loadRuntimes(); loadTokens(); loadMcp(false); }
   if (b.dataset.tab === 'help') initHelp();
 });
 
@@ -942,9 +950,9 @@ async function refreshModels() {
   $('loaded').innerHTML = status.loaded.length ? `<table><tr><th>Model</th><th>Device</th><th>GPU layers</th><th>Threads</th><th>Context</th><th>Size</th><th>Requests</th><th></th></tr>` +
     status.loaded.map(m => `<tr><td>${esc(m.id)} ${m.vision ? '<span class="tag">vision</span>' : ''}</td><td class="ok">${m.device.toUpperCase()}</td><td>${m.gpuLayers >= 999 ? 'all' : m.gpuLayers}</td><td>${m.threads}</td><td>${m.contextSize}</td><td>${fmt(m.sizeBytes)}</td><td>${m.requests}</td>
       <td style="white-space:nowrap">${m.isEmbedding ? '' : `<button class="b sec" title="Open PowerShell with Claude Code using this model" onclick='launchClaudeCode(${JSON.stringify(m.id)})'>Claude Code</button> `}<button class="b sec" title="Load a second instance of this model (shares the weights; own context and settings)" onclick='loadAnother(${JSON.stringify(m.modelId)})'>+ instance</button> <button class="b sec" title="Measure generation speed at several thread counts" onclick='testThreads(${JSON.stringify(m.id)}, this)'>Test threads</button> <button class="b sec" onclick="unload('${esc(m.id)}')">Eject</button></td></tr>`).join('') + '</table>' : '<span class="dim">Nothing loaded.</span>';
-  const local = await api('/api/models/local');
+  const local = await api('/api/models/local'); if (localSort === 'size') local.sort((a, b) => b.sizeBytes - a.sizeBytes);
   updateMap = Object.fromEntries(((await api('/api/models/updates').catch(() => ({results: []}))).results || []).map(r => [r.modelId, r]));
-  $('local').innerHTML = local.length ? `<div class="row" style="margin-bottom:6px"><button class="b sec" title="Compare your downloaded files with Hugging Face" onclick="checkUpdates(this)">Check for updates</button><span class="dim" id="upd-msg"></span></div><table><tr><th>Model</th><th>Arch</th><th>Quant</th><th>Context</th><th>Size</th><th></th></tr>` +
+  $('local').innerHTML = local.length ? `<div class="row" style="margin-bottom:6px"><button class="b sec" title="Compare your downloaded files with Hugging Face" onclick="checkUpdates(this)">Check for updates</button><select title="Sort the list" onchange="localSort = this.value; refreshModels()"><option value="name"${localSort === 'name' ? ' selected' : ''}>by name</option><option value="size"${localSort === 'size' ? ' selected' : ''}>largest first</option></select><span class="dim" id="upd-msg"></span></div><table><tr><th>Model</th><th>Arch</th><th>Quant</th><th>Context</th><th>Size</th><th></th></tr>` +
     local.map(m => `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)} ${updateBadge(m)}</td><td>${esc(m.architecture)}</td><td>${esc(m.quantization)}</td><td>${m.contextLength || ''}</td><td>${fmt(m.sizeBytes)}</td>
       <td style="white-space:nowrap">${m.loadedAs ? '<span class="ok">loaded</span>' : `<button class="b" onclick='openLoad(${JSON.stringify(m.id)}, ${m.isEmbedding})'>Load</button>`}
       <button class="b sec" title="Default load and inference settings for this model" onclick='openLoad(${JSON.stringify(m.id)}, ${m.isEmbedding}, "defaults")'>⚙</button>
@@ -1221,8 +1229,48 @@ function mdLite(md) {
        .replace(/<!--[\s\S]*?-->/g, '');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<pre>' + blocks[i] + '</pre>');
 }
+// ---------------------------------------------------------------- model folders and disk usage
+async function renderDisk() {
+  try {
+    const d = await api('/api/models/disk');
+    const pct = r => r.totalBytes ? Math.round((1 - r.freeBytes / r.totalBytes) * 100) : 0;
+    $('disk-body').innerHTML = `<table><tr><th>Folder</th><th></th><th>Models</th><th>Size</th><th>Drive free</th><th></th></tr>` + d.roots.map(r =>
+      `<tr><td style="word-break:break-all">${esc(r.path)}${r.exists ? '' : ' <span class="err">missing</span>'}</td><td><span class="tag">${r.role === 'download' ? 'main' : 'extra'}</span></td><td>${r.modelCount}</td><td>${fmt(r.modelBytes)}</td>
+       <td>${fmt(r.freeBytes)} of ${fmt(r.totalBytes)} <span class="dim">(${pct(r)}% used)</span></td>
+       <td>${r.role === 'extra' ? `<button class="b sec" onclick='dirRemove(${JSON.stringify(r.path)})'>Remove</button>` : ''}</td></tr>`).join('') + '</table>'
+      + (d.largest.length ? '<h4>Largest models</h4>' + d.largest.map(m => `<div>${fmt(m.bytes)} · ${esc(m.id)}</div>`).join('') : '')
+      + (d.partials.length ? `<div style="margin-top:8px"><span class="warn">${d.partials.length} leftover partial download(s), ${fmt(d.partials.reduce((a, p) => a + p.bytes, 0))}</span> <button class="b sec" onclick="cleanPartials()">Delete them</button></div>` : '');
+  } catch (e) { $('disk-body').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+async function dirAdd() {
+  const path = $('dir-add').value.trim(); if (!path) return;
+  try { await api('/api/models/directory/add', {method:'POST', body:{path}}); $('dir-add').value = ''; renderDisk(); refreshModels(); } catch (e) { alert(e.message); }
+}
+async function dirRemove(path) { try { await api('/api/models/directory/remove', {method:'POST', body:{path}}); renderDisk(); refreshModels(); } catch (e) { alert(e.message); } }
+async function cleanPartials() { try { const r = await api('/api/models/disk/clean-partials', {method:'POST'}); alert('Deleted ' + r.deleted + ' file(s), ' + fmt(r.bytes)); renderDisk(); } catch (e) { alert(e.message); } }
+let dirTimer = null;
+async function dirMove() {
+  const to = $('dir-to').value.trim(); if (!to) return;
+  const mode = $('dir-mode').value;
+  if (mode !== 'switchOnly' && !confirm((mode === 'move' ? 'Move' : 'Copy') + ' all model files to ' + to + '?')) return;
+  try { await api('/api/models/directory/move', {method:'POST', body:{to, mode}}); pollMove(); } catch (e) { $('dir-job').className = 'err'; $('dir-job').textContent = e.message; }
+}
+async function pollMove() {
+  clearTimeout(dirTimer);
+  const j = await api('/api/models/directory/move').catch(() => null);
+  if (!j || j.state === 'none') return;
+  const el = $('dir-job');
+  if (j.state === 'running') {
+    el.className = 'dim'; el.innerHTML = `${esc(j.mode)}: ${(j.progress * 100).toFixed(1)}% · ${j.filesDone}/${j.files} files · ${esc(j.current || '')} <button class="b sec" onclick="api('/api/models/directory/move',{method:'DELETE'})">Cancel</button>`;
+    dirTimer = setTimeout(pollMove, 700);
+  } else {
+    el.className = j.state === 'completed' ? 'ok' : 'err';
+    el.textContent = j.state === 'completed' ? 'The main folder is now ' + j.to : (j.error || j.state);
+    renderDisk(); refreshModels();
+  }
+}
 // ---------------------------------------------------------------- model update check
-let updateMap = {};
+let updateMap = {}, localSort = 'name';
 function updateBadge(m) {
   const u = updateMap[m.id];
   if (!u) return '';

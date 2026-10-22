@@ -21,6 +21,8 @@ public class LocalModel
     public bool SupportsVision => MmprojPath != null;
     /// <summary>A LoRA adapter, not a model: it is listed separately and applied on top of a model of the same architecture.</summary>
     public bool IsAdapter { get; set; }
+    /// <summary>The library folder the file was found in.</summary>
+    public string Root { get; set; } = "";
     /// <summary>Vision / audio / tools / reasoning / embedding / MoE / rerank, derived from the GGUF headers.</summary>
     public ModelCapabilities Capabilities { get; set; } = ModelCapabilities.None;
 }
@@ -62,9 +64,15 @@ public class ModelLibrary
 
     private IReadOnlyList<LocalModel> Scan()
     {
-        var dir = Directory;
         var result = new List<LocalModel>();
-        if (!System.IO.Directory.Exists(dir)) return result;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);                  // the first folder wins for an id that exists twice
+        foreach (var root in AppSettings.Current.ModelRoots) ScanRoot(root, seen, result);
+        return result.OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private void ScanRoot(string dir, HashSet<string> seen, List<LocalModel> result)
+    {
+        if (!System.IO.Directory.Exists(dir)) return;
         foreach (var file in System.IO.Directory.EnumerateFiles(dir, "*.gguf", SearchOption.AllDirectories))
         {
             string name = System.IO.Path.GetFileName(file);
@@ -85,11 +93,12 @@ public class ModelLibrary
                 size = fi.Directory!.EnumerateFiles(prefix + "-*-of-*.gguf").Sum(f => f.Length);
             }
             var rel = System.IO.Path.GetRelativePath(dir, file).Replace('\\', '/');
+            if (!seen.Add(rel)) continue;
             var info = c.Info;
             string? mmproj = FindMmproj(file);
             result.Add(new LocalModel
             {
-                Id = rel,
+                Id = rel, Root = dir,
                 Path = file,
                 FileName = name,
                 SizeBytes = size,
@@ -106,7 +115,6 @@ public class ModelLibrary
                 Capabilities = ModelCapabilities.From(info, MmprojInfo(mmproj), name),
             });
         }
-        return result.OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     /// <summary>Header of a projector file (cached like the models). An unreadable projector still counts as vision.</summary>

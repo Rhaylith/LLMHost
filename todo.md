@@ -73,7 +73,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P2** Discover filters/sorting (size, quantization, family, downloads, updated, "fits my GPU"), pagination, updatable curated "staff picks"
 - [x] **P2** Gated-model flow (token validation, access-request guidance)
 - [x] **P2** Model update check (newer revision/quant available)
-- [ ] **P2** Models-directory management (change/move, multiple folders, disk usage per model)
+- [x] **P2** Models-directory management (change/move, multiple folders, disk usage per model)
 - [ ] **P3** `model.yaml` support (virtual model definitions, metadata overrides, suggested configs) and publishing
 - [ ] **P3** Aliases / favourites / tags / folders in "My Models"
 

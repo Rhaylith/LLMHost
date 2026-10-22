@@ -194,6 +194,7 @@ public class Shell
         const string text = """
             Models
               ls [--json]                list downloaded models
+              models dir [add|remove|move|switch|clean]   library folders, disk usage, move or copy the models folder
               catalog [filter]           curated list of major model families
               search <query>             search Hugging Face for GGUF models
               files <repo|key>           list quantizations in a repository
@@ -271,8 +272,43 @@ public class Shell
         return true;
     }
 
+    /// <summary>models dir [list | add &lt;path&gt; | remove &lt;path&gt; | move &lt;path&gt; [--copy] | switch &lt;path&gt; | clean]</summary>
+    private bool ModelsDir(Args a)
+    {
+        string sub = a.Positional.Count > 1 ? a.Positional[1].ToLowerInvariant() : "list";
+        string? path = a.Positional.Count > 2 ? a.Positional[2] : null;
+        var dirs = _host.Directories;
+        switch (sub)
+        {
+            case "list": case "ls":
+            {
+                var r = dirs.Report();
+                Ui.Table(r.Roots.Select(x => new[] { x.Path, x.Role == "download" ? "main" : "extra", x.ModelCount.ToString(), Ui.Bytes(x.ModelBytes), Ui.Bytes(x.FreeBytes) + " free", x.Exists ? "" : Ui.Red("missing") }),
+                    "FOLDER", "ROLE", "MODELS", "SIZE", "DRIVE", "");
+                foreach (var m in r.Largest.Take(5)) Ui.Info(Ui.Dim($"  {Ui.Bytes(m.Bytes),10}  {m.Id}"));
+                if (r.Partials.Count > 0) Ui.Info(Ui.Yellow($"{r.Partials.Count} leftover partial download(s), {Ui.Bytes(r.Partials.Sum(p => p.Bytes))}: 'models dir clean' removes them."));
+                return true;
+            }
+            case "add": dirs.AddRoot(path ?? throw new ArgumentException("models dir add <path>")); Ui.Info("Added."); return true;
+            case "remove": case "rm": dirs.RemoveRoot(path ?? throw new ArgumentException("models dir remove <path>")); Ui.Info("Removed."); return true;
+            case "clean": { var (n, b) = dirs.CleanPartials(); Ui.Info($"Deleted {n} file(s), {Ui.Bytes(b)}."); return true; }
+            case "move": case "switch":
+            {
+                string mode = sub == "switch" ? "switchOnly" : a.Flag("copy") ? "copy" : "move";
+                var job = dirs.StartMove(path ?? throw new ArgumentException($"models dir {sub} <path>"), mode);
+                while (job.State == "running") { Console.Write($"\r{job.Progress * 100:0.0}% {job.FilesDone}/{job.Files} files   "); Thread.Sleep(300); }
+                Console.WriteLine();
+                if (job.State != "completed") { Ui.Error(job.Error ?? job.State); return false; }
+                Ui.Info($"The main folder is now {job.To}.");
+                return true;
+            }
+            default: Ui.Error("models dir [list | add <path> | remove <path> | move <path> [--copy] | switch <path> | clean]"); return false;
+        }
+    }
+
     private bool ListModels(Args a)
     {
+        if (a.Positional.FirstOrDefault()?.Equals("dir", StringComparison.OrdinalIgnoreCase) == true) return ModelsDir(a);
         if (a.Flag("json"))
         {
             var loadedJson = _host.Models.Loaded;

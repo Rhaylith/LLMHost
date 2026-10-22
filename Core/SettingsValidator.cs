@@ -42,6 +42,11 @@ public static class SettingsValidator
             try { Path.GetFullPath(s.ModelsDirectory); }
             catch { e.Add(new("modelsDirectory", "Models folder is not a valid path.")); }
         }
+        for (int i = 0; i < (s.ExtraModelsDirectories?.Count ?? 0); i++)
+        {
+            try { Path.GetFullPath(s.ExtraModelsDirectories![i]); }
+            catch { e.Add(new($"extraModelsDirectories[{i}]", "Not a valid folder path.")); }
+        }
 
         if (s.Logging == null) e.Add(new("logging", "Missing."));
         else

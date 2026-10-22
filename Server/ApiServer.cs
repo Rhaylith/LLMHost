@@ -918,6 +918,36 @@ public partial class ApiServer
             });
         });
 
+        // ---- model folders: usage, extra library folders, move / copy of the main folder, stale partial downloads
+        object MoveDto(MoveJob? j) => j == null ? new { state = "none" } : new { j.Id, j.From, j.To, j.Mode, j.State, j.TotalBytes, bytesDone = Interlocked.Read(ref j.BytesDone), j.Files, j.FilesDone, j.Current, j.Error, j.Progress };
+        app.MapGet("/api/models/disk", async ctx =>
+        {
+            var r = _host.Directories.Report();
+            await WriteJson(ctx, new { main = _host.Settings.ResolvedModelsDirectory, r.Roots, r.Largest, r.Partials, r.TotalModelBytes });
+        });
+        app.MapPost("/api/models/disk/clean-partials", async ctx =>
+        {
+            var (files, bytes) = _host.Directories.CleanPartials();
+            await WriteJson(ctx, new { deleted = files, bytes });
+        });
+        app.MapPost("/api/models/directory/add", async ctx =>
+        {
+            _host.Directories.AddRoot((await ReadBody(ctx))["path"]?.GetValue<string>() ?? "");
+            await WriteJson(ctx, new { roots = _host.Settings.ModelRoots });
+        });
+        app.MapPost("/api/models/directory/remove", async ctx =>
+        {
+            _host.Directories.RemoveRoot((await ReadBody(ctx))["path"]?.GetValue<string>() ?? "");
+            await WriteJson(ctx, new { roots = _host.Settings.ModelRoots });
+        });
+        app.MapPost("/api/models/directory/move", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            await WriteJson(ctx, MoveDto(_host.Directories.StartMove(body["to"]?.GetValue<string>() ?? "", body["mode"]?.GetValue<string>() ?? "move")));
+        });
+        app.MapGet("/api/models/directory/move", async ctx => await WriteJson(ctx, MoveDto(_host.Directories.Last)));
+        app.MapDelete("/api/models/directory/move", async ctx => await WriteJson(ctx, new { cancelled = _host.Directories.CancelMove() }));
+
         // ---- model update check: last results, run a check now, and fetch the newer version of a file
         app.MapGet("/api/models/updates", async ctx => await WriteJson(ctx, new { enabled = _host.Settings.CheckModelUpdates, results = _host.Updates.Last }));
         app.MapPost("/api/models/updates/check", async ctx =>
