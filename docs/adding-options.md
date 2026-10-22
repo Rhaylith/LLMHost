@@ -40,3 +40,7 @@ The original file is kept as `<file>.bak-v<old>` before it is rewritten.
 * "Unset" is `null` (or `0` for counts where 0 is meaningless) and means *use the model / engine default*.
 * Strings with a fixed set of values (`"auto" | "on" | "off"`) are validated in step 3, never silently coerced.
 * A new option must not change behaviour for existing users unless they set it.
+
+## Interface modes
+
+Every control that is not for everyone gets a line in the `FEATURES` table of `Web/ui/features.js` (selector, and the lowest mode that shows it: `user`, `power` or `developer`). Controls above the chosen mode are hidden with CSS, never disabled; a control that is not in the table is always shown. `InterfaceModePageTests` checks that every entry still points at something on the page.

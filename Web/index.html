@@ -22,6 +22,7 @@
     <span id="hwlive-text">…</span><canvas id="hwlive-spark" width="90" height="20"></canvas>
   </div>
   <div id="status">…</div>
+  <label class="dim" style="font-size:12px;padding:0 6px 6px" title="How much of the interface is shown: User = chat and models; Power = adds samplers, presets, per-model settings; Developer = adds server settings, tokens, MCP and logs">Mode <select id="ui-mode" style="width:100%"><option value="user">User</option><option value="power">Power user</option><option value="developer">Developer</option></select></label>
 </nav>
 <main>
 <!-- ======================== CHAT ======================== -->
@@ -155,6 +156,7 @@
 
 <!-- ======================== SETTINGS ======================== -->
 <section id="settings" class="col">
+  <input id="set-search" placeholder="Search all settings (ignores the mode)…" style="max-width:420px;margin-bottom:8px">
   <h2>Hardware</h2>
   <div class="card" id="hw"></div>
   <div class="card" id="hwlive-card"><h2>Live load</h2><div id="hwlive-body" class="dim">Reading…</div></div>
@@ -515,5 +517,6 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/system.js"></script>
 <script src="/ui/help.js"></script>
 <script src="/ui/hardware.js"></script>
+<script src="/ui/features.js"></script>
 </body>
 </html>

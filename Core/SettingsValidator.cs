@@ -50,6 +50,7 @@ public static class SettingsValidator
             OneOf("network.tls.mode", t.Mode, new[] { "off", "selfSigned", "file" }, "HTTPS mode"); Range("network.tls.port", t.Port, 1, 65535, "HTTPS port");
             if (t.Mode == "file" && string.IsNullOrWhiteSpace(t.CertPath)) e.Add(new("network.tls.certPath", "A certificate file is required in file mode."));
         }
+        OneOf("uiMode", s.UiMode, new[] { "user", "power", "developer" }, "Interface mode");
         if (s.Jit == null) e.Add(new("jit", "Missing."));
         else { Range("jit.defaultTtlMinutes", s.Jit.DefaultTtlMinutes, 0, 525_600, "Default idle time"); Range("jit.maxLoadedModels", s.Jit.MaxLoadedModels, 0, 64, "Most loaded models"); OneOf("jit.evictOrder", s.Jit.EvictOrder, new[] { "lru", "oldest" }, "Eviction order"); }
         foreach (var (field, message) in LLMHostProject.Core.Shortcuts.Check(s.Shortcuts)) e.Add(new(field, message));

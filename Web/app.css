@@ -128,3 +128,6 @@ details.think .think-body{white-space:pre-wrap;font-style:italic;margin-top:4px}
 #panes-diff{padding:0 12px;font-size:12px}#panes-diff table{margin:0 auto}
 #panes-composer{display:flex;gap:8px;padding:8px 12px;border-top:1px solid var(--line)}
 #panes-composer textarea{flex:1;resize:none}
+/* interface modes (Web/ui/features.js): controls above the chosen mode are hidden, not disabled */
+body[data-mode="user"] [data-min="power"], body[data-mode="user"] [data-min="developer"], body[data-mode="power"] [data-min="developer"] { display: none !important; }
+body[data-show-all="1"] #settings [data-min] { display: revert !important; }
