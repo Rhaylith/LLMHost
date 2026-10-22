@@ -1,0 +1,32 @@
+using Xunit;
+
+namespace LLMHostProject.Tests;
+
+/// <summary>Cheap guards for the single-file web UI: it is edited by scripts, and a bad edit once left stray text before the doctype.</summary>
+[Trait("Category", "Api")]
+public class UiPageTests : IClassFixture<ServerFixture>
+{
+    private readonly ServerFixture _f;
+    public UiPageTests(ServerFixture f) => _f = f;
+
+    [Fact]
+    public async Task ThePageStartsWithTheDoctypeAndHasItsLoadDialogFields()
+    {
+        string html = await _f.Http.GetStringAsync("/");
+        Assert.StartsWith("<!doctype html>", html.TrimStart('﻿', ' ', '\r', '\n'), StringComparison.OrdinalIgnoreCase);
+        foreach (var id in new[] { "l-lora", "l-moe", "l-embed", "l-pooling", "l-template", "l-draft", "p-overflow" })
+            Assert.Contains($"id=\"{id}\"", html);
+    }
+
+    [Fact]
+    public async Task TheLoadDialogSendsEveryNewOption()
+    {
+        string html = await _f.Http.GetStringAsync("/");
+        int start = html.IndexOf("function collectLoad", StringComparison.Ordinal);
+        Assert.True(start > 0);
+        string body = html[start..Math.Min(html.Length, start + 3000)];
+        foreach (var key in new[] { "draftModel:", "promptTemplate:", "moeCpuLayers:", "loras:", "pooling:", "embedBatchSize:", "normalize:" })
+            Assert.Contains(key, body);
+        Assert.Contains("window._lorasWanted = d.loras", html);
+    }
+}

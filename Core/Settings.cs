@@ -81,6 +81,12 @@ public class LoadOptions
     public int MoeExpertCount { get; set; }
     /// <summary>Keep the expert weights of the first N layers in system memory (-1 = all layers, 0 = off). Attention and cache stay on the GPU, so big MoE models fit.</summary>
     public int MoeCpuLayers { get; set; }
+    /// <summary>Embedding / reranking models: how token vectors are combined into one: auto (the model's own, mean for ordinary language models), none, mean, cls, last or rank (reranker score).</summary>
+    public string Pooling { get; set; } = "auto";
+    /// <summary>Scale embedding vectors to length 1 (what similarity search expects).</summary>
+    public bool Normalize { get; set; } = true;
+    /// <summary>Tokens evaluated per step when embedding (0 = the context length, at most 8192). An input must fit in one step.</summary>
+    public int EmbedBatchSize { get; set; }
     /// <summary>LoRA adapters applied on top of the model (library id or file path, with a strength). They must be made for the same architecture.</summary>
     public List<LoraSetting> Loras { get; set; } = new();
     /// <summary>Advanced: put tensors whose name matches a regular expression into a given buffer ("CPU" or a device buffer name).</summary>
@@ -257,6 +263,7 @@ public class AppSettings
     /// <summary>Open the prompt-template section of the load dialog by default.</summary>
     public bool AlwaysShowTemplate { get; set; }
     public VisionSettings Vision { get; set; } = new();
+    public RagSettings Rag { get; set; } = new();
     /// <summary>Write the last /v1/messages request to ~/.llmhost/debug/anthropic-last.json (to see what a client such as Claude Code really sends). Contains your prompts.</summary>
     public bool DebugRequests { get; set; }
     /// <summary>Send reasoning to Anthropic-API clients as ordinary text (inside a think tag) so it streams visibly; off = separate thinking blocks.</summary>
@@ -358,7 +365,7 @@ public class AppSettings
         MinimizeToTray = other.MinimizeToTray; CheckUpdates = other.CheckUpdates; DebugRequests = other.DebugRequests; AnthropicReasoningAsText = other.AnthropicReasoningAsText;
         UpdateFeedUrl = string.IsNullOrWhiteSpace(other.UpdateFeedUrl) ? null : other.UpdateFeedUrl.Trim();
         LoadGuardrail = other.LoadGuardrail is "off" or "strict" ? other.LoadGuardrail : "balanced";
-        VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); PromptCache = other.PromptCache ?? new(); Vision = other.Vision ?? new(); AlwaysShowTemplate = other.AlwaysShowTemplate; DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
+        VerboseNativeLog = other.VerboseNativeLog; Logging = other.Logging ?? new(); PromptCache = other.PromptCache ?? new(); Vision = other.Vision ?? new(); AlwaysShowTemplate = other.AlwaysShowTemplate; Rag = other.Rag ?? new(); DefaultLoad = other.DefaultLoad; DefaultGeneration = other.DefaultGeneration;
         Save();
     }
 }
@@ -419,4 +426,13 @@ public class LoraSetting
 {
     public string Id { get; set; } = "";
     public float Scale { get; set; } = 1f;
+}
+
+/// <summary>Chat-with-documents retrieval options (settings.json → <c>rag</c>).</summary>
+public class RagSettings
+{
+    /// <summary>A reranking model (library id) that re-orders the best chunks before they go to the chat model. Empty = off.</summary>
+    public string? RerankModel { get; set; }
+    /// <summary>How many of the best chunks the reranker looks at.</summary>
+    public int RerankCandidates { get; set; } = 20;
 }

@@ -134,7 +134,7 @@ public class ModelManager : IDisposable
         if (!string.IsNullOrWhiteSpace(requested))
         {
             var instances = Instances(requested);
-            if (instances.Count > 0) return LeastLoaded(instances);
+            if (instances.Count > 0) return RequireUsable(LeastLoaded(instances), embeddings);
         }
         else
         {
@@ -148,11 +148,21 @@ public class ModelManager : IDisposable
             var target = Library.Find(requested);
             var opts = (target != null ? Defaults.LoadFor(target.Id) : null) ?? AppSettings.Current.DefaultLoad.Clone();
             if (embeddings) opts.Embeddings = true;
-            return await LoadAsync(requested, opts, ct);
+            return RequireUsable(await LoadAsync(requested, opts, ct), embeddings);
         }
         throw new InvalidOperationException(string.IsNullOrWhiteSpace(requested)
             ? "No model is loaded. Load one first (CLI: /load <model>)."
             : $"Model '{requested}' is not loaded.");
+    }
+
+    /// <summary>Embedding and reranking models cannot write text: say so instead of failing somewhere inside.</summary>
+    private static ModelRuntime RequireUsable(ModelRuntime rt, bool embeddings)
+    {
+        if (!embeddings && (rt.Model.IsEmbedding || rt.Options.Embeddings))
+            throw new InvalidOperationException(
+                $"'{rt.Identifier}' is {(rt.IsCrossEncoder ? "a reranking" : "an embedding")} model and cannot generate text. " +
+                $"Use {(rt.IsCrossEncoder ? "/v1/rerank" : "/v1/embeddings")} with it, or pick a chat model.");
+        return rt;
     }
 
     private void UnloadIdle()

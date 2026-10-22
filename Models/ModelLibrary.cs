@@ -167,6 +167,8 @@ public class ModelLibrary
                 Name = info?.Name ?? "", Quantization = info?.Quantization, ContextLength = info?.ContextLength ?? 0,
                 IsEmbedding = info?.IsEmbeddingModel ?? false,
                 MmprojPath = FindMmproj(full),
+                HasChatTemplate = info?.HasChatTemplate ?? false,
+                Capabilities = ModelCapabilities.From(info, MmprojInfo(FindMmproj(full)), System.IO.Path.GetFileName(full)),
             };
         }
         var all = List();

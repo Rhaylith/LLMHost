@@ -40,6 +40,8 @@ public class GgufInfo
     public long PoolingType { get; set; } = -1;
     /// <summary>Built-in multi-token-prediction heads (GGUF <c>nextn_predict_layers</c>); 0 when the model has none. Detected only: the pinned engine cannot use them yet.</summary>
     public long MtpLayers { get; set; }
+    /// <summary>Reranker models can carry a prompt format with {query} and {document} (<c>tokenizer.chat_template.rerank</c>).</summary>
+    public string? RerankTemplate { get; set; }
     /// <summary>LoRA adapter files: <c>general.type</c> = "adapter", <c>adapter.type</c> = "lora" and <c>adapter.lora.alpha</c>.</summary>
     public string? GeneralType { get; set; }
     public string? AdapterType { get; set; }
@@ -107,6 +109,7 @@ public class GgufInfo
                 object? v = ReadValue(r, type);
                 switch (key)
                 {
+                    case "tokenizer.chat_template.rerank": info.RerankTemplate = v as string; break;
                     case "general.type": info.GeneralType = v as string; break;
                     case "adapter.type": info.AdapterType = v as string; break;
                     case "adapter.lora.alpha": info.LoraAlpha = Convert.ToSingle(v); break;

@@ -199,6 +199,9 @@ public partial class ApiServer
         app.MapPost("/v1/chat/completions", ChatCompletions);
         app.MapPost("/v1/completions", Completions);
         app.MapPost("/v1/embeddings", Embeddings);
+        app.MapPost("/v1/rerank", Rerank);
+        app.MapPost("/rerank", Rerank);
+        app.MapPost("/v1/reranking", Rerank);
         app.MapPost("/v1/tokenize", async ctx =>
         {
             var body = await ReadBody(ctx);
@@ -480,28 +483,89 @@ public partial class ApiServer
         });
     }
 
+    /// <summary>The <c>input</c> of an embeddings request: one string or an array of strings.</summary>
+    internal static List<string> ReadEmbeddingInputs(JsonNode body)
+    {
+        var inputs = new List<string>();
+        if (body["input"] is JsonArray arr)
+        {
+            foreach (var x in arr)
+            {
+                if (x is JsonValue v && v.TryGetValue<string>(out var s)) inputs.Add(s);
+                else throw new ArgumentException("'input' must be a string or an array of strings (token arrays are not supported).");
+            }
+        }
+        else if (body["input"] is JsonValue one && one.TryGetValue<string>(out var single)) inputs.Add(single);
+        return inputs;
+    }
+
     private async Task Embeddings(HttpContext ctx)
     {
         var ct = ctx.RequestAborted;
         var body = await ReadBody(ctx);
         var rt = await _host.Models.ResolveAsync(body["model"]?.GetValue<string>(), true, ct);
-        var inputs = new List<string>();
-        if (body["input"] is JsonArray arr) foreach (var x in arr) inputs.Add(x?.GetValue<string>() ?? "");
-        else if (body["input"]?.GetValue<string>() is { } one) inputs.Add(one);
+        var inputs = ReadEmbeddingInputs(body);
         if (inputs.Count == 0) { await WriteError(ctx, 400, "'input' is required", "invalid_request_error"); return; }
 
-        var data = new List<object>();
-        int tokens = 0;
-        for (int i = 0; i < inputs.Count; i++)
+        int? dims = OpenAiMapping.Num(body, "dimensions") is { } dn ? (int)dn : null;
+        if (dims is <= 0) throw new ArgumentException("'dimensions' must be positive.");
+        string format = body["encoding_format"]?.GetValue<string>() ?? "float";
+        if (format is not ("float" or "base64")) throw new ArgumentException("'encoding_format' must be \"float\" or \"base64\".");
+        bool truncate = body["truncate"] is JsonValue tv && tv.TryGetValue<bool>(out var tb) ? tb : true;
+        bool? normalize = body["normalize"] is JsonValue nv && nv.TryGetValue<bool>(out var nb) ? nb : null;
+
+        var res = await rt.EmbedManyAsync(inputs, new ModelRuntime.EmbedOptions(truncate, dims, normalize), ct);
+        if (dims.HasValue && res.Vectors.Length > 0 && dims > res.Vectors[0].Length)
+            throw new ArgumentException($"'dimensions' is {dims} but this model produces {res.Vectors[0].Length}-dimensional vectors.");
+        var data = res.Vectors.Select((v, i) => (object)new
         {
-            var v = await rt.EmbedAsync(inputs[i], ct);
-            tokens += rt.CountTokens(inputs[i]);
-            data.Add(new { @object = "embedding", index = i, embedding = v });
-        }
+            @object = "embedding", index = i,
+            embedding = format == "base64" ? (object)EmbeddingMath.ToBase64(v) : v,
+        }).ToList();
+        int tokens = res.Tokens.Sum();
         await WriteJson(ctx, new
         {
             @object = "list", data, model = rt.Identifier,
             usage = new { prompt_tokens = tokens, total_tokens = tokens },
+        });
+    }
+
+    /// <summary>The <c>documents</c> of a rerank request: strings or objects with a <c>text</c> field.</summary>
+    internal static List<string> ReadRerankDocuments(JsonNode body)
+    {
+        var docs = new List<string>();
+        if (body["documents"] is not JsonArray arr) throw new ArgumentException("'documents' (an array) is required.");
+        foreach (var d in arr)
+        {
+            if (d is JsonValue v && v.TryGetValue<string>(out var s)) docs.Add(s);
+            else if (d is JsonObject o && o["text"] is JsonValue tv && tv.TryGetValue<string>(out var t)) docs.Add(t);
+            else throw new ArgumentException("Each document must be a string or an object with a \"text\" field.");
+        }
+        return docs;
+    }
+
+    /// <summary>Jina / Cohere style reranking: <c>{model, query, documents, top_n, return_documents}</c> to ordered <c>results</c>.</summary>
+    private async Task Rerank(HttpContext ctx)
+    {
+        var ct = ctx.RequestAborted;
+        var body = await ReadBody(ctx);
+        string query = body["query"]?.GetValue<string>() ?? throw new ArgumentException("'query' is required.");
+        var docs = ReadRerankDocuments(body);
+        var rt = await _host.Models.ResolveAsync(body["model"]?.GetValue<string>(), true, ct);
+        int topN = OpenAiMapping.Num(body, "top_n") is { } tn && tn > 0 ? (int)Math.Min(tn, docs.Count) : docs.Count;
+        bool returnDocs = body["return_documents"] is JsonValue rv && rv.TryGetValue<bool>(out var rb) ? rb : true;
+        bool truncate = body["truncate"] is JsonValue tv && tv.TryGetValue<bool>(out var tb) ? tb : true;
+
+        var res = await rt.RerankAsync(query, docs, truncate, ct);
+        var results = Enumerable.Range(0, docs.Count).OrderByDescending(i => res.Scores[i]).ThenBy(i => i).Take(topN)
+            .Select(i => returnDocs
+                ? (object)new { index = i, relevance_score = res.Scores[i], document = new { text = docs[i] } }
+                : new { index = i, relevance_score = res.Scores[i] })
+            .ToList();
+        await WriteJson(ctx, new
+        {
+            id = "rerank-" + Guid.NewGuid().ToString("N")[..16], model = rt.Identifier, method = res.Method,
+            usage = new { prompt_tokens = res.Tokens, total_tokens = res.Tokens }, results,
         });
     }
 

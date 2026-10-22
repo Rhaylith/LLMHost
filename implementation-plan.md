@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n (10 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking (11 of ~50).
 
 ---
 
@@ -229,7 +229,7 @@ Added: **Responses API** — `include: ["message.output_text.logprobs"]` (+ `top
 Verified on SmolVLM-256M over HTTP: for chat (plain and streamed), legacy completions, Responses (plain and streamed) and native chat, the bytes of the returned log-probabilities spell exactly the returned text; `n = 3` returns indices 0..2 and summed usage; a streamed `n = 2` request has per-index role / content / finish chunks and one usage chunk; `top_logprobs` stays ≤ 20.
 Deviations: `top_logprobs` above 20 is clamped instead of rejected with HTTP 400; the alternatives (`top_logprobs`) of the very first token keep their leading space.
 
-#### §1.12 Embeddings options & reranking — **M**
+#### ✅ §1.12 Embeddings options & reranking — **M**
 * Embeddings: `LoadOptions.Pooling (auto|none|mean|cls|last|rank)`, `Normalize` (default true → L2), `EmbedBatchSize`; request
   fields `dimensions` (truncate + renormalise, Matryoshka), `encoding_format: float|base64`, `truncate`. Batch many inputs into
   one decode via multiple sequences (current `EmbedAsync` is one text at a time). Detect embedding GGUFs (X3) and prevent chat
@@ -239,6 +239,11 @@ Deviations: `top_logprobs` above 20 is clamped instead of rejected with HTTP 400
   (bge-reranker-v2-m3, Qwen3-Reranker).
 * RAG (`Documents.cs`) can optionally rerank retrieved chunks (`settings.rag.rerankModel`).
 * Tests: vectors identical (±1e-4) between batch and single; normalisation unit-length; rerank ordering on a toy set.
+
+**As built:** `LoadOptions.Pooling` (auto | none | mean | cls | last | rank), `Normalize` (default on), `EmbedBatchSize`. Embedding no longer goes through `LLamaEmbedder` one text at a time: `ModelRuntime.EmbedManyAsync` tokenizes every input and packs up to 32 of them into one evaluation step (one sequence each, shared cache, `RunPooled`), reads the pooled vector per sequence and clears the cache. A model loaded for embeddings uses its own context (batch = ubatch = context length up to 8192, so long inputs work; they used to be capped by the 512-token batch); a chat model asked for vectors gets a separate mean-pooling context. `auto` leaves pooling to the model file, uses mean for ordinary language models and rank for rerankers. `/v1/embeddings` supports `dimensions` (cut + renormalise), `encoding_format: base64`, `truncate` (false = HTTP 400 when an input is too long) and `normalize`; token-array input is refused with a clear message. **Reranking:** `POST /v1/rerank`, `/rerank`, `/v1/reranking` (Jina / Cohere shape: `query`, `documents` as strings or `{text}`, `top_n`, `return_documents`; results sorted with `relevance_score`, plus `method`). A model with rank pooling is a cross-encoder: the pair is `[CLS] query [SEP] document [SEP]` from the vocabulary's special tokens, or the model's own `tokenizer.chat_template.rerank` with `{query}` / `{document}` when the file has one; the score is the raw head output. Any other embedding model falls back to cosine similarity (`method: "embedding"`). Embedding and reranking models now refuse chat requests with a message that names the right endpoint (`ModelManager.ResolveAsync`). `settings.rag.rerankModel` (+ `rerankCandidates`, default 20) lets chat-with-documents re-order its best chunks with a reranker (`method` becomes e.g. `embeddings+rerank`). Catalog: bge-small, bge-m3, bge-reranker-v2-m3, Qwen3-Reranker-0.6B. CLI: `load --pooling --no-normalize --embed-batch`, `rerank <query> <doc>…`; UI: pooling / batch / normalise fields in the load dialog for embedding models.
+Deviations: a batch and one-at-a-time vectors agree to cosine > 0.999, not to ±1e-4 — quantised kernels round differently for different batch shapes (the test asserts the realistic bound); the cross-encoder score is not passed through a sigmoid; only the first output of a classifier head is used.
+Verified with real models: bge-small-en-v1.5 (BERT, CLS pooling from the file: 384-d vectors, semantic ordering, a 1000-token input accepted at 512), bge-reranker-v2-m3 (the Paris sentence is ranked first among four, scores stable when the document order is reversed, `/v1/rerank` and `/rerank` return the Jina shape), and SmolVLM as a chat model producing embeddings. **Not tried:** the model-supplied rerank template (no such model here), Qwen3-Reranker (catalog entry only), and the RAG rerank stage end to end.
+**Found while doing this:** the load dialog code that §1.7 added to `Web/index.html` had been mangled by a faulty script edit (stray text before `<!doctype html>`, adapters never sent or restored). Repaired here, and `UiPageTests` now guards the page start and the options `collectLoad` sends.
 
 ### §2 Hardware & runtimes
 

@@ -50,6 +50,8 @@ public static class SettingsValidator
         }
         if (s.PromptCache == null) e.Add(new("promptCache", "Missing."));
         else Range("promptCache.maxDiskMb", s.PromptCache.MaxDiskMb, 0, 10_000_000, "Prompt cache disk limit (MB)");
+        if (s.Rag == null) e.Add(new("rag", "Missing."));
+        else Range("rag.rerankCandidates", s.Rag.RerankCandidates, 2, 200, "Rerank candidates");
         if (s.Vision == null) e.Add(new("vision", "Missing."));
         else
         {
@@ -80,6 +82,8 @@ public static class SettingsValidator
             if (string.IsNullOrWhiteSpace(o.Loras![i].Id)) e.Add(new($"{p}.loras[{i}].id", "The adapter needs a name or path."));
             range($"{p}.loras[{i}].scale", o.Loras[i].Scale, -10, 10, "LoRA strength");
         }
+        oneOf($"{p}.pooling", o.Pooling, new[] { "auto", "none", "mean", "cls", "last", "rank" }, "Pooling");
+        range($"{p}.embedBatchSize", o.EmbedBatchSize, 0, 65536, "Embedding batch size");
         range($"{p}.draftTokens", o.DraftTokens, 0, 64, "Draft tokens");
         range($"{p}.draftMinP", o.DraftMinP, 0, 1, "Draft confidence");
         range($"{p}.batchSize", o.BatchSize, 1, 65536, "Batch size");

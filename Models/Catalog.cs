@@ -52,6 +52,10 @@ public static class Catalog
         new("smollm2-1.7b", "SmolLM", "SmolLM2 1.7B Instruct", "1.7B", "bartowski/SmolLM2-1.7B-Instruct-GGUF", "Q8_0", new[]{"chat","tiny"}),
 
         new("nomic-embed-v1.5", "Embedding", "Nomic Embed Text v1.5", "137M", "nomic-ai/nomic-embed-text-v1.5-GGUF", "Q4_K_M", new[]{"embeddings"}),
+        new("bge-small-en-v1.5", "Embedding", "BGE Small English v1.5", "33M", "ggml-org/bge-small-en-v1.5-Q8_0-GGUF", "Q8_0", new[]{"embeddings","tiny"}, "Small and fast; a good first embedding model"),
+        new("bge-m3", "Embedding", "BGE M3 (multilingual)", "568M", "gpustack/bge-m3-GGUF", "Q4_K_M", new[]{"embeddings"}),
+        new("bge-reranker-v2-m3", "Embedding", "BGE Reranker v2 m3", "568M", "gpustack/bge-reranker-v2-m3-GGUF", "Q4_K_M", new[]{"rerank"}, "Cross-encoder: use it with /v1/rerank"),
+        new("qwen3-reranker-0.6b", "Embedding", "Qwen3 Reranker 0.6B", "0.6B", "Mungert/Qwen3-Reranker-0.6B-GGUF", "q4_k_m", new[]{"rerank","small"}, "Cross-encoder; not yet tried with this app"),
     };
 
     public static CatalogEntry? Find(string keyOrRepo) =>

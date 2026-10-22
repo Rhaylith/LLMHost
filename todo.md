@@ -49,7 +49,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P2** LoRA adapter loading (per model, with a strength; swap at runtime; synthetic adapters tested, no real trained adapter yet)
 - [x] **P2** Multiple instances of the same model (distinct identifiers/contexts; they share the weights)
 - [x] **P2** `logprobs` / `top_logprobs`, `n > 1` choices (chat, completions, Responses and native chat; contract-tested)
-- [ ] **P2** Embedding model options (pooling, normalisation, batching); reranking
+- [x] **P2** Embedding model options (pooling, normalisation, batching, dimensions, base64); reranking (`/v1/rerank`, cross-encoder and similarity fallback)
 - [ ] **P3** Harden the schema→GBNF converter (`$defs` cycles, `pattern`, numeric bounds, `additionalProperties`, string length)
 - [ ] **P3** Cancel an in-flight model load; real load phases and prompt-processing progress events
 

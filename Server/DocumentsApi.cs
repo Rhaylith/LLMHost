@@ -72,7 +72,7 @@ public partial class ApiServer
             var chunks = docs.SelectMany(d => Retrieval.Split(d)).ToList();
             double[] scores;
             string method = "bm25";
-            var embedder = _host.Models.Loaded.FirstOrDefault(r => r.Model.IsEmbedding || r.Options.Embeddings);
+            var embedder = _host.Models.Loaded.FirstOrDefault(r => (r.Model.IsEmbedding || r.Options.Embeddings) && !r.IsCrossEncoder);
             if (embedder != null && query.Trim().Length > 0)
             {
                 try
@@ -99,6 +99,21 @@ public partial class ApiServer
                 }
             }
             else scores = Retrieval.Bm25(chunks, query);
+
+            // optional second stage: a reranking model re-orders the best candidates
+            if (!string.IsNullOrWhiteSpace(_host.Settings.Rag.RerankModel) && query.Trim().Length > 0 && chunks.Count > 1)
+            {
+                try
+                {
+                    var reranker = await _host.Models.ResolveAsync(_host.Settings.Rag.RerankModel, true, ctx.RequestAborted);
+                    var candidates = Enumerable.Range(0, chunks.Count).OrderByDescending(i => scores[i]).Take(Math.Max(2, _host.Settings.Rag.RerankCandidates)).ToList();
+                    var rr = await reranker.RerankAsync(query, candidates.Select(i => chunks[i].Text).ToList(), true, ctx.RequestAborted);
+                    var ranked = Enumerable.Range(0, candidates.Count).OrderByDescending(k => rr.Scores[k]).ToList();
+                    for (int rank = 0; rank < ranked.Count; rank++) scores[candidates[ranked[rank]]] = 1000 + (ranked.Count - rank);   // above everything not reranked
+                    method += "+rerank";
+                }
+                catch (Exception ex) { LogBuffer.Add("documents", $"Reranking failed ({ex.Message}); keeping the first-stage order."); }
+            }
 
             var order = Enumerable.Range(0, chunks.Count).OrderByDescending(i => scores[i]).ToList();
             var chosen = new List<int>();

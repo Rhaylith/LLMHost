@@ -61,7 +61,7 @@ public sealed class ModelRuntime : IDisposable
     private readonly object _mtmdLock = new();
     private readonly string _mediaMarker = "<__media__>";
     private readonly LLamaBatch _batch = new();
-    private LLamaEmbedder? _embedder;
+
     private DraftModel? _draft;
     private long _draftProposed, _draftAccepted;
     private volatile bool _draftOff;
@@ -183,9 +183,16 @@ public sealed class ModelRuntime : IDisposable
             OpOffload = gpuLayers > 0,
         };
         // parallel requests: one sequence per slot, all sharing the same KV pool (so the context length is not divided)
-        int seqs = embeddings ? 1 : o.SlotCount;
+        int seqs = embeddings ? EmbedSeqMax : o.SlotCount;
         p.SeqMax = (uint)seqs;
         if (seqs > 1) p.KVUnified = true;
+        if (embeddings)
+        {
+            // an input must fit one evaluation step, and the pooling decides how its token vectors become one
+            int step = o.EmbedBatchSize > 0 ? o.EmbedBatchSize : (int)Math.Min(o.ContextSize == 0 ? 4096u : o.ContextSize, 8192u);
+            p.BatchSize = p.UBatchSize = (uint)Math.Max(8, step);
+            p.PoolingType = EmbeddingMath.PoolingFor(o.Pooling, model.IsEmbedding, model.Capabilities.Rerank);
+        }
         // default: 75% of the logical cores
         int threads = Hardware.EffectiveThreads(o.Threads);
         p.Threads = threads;
@@ -1771,20 +1778,180 @@ public sealed class ModelRuntime : IDisposable
 
     // ------------------------------------------------------------------ embeddings
 
-    public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+    /// <summary>Embedding request options (<c>dimensions</c>, <c>truncate</c>, <c>normalize</c> of the API).</summary>
+    public record EmbedOptions(bool Truncate = true, int? Dimensions = null, bool? Normalize = null);
+
+    /// <summary>Vectors in input order and how many tokens each input had.</summary>
+    public record EmbedResult(float[][] Vectors, int[] Tokens);
+
+    /// <summary>One score per document (higher = more relevant), the tokens used and how it was computed ("cross-encoder" or "embedding").</summary>
+    public record RerankResult(double[] Scores, int Tokens, string Method);
+
+    /// <summary>Largest number of texts evaluated together in one embedding step.</summary>
+    internal const int EmbedSeqMax = 32;
+
+    private LLamaContext? _embCtx;
+
+    /// <summary>True when the model scores query / document pairs itself (rank pooling) instead of producing vectors.</summary>
+    public bool IsCrossEncoder => Model.Capabilities.Rerank || string.Equals(Options.Pooling, "rank", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The context embeddings are computed in: the model's own when it was loaded for embeddings, otherwise (a chat model asked for
+    /// vectors) a separate one with mean pooling so text generation is not disturbed.
+    /// </summary>
+    private LLamaContext EmbeddingContext()
     {
+        if (Options.Embeddings || Model.IsEmbedding) return Context;
+        return _embCtx ??= _weights.CreateContext(BuildParams(Model, Options, GpuLayers, true, Plan));
+    }
+
+    /// <summary>Tokens one input may have: it has to fit one evaluation step (non-causal models look at all of it at once).</summary>
+    private int EmbedLimit() => (int)Math.Min(_params.BatchSize == 0 ? ContextSize : _params.BatchSize, Math.Max(8, ContextSize));
+
+    private LLamaToken[] TokenizeForEmbedding(string text, int index, bool truncate)
+    {
+        var tokens = _weights.Tokenize(text, true, true, Encoding.UTF8);
+        int limit = EmbedLimit();
+        if (tokens.Length <= limit) return tokens;
+        if (!truncate)
+            throw new ArgumentException($"Input {index} has {tokens.Length} tokens but at most {limit} fit in one step. Shorten it, load the model with a larger context / embedding batch, or allow truncation.");
+        return tokens[..limit];
+    }
+
+    /// <summary>Evaluates the token lists together (several per step) and returns the pooled vector of each, unmodified.</summary>
+    private float[][] RunPooled(LLamaContext ctx, IReadOnlyList<LLamaToken[]> inputs, CancellationToken ct)
+    {
+        var results = new float[inputs.Count][];
+        int budget = EmbedLimit();
+        var batch = new LLamaBatch();
+        int i = 0;
+        while (i < inputs.Count)
+        {
+            ct.ThrowIfCancellationRequested();
+            batch.Clear();
+            var group = new List<(int Input, int Last)>();
+            int used = 0;
+            while (i < inputs.Count && group.Count < EmbedSeqMax && (group.Count == 0 || used + inputs[i].Length <= budget))
+            {
+                int last = -1;
+                for (int t = 0; t < inputs[i].Length; t++) last = batch.Add(inputs[i][t], t, (LLamaSeqId)group.Count, true);
+                used += inputs[i].Length;
+                group.Add((i, last));
+                i++;
+            }
+            var dr = ctx.Decode(batch);
+            if (dr != DecodeResult.Ok) throw new InvalidOperationException($"Embedding failed ({dr}). The input may be longer than the model's context.");
+            for (int g = 0; g < group.Count; g++)
+            {
+                results[group[g].Input] = ReadPooled(ctx, g, group[g].Last);
+            }
+            ctx.NativeHandle.MemoryClear(false);
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// The pooled vector of sequence <paramref name="seq"/> (a single score for rank pooling). Without pooling the vector of the
+    /// sequence's last token is used. Only as many floats as llama.cpp really produced are read.
+    /// </summary>
+    private float[] ReadPooled(LLamaContext ctx, int seq, int lastToken)
+    {
+        var span = ctx.NativeHandle.GetEmbeddingsSeq((LLamaSeqId)seq);
+        bool missing = span.IsEmpty || System.Runtime.CompilerServices.Unsafe.IsNullRef(ref System.Runtime.InteropServices.MemoryMarshal.GetReference(span));
+        bool rank = ctx.NativeHandle.PoolingType == LLamaPoolingType.Rank;
+        if (rank)
+        {
+            if (missing) throw new InvalidOperationException("The reranker produced no score; is this really a reranking model (rank pooling)?");
+            const int outputs = 1;                                                      // a reranker head has one output (the relevance score)
+            return span[..Math.Min(outputs, span.Length)].ToArray();
+        }
+        if (missing) span = ctx.NativeHandle.GetEmbeddingsIth(lastToken);              // pooling "none"
+        return span.ToArray();
+    }
+
+    /// <summary>Embeds several texts at once (batched into as few evaluation steps as possible).</summary>
+    public async Task<EmbedResult> EmbedManyAsync(IReadOnlyList<string> texts, EmbedOptions? options = null, CancellationToken ct = default)
+    {
+        options ??= new EmbedOptions();
         await _embedGate.WaitAsync(ct);
         try
         {
             LastUsed = DateTime.Now; Interlocked.Increment(ref _requests);
-            _embedder ??= new LLamaEmbedder(_weights, BuildParams(Model, Options, GpuLayers, true, Plan));
-            var results = await _embedder.GetEmbeddings(text, ct);
-            if (results.Count == 0) return Array.Empty<float>();
-            var v = new float[results[0].Length];
-            foreach (var r in results) for (int i = 0; i < v.Length; i++) v[i] += r[i] / results.Count;
-            double norm = Math.Sqrt(v.Sum(x => (double)x * x));
-            if (norm > 0) for (int i = 0; i < v.Length; i++) v[i] = (float)(v[i] / norm);
-            return v;
+            var ctx = EmbeddingContext();
+            var tokens = texts.Select((t, i) => TokenizeForEmbedding(t, i, options.Truncate)).ToList();
+            var raw = RunPooled(ctx, tokens, ct);
+            bool normalize = options.Normalize ?? Options.Normalize;
+            return new EmbedResult(raw.Select(v => EmbeddingMath.Finish(v, options.Dimensions, normalize)).ToArray(), tokens.Select(t => t.Length).ToArray());
+        }
+        finally { _embedGate.Release(); }
+    }
+
+    /// <summary>One vector (normalised when the model is set up that way).</summary>
+    public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default) =>
+        (await EmbedManyAsync(new[] { text }, null, ct)).Vectors[0];
+
+    // ---- reranking
+
+    /// <summary>The tokens a cross-encoder scores for a (query, document) pair; the document is cut when the pair would not fit.</summary>
+    private LLamaToken[] RerankTokens(string query, string document, string? template)
+    {
+        int limit = EmbedLimit();
+        if (!string.IsNullOrWhiteSpace(template))
+        {
+            // models can ship their own pair format ("{query}" / "{document}")
+            string Prompt(string doc) => template.Replace("{query}", query).Replace("{document}", doc);
+            var all = _weights.Tokenize(Prompt(document), true, true, Encoding.UTF8);
+            if (all.Length <= limit) return all;
+            // cut the document: halve it until the pair fits
+            string cut = document;
+            for (int i = 0; i < 20 && all.Length > limit && cut.Length > 1; i++)
+            {
+                cut = cut[..(cut.Length / 2)];
+                all = _weights.Tokenize(Prompt(cut), true, true, Encoding.UTF8);
+            }
+            return all.Length <= limit ? all : all[..limit];
+        }
+
+        // BERT-style pair: [CLS] query [SEP] document [SEP]  (the vocabulary's BOS / EOS / SEP tokens)
+        var vocab = _weights.Vocab;
+        var q = _weights.Tokenize(query, false, true, Encoding.UTF8);
+        var d = _weights.Tokenize(document, false, true, Encoding.UTF8);
+        var list = new List<LLamaToken>();
+        void Special(LLamaToken? t) { if (t.HasValue && (int)t.Value >= 0) list.Add(t.Value); }
+        Special(vocab.BOS);
+        list.AddRange(q);
+        Special(vocab.EOS);
+        Special(vocab.SEP);
+        int room = Math.Max(0, limit - list.Count - 1);
+        list.AddRange(d.Length > room ? d[..room] : d);
+        Special(vocab.EOS);
+        return list.Count <= limit ? list.ToArray() : list.Take(limit).ToArray();
+    }
+
+    /// <summary>
+    /// Scores how well each document answers the query. A reranker model (rank pooling) reads query and document together; any other
+    /// embedding model falls back to the cosine similarity of the query and document vectors.
+    /// </summary>
+    public async Task<RerankResult> RerankAsync(string query, IReadOnlyList<string> documents, bool truncate = true, CancellationToken ct = default)
+    {
+        if (documents.Count == 0) return new RerankResult(Array.Empty<double>(), 0, IsCrossEncoder ? "cross-encoder" : "embedding");
+        if (!IsCrossEncoder)
+        {
+            var all = await EmbedManyAsync(new[] { query }.Concat(documents).ToList(), new EmbedOptions(truncate, null, true), ct);
+            var scores = documents.Select((_, i) => EmbeddingMath.Cosine(all.Vectors[0], all.Vectors[i + 1])).ToArray();
+            return new RerankResult(scores, all.Tokens.Sum(), "embedding");
+        }
+
+        await _embedGate.WaitAsync(ct);
+        try
+        {
+            LastUsed = DateTime.Now; Interlocked.Increment(ref _requests);
+            var ctx = EmbeddingContext();
+            string? template = null;
+            try { template = FitEstimator.ReadModel(Model.Path).Info.RerankTemplate; } catch { }
+            var pairs = documents.Select(d => RerankTokens(query, d, template)).ToList();
+            var raw = RunPooled(ctx, pairs, ct);
+            return new RerankResult(raw.Select(v => v.Length > 0 ? (double)v[0] : double.NegativeInfinity).ToArray(), pairs.Sum(p => p.Length), "cross-encoder");
         }
         finally { _embedGate.Release(); }
     }
@@ -1803,7 +1970,7 @@ public sealed class ModelRuntime : IDisposable
         _ctxGate.Wait();
         try
         {
-            _embedder?.Dispose();
+            _embCtx?.Dispose();
             _draft?.Dispose();
             _ctx?.Dispose();
             _mtmd?.Dispose();

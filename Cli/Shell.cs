@@ -173,6 +173,7 @@ public class Shell
             case "export": return Export(a);
             case "complete": return await CompleteAsync(a);
             case "embed": return await EmbedAsync(a);
+            case "rerank": return await RerankAsync(a);
             case "tokens": return await TokensAsync(a);
             case "cache": return await CacheAsync(a);
             case "image": case "img": return AttachImage(a);
@@ -205,7 +206,7 @@ public class Shell
             Running
               load <model> [--cpu|--gpu max|auto|off|0.5] [--gpu-layers N] [--identifier name] [--context-length N] [--ctx N] [--threads N (default 75% of cores)] [--batch N]
                            [--flash] [--no-mmap] [--mlock] [--kv-k q8_0] [--kv-v q8_0] [--no-vision] [--mmproj <file>] [--draft <small model>] [--draft-tokens 6] [--template-file chat.jinja]
-                           [--another] [--lora "adapter.gguf=0.8;other.gguf"] [--cpu-moe | --n-cpu-moe N] [--moe-experts N] [--override-tensor "regex=CPU;regex2=CPU"]
+                           [--another] [--pooling mean/cls/last/rank/none] [--no-normalize] [--embed-batch N] [--lora "adapter.gguf=0.8;other.gguf"] [--cpu-moe | --n-cpu-moe N] [--moe-experts N] [--override-tensor "regex=CPU;regex2=CPU"]
                            [--id name] [--ttl minutes] [--embeddings]
                            [--gpus 0,1] [--split 3,1] [--split-mode layer|row|none]   multi-GPU: devices (priority order), shares, mode
                            [--parallel N]   requests generated at the same time (continuous batching, default 4)
@@ -222,6 +223,7 @@ public class Shell
               /image <file> [...]       attach image(s) to the next message (vision models)
               /video <file> [--fps 1] [--frames 8]   attach frames of a video (needs ffmpeg) to the next message
               /audio <file> [...]       attach WAV / MP3 / FLAC audio to the next message (audio-capable models)
+              rerank <query> <doc> [<doc> ...]   order documents by relevance (reranker or embedding model)
               template [model]           show the chat template stored in a model file and a sample prompt
               /clear  /history  /undo  /regen  /save  /chats  /resume <id>  /export <file>
               /cache [on|off|clear]     prompt/KV cache: reuse the evaluated prompt prefix between turns
@@ -770,6 +772,9 @@ public class Shell
                 if (at > 0 && float.TryParse(item[(at + 1)..], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sc)) { loraId = item[..at]; scale = sc; }
                 o.Loras.Add(new LoraSetting { Id = loraId.Trim(), Scale = scale });
             }
+        if (a.Value("pooling") is { } pool) o.Pooling = pool;
+        if (a.Flag("no-normalize")) o.Normalize = false;
+        if (a.Value("embed-batch") is { } eb) o.EmbedBatchSize = int.Parse(eb);
         if (a.Flag("cpu-moe")) o.MoeCpuLayers = -1;
         if (a.Value("n-cpu-moe") is { } ncm) o.MoeCpuLayers = int.Parse(ncm);
         if (a.Value("moe-experts") is { } mex) o.MoeExpertCount = int.Parse(mex);
@@ -1293,6 +1298,20 @@ public class Shell
         return true;
     }
 
+    /// <summary>rerank &lt;query&gt; &lt;document&gt;... [--model m] — orders the documents by relevance to the query.</summary>
+    private async Task<bool> RerankAsync(Args a)
+    {
+        if (a.Positional.Count < 2) { Ui.Error("usage: rerank <query> <document> [<document> ...] [--model <reranker or embedding model>]"); return false; }
+        var rt = await _host.Models.ResolveAsync(a.Value("model"), embeddings: true);
+        string query = a.Positional[0];
+        var docs = a.Positional.Skip(1).ToList();
+        var res = await rt.RerankAsync(query, docs);
+        Ui.Info(Ui.Dim($"{rt.Identifier} ({res.Method})"));
+        foreach (var i in Enumerable.Range(0, docs.Count).OrderByDescending(i => res.Scores[i]))
+            Ui.Info($"{res.Scores[i],9:F4}  [{i}] {docs[i]}");
+        return true;
+    }
+
     private async Task<bool> EmbedAsync(Args a)
     {
         var rt = await _host.Models.ResolveAsync(a.Value("model"), embeddings: true);
@@ -1612,7 +1631,7 @@ public class Args
     public List<string> Positional { get; } = new();
     private readonly Dictionary<string, string?> _opts = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> Booleans = new(StringComparer.OrdinalIgnoreCase)
-        { "cpu", "cpu-moe", "another", "no-flash", "no-mmap", "mlock", "embeddings", "bg", "y", "lan", "no-vision", "no-mmproj", "move", "link", "copy", "skip-fit-check", "force", "daemon", "service", "json", "all", "follow", "f", "local" };
+        { "cpu", "cpu-moe", "another", "no-normalize", "no-flash", "no-mmap", "mlock", "embeddings", "bg", "y", "lan", "no-vision", "no-mmproj", "move", "link", "copy", "skip-fit-check", "force", "daemon", "service", "json", "all", "follow", "f", "local" };
 
     public Args(string[] args)
     {
