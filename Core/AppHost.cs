@@ -48,6 +48,11 @@ public class Conversation
     public string? ActiveLeaf { get; set; }
     /// <summary>Documents attached to the conversation (ids in the document store).</summary>
     public List<ConversationDocument> Documents { get; set; } = new();
+    /// <summary>Folder in the chat list (null = top level) and whether the chat is pinned to the top.</summary>
+    public string? FolderId { get; set; }
+    public bool Pinned { get; set; }
+    /// <summary>The title was made up by the app (first words or a model suggestion) and may be replaced; a title the user typed is never touched.</summary>
+    public bool TitleAuto { get; set; }
 
     /// <summary>The branch that is currently active, root first. Chats saved without ids are one linear branch.</summary>
     public List<StoredMessage> ActivePath()
@@ -66,6 +71,13 @@ public class Conversation
 /// <summary>Persists conversations as one JSON file each under ~/.llmhost/chats.</summary>
 public class ChatStore
 {
+    /// <summary>Raised after a chat was written or deleted (the search index follows these).</summary>
+    public event Action<Conversation>? Saved;
+    public event Action<string>? Deleted;
+
+    /// <summary>Chat ids are letters and digits only; anything else could not name a file inside the chats folder.</summary>
+    public static bool ValidId(string? id) => !string.IsNullOrEmpty(id) && id.Length <= 64 && id.All(char.IsAsciiLetterOrDigit);
+
     private static string PathFor(string id) => Path.Combine(AppPaths.ChatsDir, Sanitize(id) + ".json");
     private static string Sanitize(string id) => new(id.Where(char.IsLetterOrDigit).ToArray());
 
@@ -99,8 +111,12 @@ public class ChatStore
         c.UpdatedAt = DateTime.UtcNow;
         c.SchemaVersion = Migrations.CurrentVersion(Migrations.Chat);
         if (c.Title is "New chat" or "" && c.Messages.FirstOrDefault(m => m.Role == "user") is { } first)
+        {
             c.Title = first.Content.Length > 60 ? first.Content[..60] + "…" : first.Content;
+            c.TitleAuto = true;
+        }
         File.WriteAllText(PathFor(c.Id), JsonSerializer.Serialize(c, Json.Options));
+        Saved?.Invoke(c);
         return c;
     }
 
@@ -109,6 +125,7 @@ public class ChatStore
         var p = PathFor(id);
         if (!File.Exists(p)) return false;
         File.Delete(p);
+        Deleted?.Invoke(id);
         return true;
     }
 }
@@ -121,6 +138,8 @@ public class AppHost : IDisposable
     public ModelManager Models { get; }
     public DownloadManager Downloads { get; }
     public ChatStore Chats { get; } = new();
+    public ChatFolderStore ChatFolders { get; } = new();
+    public ChatSearchIndex ChatSearch { get; }
     public PresetStore Presets { get; } = new();
     public ModelDefaultsStore ModelDefaults { get; } = new();
     public McpManager Mcp { get; } = new();
@@ -138,6 +157,7 @@ public class AppHost : IDisposable
         Models = new ModelManager(Library, ModelDefaults);
         Downloads = new DownloadManager { MaxConcurrent = Settings.MaxConcurrentDownloads };
         Updates = new ModelUpdateChecker(Library);
+        ChatSearch = new ChatSearchIndex(Chats);
         Directories = new ModelDirectoryManager(Library, Downloads, () => Models.Loaded.Select(r => r.Model.Path));
         // the daily check (when switched on): first one a few minutes after start, then every 24 hours
         _updateTimer = new System.Threading.Timer(_ =>

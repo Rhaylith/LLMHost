@@ -1207,22 +1207,170 @@ public partial class ApiServer
         app.MapDelete("/api/presets/{name}", async ctx =>
             await WriteJson(ctx, new { deleted = _host.Presets.Delete((string)ctx.Request.RouteValues["name"]!) }));
 
-        app.MapGet("/api/chats", async ctx =>
-            await WriteJson(ctx, _host.Chats.List().Select(c => new { c.Id, c.Title, c.Model, c.UpdatedAt, count = c.Messages.Count })));
+        // ---- chats: list, folders, search, duplicate, rename, move / pin, bulk delete, titles, import / export
+        object ChatSummary(Conversation c) => new { c.Id, c.Title, c.Model, c.UpdatedAt, c.CreatedAt, c.FolderId, c.Pinned, c.TitleAuto, count = c.Messages.Count };
+        string ChatId(HttpContext ctx)
+        {
+            string id = (string)ctx.Request.RouteValues["id"]!;
+            if (!ChatStore.ValidId(id)) throw new ArgumentException("Invalid chat id.");
+            return id;
+        }
+        void DeleteChat(string id)
+        {
+            var c = _host.Chats.Get(id);
+            if (c == null) return;
+            foreach (var d in c.Documents) _documents.Delete(d.Id);          // the attachments belong to the chat (a duplicate has its own copies)
+            _host.Chats.Delete(id);
+        }
+
+        app.MapGet("/api/chats", async ctx => await WriteJson(ctx, _host.Chats.List().Select(ChatSummary)));
+        app.MapGet("/api/chats/search", async ctx =>
+            await WriteJson(ctx, new { query = Q(ctx, "q"), hits = _host.ChatSearch.Search(Q(ctx, "q") ?? "", int.TryParse(Q(ctx, "limit"), out var lim) ? Math.Clamp(lim, 1, 200) : 50) }));
         app.MapGet("/api/chats/{id}", async ctx =>
         {
-            var c = _host.Chats.Get((string)ctx.Request.RouteValues["id"]!);
+            var c = _host.Chats.Get(ChatId(ctx));
             if (c == null) await WriteError(ctx, 404, "Chat not found", "not_found"); else await WriteJson(ctx, c);
         });
         app.MapPut("/api/chats/{id}", async ctx =>
         {
+            string id = ChatId(ctx);
             var body = await ReadBody(ctx);
             var c = body.Deserialize<Conversation>(Json.Options) ?? new Conversation();
-            c.Id = (string)ctx.Request.RouteValues["id"]!;
+            c.Id = id;
+            // folder, pin and the "title is automatic" flag are changed by their own calls: a save of the messages keeps them
+            var old = _host.Chats.Get(id);
+            if (old != null)
+            {
+                c.FolderId = old.FolderId; c.Pinned = old.Pinned; c.CreatedAt = old.CreatedAt;
+                c.TitleAuto = old.TitleAuto && c.Title == old.Title;
+            }
             await WriteJson(ctx, _host.Chats.Save(c));
         });
         app.MapDelete("/api/chats/{id}", async ctx =>
-            await WriteJson(ctx, new { deleted = _host.Chats.Delete((string)ctx.Request.RouteValues["id"]!) }));
+        {
+            string id = ChatId(ctx);
+            bool existed = _host.Chats.Get(id) != null;
+            DeleteChat(id);
+            await WriteJson(ctx, new { deleted = existed });
+        });
+        app.MapPost("/api/chats/bulk-delete", async ctx =>
+        {
+            var ids = ((await ReadBody(ctx))["ids"] as JsonArray)?.Select(x => x?.GetValue<string>() ?? "").ToList() ?? new();
+            if (ids.Any(i => !ChatStore.ValidId(i))) throw new ArgumentException("Invalid chat id.");
+            int n = 0;
+            foreach (var id in ids) if (_host.Chats.Get(id) != null) { DeleteChat(id); n++; }
+            await WriteJson(ctx, new { deleted = n });
+        });
+        app.MapPut("/api/chats/{id}/rename", async ctx =>
+        {
+            var c = _host.Chats.Get(ChatId(ctx));
+            if (c == null) { await WriteError(ctx, 404, "Chat not found", "not_found"); return; }
+            string title = ((await ReadBody(ctx))["title"]?.GetValue<string>() ?? "").Trim();
+            if (title.Length == 0) throw new ArgumentException("The title must not be empty.");
+            c.Title = title.Length > 120 ? title[..120] : title;
+            c.TitleAuto = false;                                           // typed by the user: never replaced automatically
+            await WriteJson(ctx, ChatSummary(_host.Chats.Save(c)));
+        });
+        app.MapPut("/api/chats/{id}/meta", async ctx =>
+        {
+            var c = _host.Chats.Get(ChatId(ctx));
+            if (c == null) { await WriteError(ctx, 404, "Chat not found", "not_found"); return; }
+            var body = await ReadBody(ctx);
+            if (body is JsonObject bo && bo.ContainsKey("folderId"))
+            {
+                string? f = body["folderId"]?.GetValue<string>();
+                if (!string.IsNullOrEmpty(f) && _host.ChatFolders.List().All(x => x.Id != f)) throw new ArgumentException("The folder does not exist.");
+                c.FolderId = string.IsNullOrEmpty(f) ? null : f;
+            }
+            if (body["pinned"] is JsonValue p && p.TryGetValue<bool>(out var pin)) c.Pinned = pin;
+            _host.Chats.Save(c);
+            await WriteJson(ctx, ChatSummary(c));
+        });
+        app.MapPost("/api/chats/{id}/duplicate", async ctx =>
+        {
+            var src = _host.Chats.Get(ChatId(ctx));
+            if (src == null) { await WriteError(ctx, 404, "Chat not found", "not_found"); return; }
+            var copy = JsonSerializer.Deserialize<Conversation>(JsonSerializer.Serialize(src, Json.Options), Json.Options)!;
+            copy.Id = Guid.NewGuid().ToString("N")[..12];
+            copy.Title = src.Title + " (copy)"; copy.TitleAuto = false; copy.Pinned = false; copy.CreatedAt = DateTime.UtcNow;
+            // attachments are copied under new ids, so deleting one chat never takes the documents of the other away
+            copy.Documents = src.Documents.Select(d => _documents.Clone(d.Id) is { } nd ? new ConversationDocument { Id = nd.Id, Name = d.Name, Chars = d.Chars } : null)
+                .Where(d => d != null).Select(d => d!).ToList();
+            await WriteJson(ctx, ChatSummary(_host.Chats.Save(copy)));
+        });
+        app.MapPost("/api/chats/{id}/auto-title", async ctx =>
+        {
+            var c = _host.Chats.Get(ChatId(ctx));
+            if (c == null) { await WriteError(ctx, 404, "Chat not found", "not_found"); return; }
+            bool force = Q(ctx, "force") == "1";
+            var path = c.ActivePath();
+            var user = path.FirstOrDefault(m => m.Role == "user");
+            var reply = path.FirstOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
+            bool mayRename = c.TitleAuto || c.Title is "New chat" or "";
+            if ((!_host.Settings.AutoTitleChats || !mayRename) && !force || user == null || reply == null)
+            { await WriteJson(ctx, new { c.Title, source = "unchanged" }); return; }
+            string? title = null;
+            var rt = _host.Models.Loaded.FirstOrDefault(r => r.Identifier == c.Model && !r.Model.IsEmbedding) ?? _host.Models.Loaded.FirstOrDefault(r => !r.Model.IsEmbedding);
+            try { if (rt != null) title = await rt.SuggestTitleAsync(user.Content, reply.Content, ctx.RequestAborted); } catch (Exception ex) when (ex is not OperationCanceledException) { }
+            string source = title != null ? "model" : "fallback";
+            c.Title = title ?? ChatTransfer.FallbackTitle(user.Content);
+            c.TitleAuto = true;
+            _host.Chats.Save(c);
+            await WriteJson(ctx, new { c.Title, source });
+        });
+        app.MapGet("/api/chats/{id}/export", async ctx =>
+        {
+            var c = _host.Chats.Get(ChatId(ctx));
+            if (c == null) { await WriteError(ctx, 404, "Chat not found", "not_found"); return; }
+            string format = (string.IsNullOrEmpty(Q(ctx, "format")) ? "json" : Q(ctx, "format")!).ToLowerInvariant();
+            string safe = new string(c.Title.Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-').ToArray()).Trim('-');
+            if (safe.Length == 0) safe = "chat";
+            (string text, string type, string ext) = format switch
+            {
+                "markdown" or "md" => (ChatTransfer.ToMarkdown(c), "text/markdown; charset=utf-8", "md"),
+                "text" or "txt" => (ChatTransfer.ToText(c), "text/plain; charset=utf-8", "txt"),
+                "json" => (JsonSerializer.Serialize(c, Json.Options), "application/json; charset=utf-8", "json"),
+                _ => throw new ArgumentException("format must be json, markdown or text."),
+            };
+            ctx.Response.ContentType = type;
+            ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{safe}.{ext}\"";
+            await ctx.Response.WriteAsync(text);
+        });
+        // body: { "data": <chat, array of chats or a ChatGPT export, as JSON or as a string> }
+        app.MapPost("/api/chats/import", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var data = body["data"] ?? throw new ArgumentException("'data' is required.");
+            string json = data is JsonValue v && v.TryGetValue<string>(out var s) ? s : data.ToJsonString();
+            var imported = ChatTransfer.Import(json);
+            foreach (var c in imported) _host.Chats.Save(c);
+            await WriteJson(ctx, new { imported = imported.Count, chats = imported.Select(ChatSummary) });
+        });
+
+        // ---- chat folders
+        object FolderDto(ChatFolder f) => new { f.Id, f.Name, f.ParentId, f.Order };
+        app.MapGet("/api/chat-folders", async ctx => await WriteJson(ctx, _host.ChatFolders.List().Select(FolderDto)));
+        app.MapPut("/api/chat-folders/{id}", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var f = _host.ChatFolders.Upsert((string)ctx.Request.RouteValues["id"]!, body["name"]?.GetValue<string>() ?? "", body["parentId"]?.GetValue<string>(),
+                body["order"] is JsonValue o && o.TryGetValue<int>(out var ord) ? ord : null);
+            await WriteJson(ctx, FolderDto(f));
+        });
+        // chats inside the folder (and its sub-folders) move up to the parent, or are deleted with ?chats=delete
+        app.MapDelete("/api/chat-folders/{id}", async ctx =>
+        {
+            string id = (string)ctx.Request.RouteValues["id"]!;
+            var parent = _host.ChatFolders.List().FirstOrDefault(f => f.Id == id)?.ParentId;
+            var doomed = _host.ChatFolders.Delete(id);
+            int moved = 0, deleted = 0;
+            foreach (var c in _host.Chats.List().Where(c => c.FolderId != null && doomed.Contains(c.FolderId)))
+            {
+                if (Q(ctx, "chats") == "delete") { DeleteChat(c.Id); deleted++; }
+                else { c.FolderId = parent; _host.Chats.Save(c); moved++; }
+            }
+            await WriteJson(ctx, new { folders = doomed.Count, moved, deleted });
+        });
 
         // ---- API tokens
         object TokenDto(ApiToken t) => new { t.Id, t.Name, t.Prefix, t.Permissions, t.CreatedAt, t.LastUsedAt, t.Disabled };

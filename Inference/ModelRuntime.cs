@@ -130,6 +130,25 @@ public sealed class ModelRuntime : IDisposable
     }
 
     /// <summary>
+    /// A short title for a conversation from its first exchange, or null when the model is busy (a title is never worth delaying an
+    /// answer) or says nothing usable.
+    /// </summary>
+    public async Task<string?> SuggestTitleAsync(string userText, string assistantText, CancellationToken ct = default)
+    {
+        if (Busy || Options.Embeddings || Model.IsEmbedding) return null;
+        string Cut(string s, int n) => s.Length > n ? s[..n] : s;
+        var messages = new List<ChatMessage>
+        {
+            new("system", "You write conversation titles. Reply with a title of at most six words and nothing else: no quotes, no punctuation at the end."),
+            new("user", $"Conversation:\nUser: {Cut(userText, 600)}\nAssistant: {Cut(assistantText, 600)}\n\nTitle:"),
+        };
+        var prompt = BuildFittingPrompt(messages, 24, out _, out _, "off");
+        var g = new GenerationOptions { Temperature = 0.2f, MaxTokens = 16, CachePrompt = false, ReasoningEffort = "off" };
+        string title = ChatTransfer.CleanTitle(await CompleteAsync(prompt, g, new GenerationStats(), ct));
+        return title.Length >= 2 ? title : null;
+    }
+
+    /// <summary>
     /// Generates <paramref name="tokens"/> tokens at each thread count (changing the thread count of the loaded model's context on the
     /// fly) and reports the speed, then puts the original setting back. The model must be idle. Meaningful for CPU work only.
     /// </summary>

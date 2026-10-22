@@ -42,7 +42,7 @@ async function saveSettings() {
   s.modelsDirectory = $('s-modelsdir').value.trim() || null; s.huggingFaceToken = $('s-hftoken').value || null;
   s.cors = $('s-cors').checked; s.anthropicApi = $('s-anthropic').checked; s.autoLoadOnRequest = $('s-autoload').checked;
   s.maxConcurrentDownloads = Number($('s-maxdl').value) || 2; s.requireAuth = $('s-auth').checked;
-  s.catalogUrl = $('s-catalog').value.trim() || null;   s.updateFeedUrl = $('s-feed').value.trim() || null; s.checkUpdates = $('s-updates').checked; s.checkModelUpdates = $('s-modelupd').checked; s.minimizeToTray = $('s-tray').checked; s.debugRequests = $('s-debug').checked; s.anthropicReasoningAsText = $('s-reastext').checked;
+  s.catalogUrl = $('s-catalog').value.trim() || null;   s.updateFeedUrl = $('s-feed').value.trim() || null; s.checkUpdates = $('s-updates').checked; s.checkModelUpdates = $('s-modelupd').checked; s.autoTitleChats = $('s-autotitle').checked; s.minimizeToTray = $('s-tray').checked; s.debugRequests = $('s-debug').checked; s.anthropicReasoningAsText = $('s-reastext').checked;
   s.loadGuardrail = $('s-guard').value; s.limitToDedicatedGpuMemory = $('s-dedicated').checked;
   s.alwaysShowTemplate = $('s-showtpl').checked;
   $('s-load').querySelectorAll('[data-k]').forEach(el => { const k = el.dataset.k; s.defaultLoad[k] = el.tagName === 'SELECT' ? el.value : (el.value === '' ? null : (isNaN(el.value) ? el.value : Number(el.value))); });

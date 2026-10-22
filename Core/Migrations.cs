@@ -26,7 +26,8 @@ public static class Migrations
     {
         // v0 -> v1: version stamp only
         [Settings] = new() { o => o },
-        [Chat] = new() { o => o },
+        // v1 -> v2: folderId, pinned and titleAuto were added; absent values mean "no folder", "not pinned", "title set by the user"
+        [Chat] = new() { o => o, o => o },
         // v0 -> v1: the legacy files were a bare { name: value } dictionary; the version needs a place to live
         [Presets] = new() { WrapItems },
         [ModelDefaults] = new() { WrapItems },

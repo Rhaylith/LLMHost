@@ -23,7 +23,14 @@
 <main>
 <!-- ======================== CHAT ======================== -->
 <section id="chat" class="on">
-  <div id="chats"><button class="b" style="width:100%" onclick="newChat()">+ New chat</button><div id="chatlist"></div></div>
+  <div id="chats">
+    <div class="row"><button class="b" style="flex:1" onclick="newChat()">+ New chat</button><button class="b sec" title="New folder" onclick="newFolder()">📁</button><button class="b sec" title="Import chats (this app, or a ChatGPT export)" onclick="importChats()">⇪</button></div>
+    <input id="chat-search" placeholder="Search chats…" style="margin:8px 0">
+    <div id="chat-bulk" class="row" style="display:none;margin-bottom:6px"><span class="dim" style="flex:1"></span><button class="b red" onclick="bulkDelete()">Delete</button><button class="b sec" onclick="clearSelection()">✕</button></div>
+    <div id="chatlist"></div>
+    <input type="file" id="chat-import-file" accept=".json,application/json" hidden>
+  </div>
+  <div id="ctxmenu"></div>
   <div id="conv">
     <div id="msgs"></div>
     <div id="attachments"></div>
@@ -158,7 +165,7 @@
       <div><label>Max concurrent downloads</label><input type="number" id="s-maxdl" min="1" max="8"></div>
       <div><label>Update feed URL (JSON with version, url, notes; blank = none)</label><input id="s-feed" placeholder="https://example.com/llmhost/latest.json"></div>
       <div><label>Staff-picks list URL (catalog.json format; blank = built-in list only)</label><input id="s-catalog" placeholder="https://example.com/llmhost/catalog.json"></div>
-      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0" title="Once a day, compares your downloaded models with Hugging Face"><input type="checkbox" id="s-modelupd" style="width:auto"> Check downloaded models for newer versions daily</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
+      <div><label>&nbsp;</label><label style="margin:6px 0"><input type="checkbox" id="s-updates" style="width:auto"> Check for updates at start-up</label><label style="margin:6px 0" title="Once a day, compares your downloaded models with Hugging Face"><input type="checkbox" id="s-modelupd" style="width:auto"> Check downloaded models for newer versions daily</label><label style="margin:6px 0" title="After the first answer, the loaded model suggests a short title (skipped while it is busy)"><input type="checkbox" id="s-autotitle" style="width:auto"> Name new chats automatically</label><label style="margin:6px 0"><input type="checkbox" id="s-tray" style="width:auto"> Keep running in the tray when the window is closed</label><label style="margin:6px 0" title="Claude Code and similar clients do not show thinking blocks while they stream; as text the reasoning appears live"><input type="checkbox" id="s-reastext" style="width:auto"> Show reasoning as live text to Anthropic-API clients (Claude Code)</label><label style="margin:6px 0" title="Writes the last /v1/messages request body to ~/.llmhost/debug/anthropic-last.json (contains your prompts)"><input type="checkbox" id="s-debug" style="width:auto"> Save the last Anthropic request for debugging <span class="dim">(~/.llmhost/debug/anthropic-last.json)</span></label></div>
       <div><label>Load guardrail (refuse loads that exceed memory)</label><select id="s-guard"><option value="off">off</option><option value="balanced">balanced</option><option value="strict">strict</option></select></div>
       <div><label>&nbsp;</label><label style="margin:6px 0" title="Integrated GPUs then stop borrowing system RAM"><input type="checkbox" id="s-dedicated" style="width:auto"> Limit offload to dedicated GPU memory</label></div>
       <div><label>&nbsp;</label><label style="margin:6px 0" title="Open the prompt-template section of the load dialog by default"><input type="checkbox" id="s-showtpl" style="width:auto"> Always show the prompt template when loading</label></div>
@@ -421,6 +428,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/core.js"></script>
 <script src="/ui/shell.js"></script>
 <script src="/ui/chat.js"></script>
+<script src="/ui/chats.js"></script>
 <script src="/ui/models.js"></script>
 <script src="/ui/discover.js"></script>
 <script src="/ui/settings.js"></script>

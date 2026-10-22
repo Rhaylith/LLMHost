@@ -88,21 +88,9 @@ function renderMsgs() {
         <div class="row" style="margin-top:4px">${m.role === 'user' ? `<button class="b" onclick="saveEdit('${m.id}', true)">Save &amp; resubmit</button>` : ''}<button class="b sec" onclick="saveEdit('${m.id}', false)">Save</button><button class="b sec" onclick="cancelEdit()">Cancel</button></div>`;
     } else body = `${m.images?.length ? `<div class="thumbs">${m.images.map(u => `<img src="${u}">`).join('')}</div>` : ''}${m.reasoning ? `<div class="think">${esc(m.reasoning)}</div>` : ''}${m.content || !calls ? `<div class="body">${md(m.content)}</div>` : ''}${calls}`;
     const src = m.sources?.length ? `<details class="sources"><summary class="dim">Sources (${m.sources.length})</summary>${m.sources.map(s => `<div class="toolcall"><b>[${s.n}]</b> ${esc(s.doc)}${s.chunk ? ' · part ' + s.chunk : ''}<br><span class="dim">${esc(s.preview)}…</span></div>`).join('')}</details>` : '';
-    return `<div class="msg ${m.role}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} ${nav}${acts}</div>${body}${src}${m.meta ? `<div class="meta">${esc(m.meta)}</div>` : ''}</div>`;
+    return `<div class="msg ${m.role}" data-msg="${m.id}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} ${nav}${acts}</div>${body}${src}${m.meta ? `<div class="meta">${esc(m.meta)}</div>` : ''}</div>`;
   }).join('');
   $('msgs').scrollTop = $('msgs').scrollHeight;
-}
-async function renderChatList() {
-  const list = await api('/api/chats').catch(() => []);
-  $('chatlist').innerHTML = list.map(c => `<div class="it ${c.id === conv.id ? 'on' : ''}" data-id="${c.id}" title="${esc(c.title)}">${esc(c.title)}</div>`).join('');
-  $('chatlist').querySelectorAll('.it').forEach(el => el.onclick = async () => {
-    const c = await api('/api/chats/' + el.dataset.id); conv = c; editing = null; conv.docs = (c.documents || []).map(d => ({id:d.id, name:d.name, chars:d.chars}));
-    { const t = fromStored(c.messages, c.activeLeaf); conv.all = t.all; conv.messages = []; const leaf = t.all.find(n => n.id === t.leaf); if (leaf) setBranchVia(leaf); }
-    if (c.generation) applyGen(c.generation);
-    $('p-system').value = c.systemPrompt || '';
-    if (c.model && [...$('p-model').options].some(o => o.value === c.model)) $('p-model').value = c.model;
-    renderMsgs(); renderAttachments(); renderChatList();
-  });
 }
 async function persist() {
   const body = {title: conv.title, model: $('p-model').value || null, systemPrompt: $('p-system').value || null, generation: genForServer(),
@@ -322,7 +310,7 @@ async function generateReply() {
   abort = null; $('send').style.display = ''; $('stop').style.display = 'none';
   stopTps();
   renderMsgs(); refreshStatus();
-  if (conv.messages.some(m => m.role === 'assistant' && m.content)) persist();
+  if (conv.messages.some(m => m.role === 'assistant' && m.content)) persist().then(maybeAutoTitle);
 }
 
 async function send() {

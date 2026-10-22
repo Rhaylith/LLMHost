@@ -69,3 +69,17 @@ pre.log{background:#0d0f12;padding:10px;border-radius:6px;overflow:auto;font:12p
 dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:18px;width:460px}
 dialog::backdrop{background:#0008}
 .bad { outline: 2px solid #e5484d; }
+#chats div.it{display:flex;align-items:center;gap:4px}
+#chats div.it .ttl{flex:1;overflow:hidden;text-overflow:ellipsis}
+#chats div.it.sel{outline:1px solid var(--acc2)}
+#chats div.it.drop{background:var(--panel2);outline:1px dashed var(--acc2)}
+#chats div.it .more{display:none;background:none;border:0;color:var(--dim);cursor:pointer;padding:0 4px}
+#chats div.it:hover .more{display:inline}
+#chats div.it.hit{display:block;white-space:normal}
+#chats .snip{font-size:11px;overflow:hidden;max-height:3.2em}
+#ctxmenu{display:none;position:fixed;z-index:60;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px;min-width:170px;box-shadow:0 6px 18px rgba(0,0,0,.35);max-height:70vh;overflow:auto}
+#ctxmenu .mi{padding:5px 10px;cursor:pointer;border-radius:4px;white-space:nowrap}
+#ctxmenu .mi:hover{background:var(--panel2)}
+#ctxmenu hr{border:0;border-top:1px solid var(--line);margin:3px 0}
+.msg.flash{animation:flash 1.5s}
+@keyframes flash{0%,60%{background:var(--panel2)}}

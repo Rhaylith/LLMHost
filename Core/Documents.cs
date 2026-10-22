@@ -476,6 +476,17 @@ public class DocumentStore
         return d;
     }
 
+    /// <summary>Copies a document under a new id (a duplicated chat keeps its own attachments).</summary>
+    public StoredDocument? Clone(string id)
+    {
+        var d = Get(id);
+        if (d == null) return null;
+        var copy = new StoredDocument { Name = d.Name, Text = d.Text, Pages = d.Pages };
+        Directory.CreateDirectory(Dir);
+        File.WriteAllText(PathFor(copy.Id), JsonSerializer.Serialize(copy, Json.Compact));
+        return copy;
+    }
+
     public StoredDocument? Get(string id)
     {
         try { var p = PathFor(id); return File.Exists(p) ? JsonSerializer.Deserialize<StoredDocument>(File.ReadAllText(p), Json.Options) : null; }
