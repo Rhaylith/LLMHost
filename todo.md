@@ -109,7 +109,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** API tokens: authentication toggle, create/name/revoke multiple tokens, **per-token permissions**, token shown once (current: single static key)
 - [x] **P1** Headless daemon mode (`llmster` equivalent): run as background process / Windows service / startup task, `daemon up|down|status|update`, no GUI required
 - [x] **P1** MCP host: `mcp.json` (Cursor notation) with local (stdio) and remote (URL + headers) servers, tool listing, per-call confirmation UI, "MCP via API" (`integrations` with `plugin` and `ephemeral_mcp` entries, `allowed_tools`)
-- [ ] **P2** JIT loading policy: idle TTL default, **auto-evict** previously JIT-loaded models when another loads, max loaded models, per-request TTL override
+- [x] **P2** JIT loading policy: idle TTL default, **auto-evict** previously JIT-loaded models when another loads, max loaded models, per-request TTL override
 - [ ] **P2** Legacy `/api/v0/*` endpoints for older clients (models with state/quant/arch, chat, completions, embeddings)
 - [ ] **P2** HTTPS (self-signed or supplied cert), IP allow-list, request size/rate limits
 - [ ] **P2** Request/response log viewer with filters and `lms log stream` equivalent; `/metrics` endpoint

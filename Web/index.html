@@ -157,6 +157,15 @@
   <h2>Hardware</h2>
   <div class="card" id="hw"></div>
   <div class="card" id="hwlive-card"><h2>Live load</h2><div id="hwlive-body" class="dim">Reading…</div></div>
+  <div class="card" id="jit-card"><h2>Loading on demand</h2>
+    <div class="dim">When a request names a model that is not loaded, it is loaded for that request. Models you load by hand are never unloaded automatically.</div>
+    <div class="grid2">
+      <div><label><input type="checkbox" id="s-jit" style="width:auto"> Load models when a request names them</label></div>
+      <div><label><input type="checkbox" id="s-jit-evict" style="width:auto"> Unload idle on-demand models to make room</label></div>
+      <div><label>Idle time of on-demand models (minutes, 0 = never)</label><input type="number" id="s-jit-ttl" min="0"></div>
+      <div><label>Most models loaded at once (0 = no limit)</label><input type="number" id="s-jit-max" min="0"></div>
+      <div><label>Unload first</label><select id="s-jit-order"><option value="lru">least recently used</option><option value="oldest">loaded longest ago</option></select></div>
+    </div></div>
   <div class="card" id="shortcuts-card"><h2>Keyboard shortcuts</h2>
     <div class="dim">Press <kbd>?</kbd> anywhere (outside a text box) to see them. Click <b>Change</b>, then press the new keys; a combination another action already uses is refused.</div>
     <div id="shortcut-table"></div></div>

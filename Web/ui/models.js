@@ -4,7 +4,7 @@ async function refreshModels() {
   await refreshStatus();
   $('mdir').textContent = status.modelsDirectory;
   $('loaded').innerHTML = status.loaded.length ? `<table><tr><th>Model</th><th>Device</th><th>GPU layers</th><th>Threads</th><th>Context</th><th>Size</th><th>Requests</th><th></th></tr>` +
-    status.loaded.map(m => `<tr><td>${esc(m.id)} ${m.vision ? '<span class="tag">vision</span>' : ''}</td><td class="ok">${m.device.toUpperCase()}</td><td>${m.gpuLayers >= 999 ? 'all' : m.gpuLayers}</td><td>${m.threads}</td><td>${m.contextSize}</td><td>${fmt(m.sizeBytes)}</td><td>${m.requests}</td>
+    status.loaded.map(m => `<tr><td>${esc(m.id)} ${m.vision ? '<span class="tag">vision</span>' : ''} ${ttlTag(m)}</td><td class="ok">${m.device.toUpperCase()}</td><td>${m.gpuLayers >= 999 ? 'all' : m.gpuLayers}</td><td>${m.threads}</td><td>${m.contextSize}</td><td>${fmt(m.sizeBytes)}</td><td>${m.requests}</td>
       <td style="white-space:nowrap">${m.isEmbedding ? '' : `<button class="b sec" title="Open PowerShell with Claude Code using this model" onclick='launchClaudeCode(${JSON.stringify(m.id)})'>Claude Code</button> `}<button class="b sec" title="Load a second instance of this model (shares the weights; own context and settings)" onclick='loadAnother(${JSON.stringify(m.modelId)})'>+ instance</button> <button class="b sec" title="Measure generation speed at several thread counts" onclick='testThreads(${JSON.stringify(m.id)}, this)'>Test threads</button> <button class="b sec" onclick="unload('${esc(m.id)}')">Eject</button></td></tr>`).join('') + '</table>' : '<span class="dim">Nothing loaded.</span>';
   const local = await api('/api/models/local'); if (localSort === 'size') local.sort((a, b) => b.sizeBytes - a.sizeBytes);
   updateMap = Object.fromEntries(((await api('/api/models/updates').catch(() => ({results: []}))).results || []).map(r => [r.modelId, r]));
@@ -256,3 +256,11 @@ async function testThreads(id, btn) {
 async function unload(id) { await api('/api/models/unload', {method:'POST', body:{id}}); refreshModels(); }
 async function del(id) { if (confirm('Delete ' + id + ' from disk?')) { await api('/api/models/local?id=' + encodeURIComponent(id), {method:'DELETE'}).catch(e => alert(e.message)); refreshModels(); } }
 
+
+// where a loaded model came from and when it will be unloaded for being idle
+function ttlTag(m) {
+  const origin = m.loadedBy === 'jit' ? '<span class="tag" title="Loaded because a request named it; it may be unloaded to make room">on demand</span>' : '';
+  if (!m.ttlSeconds || m.busy) return origin;
+  const left = Math.max(0, Math.round(m.ttlSeconds - (Date.now() - new Date(m.lastUsed).getTime()) / 1000));
+  return origin + `<span class="tag" title="Unloaded after ${Math.round(m.ttlSeconds / 60)} min without use">unloads in ${left >= 90 ? Math.round(left / 60) + ' min' : left + ' s'}</span>`;
+}

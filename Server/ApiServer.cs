@@ -65,6 +65,19 @@ public partial class ApiServer
                     return;
                 }
             }
+            // per-request idle time: x-llmhost-ttl header, or a "ttl" field in the JSON body of the model routes (seconds)
+            int? ttl = int.TryParse(ctx.Request.Headers["x-llmhost-ttl"].ToString(), out var th) ? th : null;
+            if (ttl == null && ctx.Request.Method == "POST" && (ctx.Request.Path.StartsWithSegments("/v1") || ctx.Request.Path.StartsWithSegments("/api/v1"))
+                && (ctx.Request.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) ?? false) && ctx.Request.ContentLength is > 0 and <= 2_000_000)
+            {
+                ctx.Request.EnableBuffering();
+                using (var sr = new StreamReader(ctx.Request.Body, Encoding.UTF8, false, 4096, leaveOpen: true))
+                {
+                    try { if (JsonNode.Parse(await sr.ReadToEndAsync()) is JsonObject o && o["ttl"] is JsonValue tv && tv.TryGetValue<int>(out var tb)) ttl = tb; } catch { }
+                }
+                ctx.Request.Body.Position = 0;
+            }
+            ModelManager.RequestTtl.Value = ttl;
             try { await next(); }
             catch (OperationCanceledException) { }
             catch (GatedModelException g) when (!ctx.Response.HasStarted)
@@ -75,7 +88,7 @@ public partial class ApiServer
             catch (Exception ex) when (!ctx.Response.HasStarted)
             {
                 LogBuffer.Add("server", $"{ctx.Request.Method} {ctx.Request.Path}: {ex.Message}");
-                int status = ex is FileNotFoundException or InvalidOperationException or ArgumentException ? 400 : 500;
+                int status = ex is ModelLoadException { Kind: "model_load_blocked" } ? 503 : ex is FileNotFoundException or InvalidOperationException or ArgumentException ? 400 : 500;
                 await WriteError(ctx, status, ex.Message, ex is ModelLoadException ml ? ml.Kind : ex is ContextLengthException ? "context_length_exceeded" : "server_error");
             }
         });
@@ -763,7 +776,7 @@ public partial class ApiServer
                 {
                     id = r.Identifier, file = r.Model.FileName, modelId = r.Model.Id, weightSharers = r.WeightSharers, r.GpuLayers,
                     device = r.GpuLayers > 0 ? "gpu" : "cpu", vision = r.SupportsVision, capabilities = r.Capabilities.ToApi(), threads = r.Threads, contextSize = r.ContextSize, cachedTokens = r.CachedTokenCount, cacheSlots = r.CacheSlots.Select(s => new { s.Id, s.Tokens, s.Active }), draftModel = r.DraftModelId, draftProposed = r.DraftProposedTotal, draftAccepted = r.DraftAcceptedTotal,
-                    sizeBytes = r.Model.SizeBytes, r.Requests, r.Busy, lastUsed = r.LastUsed,
+                    sizeBytes = r.Model.SizeBytes, r.Requests, r.Busy, lastUsed = r.LastUsed, loadedBy = r.LoadedBy, ttlSeconds = ModelManager.EffectiveTtlSeconds(r),
                     reasoning = r.ReasoningStyle.ToString().ToLowerInvariant(), supportsReasoning = r.SupportsReasoning,
                     maxConcurrent = r.MaxConcurrent, active = r.ActiveRequests, queued = r.QueuedRequests, toolFormat = r.ToolFormat.ToString().ToLowerInvariant(),
                     warnings = r.LoadWarnings, estimate = r.Estimate == null ? null : new { r.Estimate.Verdict, summary = r.Estimate.Describe() },

@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts, §4.3 per-chat settings, §4.4 rich rendering, §4.2 split view and compare, §5.1 file-based presets, §5.2 preset import and export (28 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts, §4.3 per-chat settings, §4.4 rich rendering, §4.2 split view and compare, §5.1 file-based presets, §5.2 preset import and export, §6.1 JIT policy (29 of ~50).
 
 ---
 
@@ -458,7 +458,7 @@ switch branch variant. WebView2: set `AreBrowserAcceleratorKeysEnabled=false` fo
 
 ### §6 Server / API
 
-#### §6.1 JIT loading policy — **M**
+#### ✅ §6.1 JIT loading policy — **M**
 * Settings `jit { enabled, defaultTtlMinutes, autoEvict, maxLoadedModels, evictOrder: lru|oldest }`; per-request `ttl`
   (seconds) in native API, `x-llmhost-ttl` header and `ttl` body field on OpenAI routes (BlahLLMWrapper-compatible).
 * `ModelManager.LoadAsync`: track `LoadedBy = manual|jit`. When loading would exceed `maxLoadedModels` — or `FitEstimator`
@@ -469,6 +469,8 @@ switch branch variant. WebView2: set `AreBrowserAcceleratorKeysEnabled=false` fo
   refresh `LastUsed` on every request (also queued ones).
 * UI settings group + loaded-models list shows origin/TTL countdown. Tests with a fake runtime (needs `IModelHost` from §2.5
   refactor, or a thin `ILoadedModel` test double).
+
+**As built:** `settings.jit { enabled, defaultTtlMinutes, autoEvict, maxLoadedModels, evictOrder: lru|oldest }` (`JitSettings`, validated; `autoLoadOnRequest` still works and both must be on). Every runtime knows how it was loaded (`LoadedBy` = `manual` | `jit`). A request for a model that is not loaded goes through `ModelManager.JitLoadAsync`: when `maxLoadedModels` is reached, idle on-demand models are unloaded in the chosen order first; when the memory check refuses the load (`guardrail` / `out-of-memory`) the next idle on-demand model is unloaded and the load is tried again; if nothing can be unloaded (models loaded by hand and busy ones are never touched) the request fails with HTTP **503 `model_load_blocked`** and the reason. Idle time: a per-request `ttl` (seconds; body field on `/v1/*` and `/api/v1/*`, or the `x-llmhost-ttl` header) beats the load setting, which beats `jit.defaultTtlMinutes` (on-demand models only); `ttl=0` keeps the model. Every request, queued ones included, now counts as use (`Touch`) so a waiting request keeps the model from being unloaded. `/api/status` reports `loadedBy` and `ttlSeconds`; the UI shows an "on demand" tag and an "unloads in …" countdown in the loaded list and has a "Loading on demand" card in Settings. Tests use two real small models (a chat and an embedding model), not a fake runtime, because `IModelHost` from §2.5 does not exist yet.
 
 #### §6.2 Legacy `/api/v0/*` — **S**
 Thin adapters: `GET /api/v0/models` & `/{id}` (adds `state: loaded|not-loaded`, `type: llm|vlm|embeddings`, `arch`,

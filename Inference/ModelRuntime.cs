@@ -76,6 +76,12 @@ public sealed class ModelRuntime : IDisposable
     public int Threads => EffectiveThreads(Options);
     public DateTime LoadedAt { get; } = DateTime.Now;
     public DateTime LastUsed { get; private set; } = DateTime.Now;
+    /// <summary>"manual" (loaded by the user) or "jit" (loaded because a request asked for it; may be evicted).</summary>
+    public string LoadedBy { get; set; } = "manual";
+    /// <summary>Idle seconds chosen by a request (<c>ttl</c>); null = the load setting or the on-demand default.</summary>
+    public int? TtlSeconds { get; set; }
+    /// <summary>Counts as use (a queued request keeps the model from being unloaded as idle).</summary>
+    public void Touch() => LastUsed = DateTime.Now;
     public long Requests => Interlocked.Read(ref _requests);
     public uint ContextSize => _params.ContextSize ?? 0;
     public bool Busy => ActiveRequests > 0 || QueuedRequests > 0;

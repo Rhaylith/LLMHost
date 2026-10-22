@@ -345,6 +345,8 @@ public class AppSettings
     /// <summary>Key combinations that differ from the defaults, by action id (see <see cref="Shortcuts"/>); an empty text switches the shortcut off.</summary>
     public Dictionary<string, string> Shortcuts { get; set; } = new();
     public bool AutoLoadOnRequest { get; set; } = true;
+    /// <summary>Just-in-time loading of models that a request names but that are not loaded (see <see cref="JitSettings"/>).</summary>
+    public JitSettings Jit { get; set; } = new();
     /// <summary>Downloads running at the same time; the rest wait in the queue.</summary>
     public int MaxConcurrentDownloads { get; set; } = 2;
     public bool VerboseNativeLog { get; set; }
@@ -469,7 +471,7 @@ public class AppSettings
     {
         ModelsDirectory = other.ModelsDirectory; ExtraModelsDirectories = other.ExtraModelsDirectories ?? new(); Host = other.Host; Port = other.Port; ApiKey = other.ApiKey; RequireAuth = other.RequireAuth;
         Cors = other.Cors; AnthropicApi = other.AnthropicApi; Backend = other.Backend;
-        CatalogUrl = other.CatalogUrl; CheckModelUpdates = other.CheckModelUpdates; AutoTitleChats = other.AutoTitleChats; Shortcuts = other.Shortcuts ?? new(); HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest;
+        CatalogUrl = other.CatalogUrl; CheckModelUpdates = other.CheckModelUpdates; AutoTitleChats = other.AutoTitleChats; Shortcuts = other.Shortcuts ?? new(); HuggingFaceToken = other.HuggingFaceToken; AutoLoadOnRequest = other.AutoLoadOnRequest; Jit = other.Jit ?? new();
         MaxConcurrentDownloads = Math.Clamp(other.MaxConcurrentDownloads, 1, 8);
         LimitToDedicatedGpuMemory = other.LimitToDedicatedGpuMemory;
         Runtime = string.IsNullOrWhiteSpace(other.Runtime) ? "auto" : other.Runtime;
@@ -516,4 +518,19 @@ public class RagSettings
     public string? RerankModel { get; set; }
     /// <summary>How many of the best chunks the reranker looks at.</summary>
     public int RerankCandidates { get; set; } = 20;
+}
+
+/// <summary>How models that are loaded on demand are handled: how long they stay, how many may be loaded, and what is unloaded to make room.</summary>
+public class JitSettings
+{
+    /// <summary>Load a model when a request names it (together with <see cref="AppSettings.AutoLoadOnRequest"/>).</summary>
+    public bool Enabled { get; set; } = true;
+    /// <summary>Idle minutes after which a model loaded on demand is unloaded (0 = never). A model with its own idle time keeps it.</summary>
+    public int DefaultTtlMinutes { get; set; }
+    /// <summary>Unload idle on-demand models when a new load would not fit or would exceed <see cref="MaxLoadedModels"/>. Models loaded by hand are never evicted.</summary>
+    public bool AutoEvict { get; set; } = true;
+    /// <summary>Most models that may be loaded at once when loading on demand (0 = no limit).</summary>
+    public int MaxLoadedModels { get; set; }
+    /// <summary>lru (least recently used first) | oldest (loaded longest ago first).</summary>
+    public string EvictOrder { get; set; } = "lru";
 }

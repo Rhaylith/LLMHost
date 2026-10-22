@@ -37,6 +37,8 @@ public static class SettingsValidator
         if (!string.IsNullOrWhiteSpace(s.CatalogUrl) &&
             !(Uri.TryCreate(s.CatalogUrl, UriKind.Absolute, out var cu) && cu.Scheme is "http" or "https"))
             e.Add(new("catalogUrl", "Catalog address must be an http(s) URL."));
+        if (s.Jit == null) e.Add(new("jit", "Missing."));
+        else { Range("jit.defaultTtlMinutes", s.Jit.DefaultTtlMinutes, 0, 525_600, "Default idle time"); Range("jit.maxLoadedModels", s.Jit.MaxLoadedModels, 0, 64, "Most loaded models"); OneOf("jit.evictOrder", s.Jit.EvictOrder, new[] { "lru", "oldest" }, "Eviction order"); }
         foreach (var (field, message) in LLMHostProject.Core.Shortcuts.Check(s.Shortcuts)) e.Add(new(field, message));
         if (!string.IsNullOrWhiteSpace(s.ModelsDirectory))
         {

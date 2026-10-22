@@ -35,7 +35,61 @@ public class ModelManager : IDisposable
         lock (_gate) return _loaded.TryGetValue(id, out var r) ? r : null;
     }
 
-    public async Task<ModelRuntime> LoadAsync(string modelQuery, LoadOptions? options = null, CancellationToken ct = default, bool allowDuplicate = false)
+    /// <summary>Idle seconds a request asked for (<c>ttl</c> body field or <c>x-llmhost-ttl</c> header); set by the server for the duration of that request.</summary>
+    public static readonly AsyncLocal<int?> RequestTtl = new();
+
+    /// <summary>Seconds of idleness after which the model is unloaded; 0 = never.</summary>
+    public static int EffectiveTtlSeconds(ModelRuntime r)
+    {
+        if (r.TtlSeconds is { } t) return Math.Max(0, t);
+        if (r.Options.TtlMinutes > 0) return r.Options.TtlMinutes * 60;
+        return r.LoadedBy == "jit" ? Math.Max(0, AppSettings.Current.Jit.DefaultTtlMinutes) * 60 : 0;
+    }
+
+    /// <summary>Models that may be unloaded to make room: loaded on demand, not busy, in the order of the eviction setting.</summary>
+    public List<ModelRuntime> EvictionCandidates(string? except = null)
+    {
+        var c = Loaded.Where(r => r.LoadedBy == "jit" && !r.Busy && !r.Identifier.Equals(except, StringComparison.OrdinalIgnoreCase));
+        return (AppSettings.Current.Jit.EvictOrder == "oldest" ? c.OrderBy(r => r.LoadedAt) : c.OrderBy(r => r.LastUsed)).ToList();
+    }
+
+    /// <summary>Loads a model because a request asked for it. Makes room first when the limit is reached, and again when the memory check refuses the load.</summary>
+    private async Task<ModelRuntime> JitLoadAsync(string requested, LoadOptions opts, CancellationToken ct)
+    {
+        var jit = AppSettings.Current.Jit;
+        if (jit.AutoEvict && jit.MaxLoadedModels > 0)
+        {
+            while (Loaded.Count >= jit.MaxLoadedModels)
+            {
+                var victim = EvictionCandidates().FirstOrDefault()
+                             ?? throw new ModelLoadException("model_load_blocked", $"{Loaded.Count} models are loaded (limit {jit.MaxLoadedModels}) and none of them can be unloaded: they were loaded by hand or are busy.");
+                LogBuffer.Add("load", $"Unloading {victim.Identifier} to make room for {requested} (limit {jit.MaxLoadedModels})");
+                Unload(victim.Identifier);
+            }
+        }
+        else if (jit.MaxLoadedModels > 0 && Loaded.Count >= jit.MaxLoadedModels)
+            throw new ModelLoadException("model_load_blocked", $"{Loaded.Count} models are loaded (limit {jit.MaxLoadedModels}) and automatic unloading is off.");
+        for (;;)
+        {
+            try { return await LoadAsync(requested, opts, ct, loadedBy: "jit"); }
+            catch (ModelLoadException ex) when (jit.AutoEvict && ex.Kind is "guardrail" or "out-of-memory")
+            {
+                var victim = EvictionCandidates().FirstOrDefault()
+                             ?? throw new ModelLoadException("model_load_blocked", $"{requested} does not fit next to the loaded models, and none of them can be unloaded (loaded by hand, or busy). {ex.Message}", ex);
+                LogBuffer.Add("load", $"{requested} did not fit: unloading {victim.Identifier} and trying again");
+                Unload(victim.Identifier);
+            }
+        }
+    }
+
+    private static ModelRuntime Used(ModelRuntime rt)
+    {
+        rt.Touch();
+        if (RequestTtl.Value is { } t) rt.TtlSeconds = t;
+        return rt;
+    }
+
+    public async Task<ModelRuntime> LoadAsync(string modelQuery, LoadOptions? options = null, CancellationToken ct = default, bool allowDuplicate = false, string loadedBy = "manual")
     {
         var model = Library.Find(modelQuery)
                     ?? throw new FileNotFoundException($"No local model matches '{modelQuery}'. Use 'models' to list downloaded models.");
@@ -62,6 +116,7 @@ public class ModelManager : IDisposable
             if (existing != null) return existing;
             var progress = new Progress<float>(p => LoadProgress?.Invoke(id, p));
             var rt = await ModelRuntime.LoadAsync(model, options, id, progress, ct);
+            rt.LoadedBy = loadedBy;
             lock (_gate) _loaded[id] = rt;
             Changed?.Invoke();
             return rt;
@@ -134,21 +189,21 @@ public class ModelManager : IDisposable
         if (!string.IsNullOrWhiteSpace(requested))
         {
             var instances = Instances(requested);
-            if (instances.Count > 0) return RequireUsable(LeastLoaded(instances), embeddings);
+            if (instances.Count > 0) return RequireUsable(Used(LeastLoaded(instances)), embeddings);
         }
         else
         {
             var candidates = loaded.Where(r => embeddings ? r.Model.IsEmbedding || r.Options.Embeddings : !r.Model.IsEmbedding).ToList();
-            if (candidates.Count >= 1) return candidates.OrderByDescending(r => r.LastUsed).First();
+            if (candidates.Count >= 1) return Used(candidates.OrderByDescending(r => r.LastUsed).First());
             if (loaded.Count >= 1 && embeddings) return loaded[0];
         }
 
-        if (AppSettings.Current.AutoLoadOnRequest && !string.IsNullOrWhiteSpace(requested))
+        if (AppSettings.Current.AutoLoadOnRequest && AppSettings.Current.Jit.Enabled && !string.IsNullOrWhiteSpace(requested))
         {
             var target = Library.Find(requested);
             var opts = (target != null ? Defaults.LoadFor(target.Id) : null) ?? AppSettings.Current.DefaultLoad.Clone();
             if (embeddings) opts.Embeddings = true;
-            return RequireUsable(await LoadAsync(requested, opts, ct), embeddings);
+            return RequireUsable(Used(await JitLoadAsync(requested, opts, ct)), embeddings);
         }
         throw new InvalidOperationException(string.IsNullOrWhiteSpace(requested)
             ? "No model is loaded. Load one first (CLI: /load <model>)."
@@ -169,9 +224,10 @@ public class ModelManager : IDisposable
     {
         foreach (var r in Loaded)
         {
-            if (r.Options.TtlMinutes > 0 && !r.Busy && DateTime.Now - r.LastUsed > TimeSpan.FromMinutes(r.Options.TtlMinutes))
+            int ttl = EffectiveTtlSeconds(r);
+            if (ttl > 0 && !r.Busy && DateTime.Now - r.LastUsed > TimeSpan.FromSeconds(ttl))
             {
-                LogBuffer.Add("load", $"{r.Identifier} idle for {r.Options.TtlMinutes} min, unloading");
+                LogBuffer.Add("load", $"{r.Identifier} idle for {ttl / 60.0:0.#} min, unloading");
                 Unload(r.Identifier);
             }
         }

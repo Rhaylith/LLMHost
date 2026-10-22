@@ -11,7 +11,7 @@ async function loadSettings() {
   const s = await api('/api/settings');
   $('s-host').value = s.host; $('s-port').value = s.port; $('s-apikey').value = s.apiKey || ''; $('s-backend').value = s.backend;
   $('s-modelsdir').value = s.modelsDirectory || ''; $('s-modelsdir').placeholder = status.modelsDirectory + ' (default: DownloadedModels in the working directory)'; $('s-hftoken').value = s.huggingFaceToken || '';
-  $('s-cors').checked = s.cors; $('s-anthropic').checked = s.anthropicApi; $('s-autoload').checked = s.autoLoadOnRequest;
+  $('s-cors').checked = s.cors; $('s-anthropic').checked = s.anthropicApi; $('s-autoload').checked = s.autoLoadOnRequest; const j = s.jit || {}; $('s-jit').checked = j.enabled !== false; $('s-jit-evict').checked = j.autoEvict !== false; $('s-jit-ttl').value = j.defaultTtlMinutes || 0; $('s-jit-max').value = j.maxLoadedModels || 0; $('s-jit-order').value = j.evictOrder || 'lru';
   $('s-maxdl').value = s.maxConcurrentDownloads || 2;
   $('s-catalog').value = s.catalogUrl || '';   $('s-feed').value = s.updateFeedUrl || ''; $('s-updates').checked = !!s.checkUpdates; $('s-modelupd').checked = !!s.checkModelUpdates; $('s-autotitle').checked = s.autoTitleChats !== false; $('s-autotitle').checked = s.autoTitleChats !== false; $("s-tray").checked = !!s.minimizeToTray; $('s-debug').checked = !!s.debugRequests; $('s-reastext').checked = s.anthropicReasoningAsText !== false;
   $('s-guard').value = s.loadGuardrail || 'balanced'; $('s-dedicated').checked = !!s.limitToDedicatedGpuMemory;
