@@ -118,7 +118,7 @@ public class GpuRatioTests
 
         var none = FitEstimator.Estimate(model, new LoadOptions { GpuRatio = 0f, ContextSize = 1024 }, hw, gpuBackend: true);
         Assert.Equal(0, none.OffloadedLayers);
-        Assert.Empty(none.Devices.Where(d => d.IsGpu));
+        Assert.DoesNotContain(none.Devices, d => d.IsGpu);
 
         var all = FitEstimator.Estimate(model, new LoadOptions { Device = "max", ContextSize = 1024 }, hw, gpuBackend: true);
         Assert.Equal(32, all.OffloadedLayers);

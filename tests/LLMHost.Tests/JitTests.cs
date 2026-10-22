@@ -14,7 +14,7 @@ public class JitSettingsTests
     public void TheValidatorChecksTheLimitsAndTheOrder()
     {
         var s = new AppSettings();
-        Assert.Empty(SettingsValidator.Validate(s).Where(e => e.Field.StartsWith("jit")));
+        Assert.DoesNotContain(SettingsValidator.Validate(s), e => e.Field.StartsWith("jit"));
         s.Jit.MaxLoadedModels = -1; s.Jit.DefaultTtlMinutes = -5; s.Jit.EvictOrder = "random";
         var fields = SettingsValidator.Validate(s).Select(e => e.Field).ToList();
         Assert.Contains("jit.maxLoadedModels", fields);

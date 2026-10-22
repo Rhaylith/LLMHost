@@ -64,7 +64,7 @@ public class LinkManagerTests : IDisposable
         Assert.Equal("beta", _a.Peers.Single().Name);
         Assert.Equal(_b.DeviceId, _a.Peers.Single().Id);
         Assert.Equal(new[] { "chat" }, _a.Peers.Single().Permissions);                // the least that is useful
-        Assert.Equal(1, new LinkManager(Path.Combine(_root, "a"), () => _sa).Peers.Count);   // stored on disk
+        Assert.Single(new LinkManager(Path.Combine(_root, "a"), () => _sa).Peers);   // stored on disk
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public class LinkTwoHostsTests : IAsyncLifetime
         int pa = Free(), pb = Free();
         await _srvA.StartAsync("127.0.0.1", pa); await _srvB.StartAsync("127.0.0.1", pb);
         _urlA = $"http://127.0.0.1:{pa}"; _urlB = $"http://127.0.0.1:{pb}";
-        await _hostA.Models.LoadAsync(ModelPath, Small.Clone().With(o => o.Identifier = "link-model"));
+        await _hostA.Models.LoadAsync(ModelPath!, Small.Clone().With(o => o.Identifier = "link-model"));
     }
 
     public async Task DisposeAsync()
@@ -256,7 +256,7 @@ public class LinkTwoHostsTests : IAsyncLifetime
         var j = JsonNode.Parse(await r.Content.ReadAsStringAsync())!;
         Assert.Equal("link-model", (string)j["model"]!);
         Assert.NotNull(j["choices"]![0]!["message"]!["content"]);
-        Assert.Equal(0, _hostB.Models.Loaded.Count);                                  // nothing was loaded on this device
+        Assert.Empty(_hostB.Models.Loaded);                                  // nothing was loaded on this device
 
         // the other device logged who asked
         for (int i = 0; i < 30 && !RequestLog.Query(model: "link-model").Any(e => e.Token == "link:beta"); i++) await Task.Delay(100);
@@ -276,7 +276,7 @@ public class LinkTwoHostsTests : IAsyncLifetime
         var long_ = _http.SendAsync(new HttpRequestMessage(HttpMethod.Post, _urlB + "/v1/chat/completions") { Content = Body("""{"model":"alpha/link-model","max_tokens":900,"temperature":1,"stream":true,"messages":[{"role":"user","content":"Write a very long story about the sea."}]}""") }, HttpCompletionOption.ResponseHeadersRead, cts.Token);
         var resp = await long_;
         using var s = await resp.Content.ReadAsStreamAsync();
-        await s.ReadAsync(new byte[64]);
+        await s.ReadAtLeastAsync(new byte[64], 1);
         Assert.True(_hostA.Models.Loaded.Single().Busy || true);
         cts.Cancel();
         resp.Dispose();

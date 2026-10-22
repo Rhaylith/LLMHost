@@ -190,7 +190,7 @@ public class TlsCertTests
         Assert.Contains("network.allowedNetworks", f);
         Assert.Contains("network.tls.certPath", f);
         Assert.Contains("network.limits.maxBodyMb", f);
-        Assert.Empty(SettingsValidator.Validate(new AppSettings()).Where(e => e.Field.StartsWith("network")));
+        Assert.DoesNotContain(SettingsValidator.Validate(new AppSettings()), e => e.Field.StartsWith("network"));
     }
 }
 

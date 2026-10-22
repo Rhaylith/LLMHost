@@ -179,7 +179,7 @@ public static class TlsCerts
         req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid("1.3.6.1.5.5.7.3.1") }, false));
         using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(days));
         // re-import so the private key is usable by Kestrel (ephemeral keys cannot be used for TLS on Windows)
-        return new X509Certificate2(cert.Export(X509ContentType.Pfx, ""), "", X509KeyStorageFlags.Exportable);
+        return X509CertificateLoader.LoadPkcs12(cert.Export(X509ContentType.Pfx, ""), "", X509KeyStorageFlags.Exportable);
     }
 
     /// <summary>The stored certificate, made anew when none exists or it expires within 30 days.</summary>
@@ -191,7 +191,7 @@ public static class TlsCerts
         {
             try
             {
-                var c = new X509Certificate2(PfxPath, pass, X509KeyStorageFlags.Exportable);
+                var c = X509CertificateLoader.LoadPkcs12FromFile(PfxPath, pass, X509KeyStorageFlags.Exportable);
                 if (c.NotAfter > (now ?? DateTime.Now).AddDays(30)) return c;
                 c.Dispose();
             }
@@ -209,9 +209,9 @@ public static class TlsCerts
         if (t.Mode == "selfSigned") return LoadOrCreate();
         if (string.IsNullOrWhiteSpace(t.CertPath) || !File.Exists(t.CertPath)) throw new FileNotFoundException("The certificate file was not found: " + t.CertPath);
         X509Certificate2 c = t.CertPath.EndsWith(".pfx", StringComparison.OrdinalIgnoreCase) || t.CertPath.EndsWith(".p12", StringComparison.OrdinalIgnoreCase)
-            ? new X509Certificate2(t.CertPath, t.PfxPassword, X509KeyStorageFlags.Exportable)
+            ? X509CertificateLoader.LoadPkcs12FromFile(t.CertPath, t.PfxPassword, X509KeyStorageFlags.Exportable)
             : X509Certificate2.CreateFromPemFile(t.CertPath, string.IsNullOrWhiteSpace(t.KeyPath) ? null : t.KeyPath);
-        return new X509Certificate2(c.Export(X509ContentType.Pfx, ""), "", X509KeyStorageFlags.Exportable);
+        return X509CertificateLoader.LoadPkcs12(c.Export(X509ContentType.Pfx, ""), "", X509KeyStorageFlags.Exportable);
     }
 
     /// <summary>The public certificate in PEM, for clients that should trust a self-signed server.</summary>

@@ -104,8 +104,7 @@ public class CliOutputTests : IDisposable
     public async Task DownloadsJsonIsAnEmptyArrayWhenThereAreNone()
     {
         Assert.Equal(0, await Run("downloads", "--json"));
-        Assert.Equal(0, JsonNode.Parse(_out.ToString())!.AsArray().Count);
-        Assert.Equal(Expected(Golden("downloads")).Length, 0);
+        Assert.Empty(JsonNode.Parse(_out.ToString())!.AsArray());
     }
 
     [Fact]

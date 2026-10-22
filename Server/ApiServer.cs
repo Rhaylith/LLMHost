@@ -174,7 +174,7 @@ public partial class ApiServer
             ModelManager.RequestTtl.Value = ttl;
             try { await next(); }
             catch (OperationCanceledException) { }
-            catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException bh) when (!ctx.Response.HasStarted)
+            catch (Microsoft.AspNetCore.Http.BadHttpRequestException bh) when (!ctx.Response.HasStarted)
             {
                 await WriteError(ctx, bh.StatusCode, bh.StatusCode == 413 ? $"The request is larger than this server allows ({cfg.Network.Limits.MaxBodyMb} MB; uploads {cfg.Network.Limits.MaxUploadMb} MB)." : bh.Message, bh.StatusCode == 413 ? "request_too_large" : "invalid_request_error");
             }

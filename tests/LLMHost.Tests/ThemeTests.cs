@@ -84,7 +84,7 @@ public class ThemeSettingsTests
     {
         Assert.Equal("system", new AppSettings().UiTheme);
         Assert.Equal("auto", new AppSettings().UiLanguage);
-        Assert.Empty(SettingsValidator.Validate(new AppSettings { UiTheme = "light", UiAccent = "#1f5fd6", UiLanguage = "de" }).Where(e => e.Field.StartsWith("ui")));
+        Assert.DoesNotContain(SettingsValidator.Validate(new AppSettings { UiTheme = "light", UiAccent = "#1f5fd6", UiLanguage = "de" }), e => e.Field.StartsWith("ui"));
         var f = SettingsValidator.Validate(new AppSettings { UiTheme = "blue", UiAccent = "red", UiLanguage = "english please" }).Select(e => e.Field).ToList();
         Assert.Contains("uiTheme", f); Assert.Contains("uiAccent", f); Assert.Contains("uiLanguage", f);
     }

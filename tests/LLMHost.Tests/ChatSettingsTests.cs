@@ -112,7 +112,7 @@ public class ChatSettingsApiTests : IClassFixture<ServerFixture>
         Assert.Equal("chat", (string)e["sources"]!["topK"]!);
         Assert.Equal("global", (string)e["sources"]!["topP"]!);
         Assert.Equal("global", (string)e["baseLayer"]!);
-        Assert.Equal(7 == (int)e["base"]!["topK"]!, false);
+        Assert.NotEqual(7, (int)e["base"]!["topK"]!);
 
         // saving the messages without a settings block keeps them
         await Json(await _f.Http.PutAsync("/api/chats/" + id, Body("""{"title":"t","messages":[{"id":"a","role":"user","content":"hi"}]}""")));

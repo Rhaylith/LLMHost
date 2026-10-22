@@ -1002,7 +1002,6 @@ public sealed class JinjaTemplate
 
         private static object? CallString(string s, string name, List<object?> a, Dictionary<string, object?> kw)
         {
-            string Chars() => Arg(a, 0) is string c ? c : null!;
             switch (name)
             {
                 case "strip": return Arg(a, 0) is string cs ? s.Trim(cs.ToCharArray()) : s.Trim();
