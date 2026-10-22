@@ -100,6 +100,7 @@ public partial class ApiServer
         MapNative(app);
         MapMcp(app);
         MapDocuments(app);
+        MapLegacy(app);
         MapManagement(app);
 
         await app.StartAsync();
@@ -441,6 +442,7 @@ public partial class ApiServer
         cached_prompt_tokens = s.CachedTokens,
         time_to_first_token = Math.Round(s.TimeToFirstTokenMs / 1000.0, 3),
         generation_time = Math.Round((s.TotalMs - s.TimeToFirstTokenMs) / 1000.0, 3),
+        stop_reason = s.FinishReason,
         completion_tokens = s.CompletionTokens,
         prompt_tokens = s.PromptTokens,
         finish_reason = s.FinishReason,

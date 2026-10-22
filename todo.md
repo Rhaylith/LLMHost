@@ -110,7 +110,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** Headless daemon mode (`llmster` equivalent): run as background process / Windows service / startup task, `daemon up|down|status|update`, no GUI required
 - [x] **P1** MCP host: `mcp.json` (Cursor notation) with local (stdio) and remote (URL + headers) servers, tool listing, per-call confirmation UI, "MCP via API" (`integrations` with `plugin` and `ephemeral_mcp` entries, `allowed_tools`)
 - [x] **P2** JIT loading policy: idle TTL default, **auto-evict** previously JIT-loaded models when another loads, max loaded models, per-request TTL override
-- [ ] **P2** Legacy `/api/v0/*` endpoints for older clients (models with state/quant/arch, chat, completions, embeddings)
+- [x] **P2** Legacy `/api/v0/*` endpoints for older clients (models with state/quant/arch, chat, completions, embeddings)
 - [ ] **P2** HTTPS (self-signed or supplied cert), IP allow-list, request size/rate limits
 - [ ] **P2** Request/response log viewer with filters and `lms log stream` equivalent; `/metrics` endpoint
 - [ ] **P2** Anthropic API gaps: image blocks, images in tool results, `thinking` blocks, `tool_choice` forcing, `cache_control` accepted/ignored
