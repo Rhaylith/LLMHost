@@ -6,7 +6,7 @@ namespace LLMHostProject.Cli;
 /// <summary>Small console helpers: colours, tables, progress.</summary>
 public static class Ui
 {
-    private static readonly bool Color = !Console.IsOutputRedirected && Environment.GetEnvironmentVariable("NO_COLOR") == null;
+    public static bool Color { get; set; } = !Console.IsOutputRedirected && Environment.GetEnvironmentVariable("NO_COLOR") == null;
 
     public static string C(string text, string code) => Color ? $"\u001b[{code}m{text}\u001b[0m" : text;
     public static string Dim(string t) => C(t, "90");
@@ -16,8 +16,8 @@ public static class Ui
     public static string Cyan(string t) => C(t, "36");
     public static string Yellow(string t) => C(t, "33");
 
-    public static void Info(string t) => Console.WriteLine(t);
-    public static void Error(string t) => Console.WriteLine(Red("error: ") + t);
+    public static void Info(string t) => Out.Human(t);
+    public static void Error(string t, int code = ExitCodes.Generic) => Out.Error(t, code);
 
     public static void EnableAnsi()
     {
@@ -27,6 +27,7 @@ public static class Ui
 
     public static void Table(IEnumerable<string[]> rows, params string[] header)
     {
+        if (Out.IsJson) { Out.Rows(rows.ToList(), header); return; }
         var all = new List<string[]> { header };
         all.AddRange(rows);
         var widths = new int[header.Length];
@@ -41,7 +42,7 @@ public static class Ui
                 string cell = i < all[ri].Length ? all[ri][i] : "";
                 sb.Append(cell.PadRight(widths[i] + 2));
             }
-            Console.WriteLine(ri == 0 ? Bold(sb.ToString().TrimEnd()) : sb.ToString().TrimEnd());
+            Out.Stdout.WriteLine(ri == 0 ? Bold(sb.ToString().TrimEnd()) : sb.ToString().TrimEnd());
         }
     }
 

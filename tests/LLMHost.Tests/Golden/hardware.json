@@ -1,0 +1,5 @@
+{
+  "type": "object",
+  "keys": ["cpu", "gpus", "logicalCores", "npus", "physicalCores", "ramBytes"],
+  "gpuKeys": ["driver", "index", "integrated", "name", "sharedBytes", "vendor", "vramBytes"]
+}

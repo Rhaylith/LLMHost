@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\LLMHost.csproj" />
+    <None Include="Golden\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,4 @@
+{
+  "type": "array",
+  "keys": ["description", "name", "temp", "top_k", "top_p"]
+}

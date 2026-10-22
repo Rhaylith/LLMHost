@@ -1,0 +1,4 @@
+{
+  "type": "array-or-object",
+  "note": "ls --json: an array of models (may be empty); an entry carries at least id and sizeBytes"
+}

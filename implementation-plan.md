@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts, §4.3 per-chat settings, §4.4 rich rendering, §4.2 split view and compare, §5.1 file-based presets, §5.2 preset import and export, §6.1 JIT policy, §6.2 legacy API, §6.3 HTTPS, allow-list, limits, §6.4 request log and metrics, §6.5 Anthropic gaps (33 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts, §4.3 per-chat settings, §4.4 rich rendering, §4.2 split view and compare, §5.1 file-based presets, §5.2 preset import and export, §6.1 JIT policy, §6.2 legacy API, §6.3 HTTPS, allow-list, limits, §6.4 request log and metrics, §6.5 Anthropic gaps, §7.3 CLI output and exit codes (34 of ~50).
 
 ---
 
@@ -542,7 +542,7 @@ These only make sense with a hub or plugin system, both P3. Plan: reserve the ve
 (`login --hf-token` stores the encrypted token, shares storage with §3.3) and **`clone <user/model>`** as alias of `get`;
 `push`/`dev` are documented as not applicable (exit code 2 with explanation). Revisit when §5 P3 Hub-style publish is scheduled.
 
-#### §7.3 Machine-readable output & exit codes — **M**
+#### ✅ §7.3 Machine-readable output & exit codes — **M**
 * Global flags `--json`, `--quiet/-q`, `--no-color`, `--verbose`; `--json` prints one JSON document (or JSON-lines for
   streaming verbs); all human output goes to stderr in that mode. Extend `ls`/`ps` (exist) to every verb that prints a list
   or status (`models`, `runtime`, `hardware`, `presets`, `chats`, `downloads`, `server status`, `daemon status`).
@@ -550,6 +550,8 @@ These only make sense with a hub or plugin system, both P3. Plan: reserve the ve
   5 server unreachable · 6 out of memory/doesn't fit · 7 cancelled · 8 conflict/already running. Documented in README.
 * Refactor `Shell.cs` (1541 lines): split output into an `IOutput` (Human/Json/Quiet) so verbs call
   `Out.Table(...)`/`Out.Result(obj)` once; do verb-by-verb. Golden-file tests for JSON schemas.
+
+**As built:** `Cli/Out.cs` and `Cli/ExitCodes.cs`. Global flags `--json`, `--quiet` / `-q`, `--no-color`, `--verbose` are read by `Program` before dispatch (`Out.ParseGlobalFlags`). `Out` decides where output goes: in JSON mode everything for people (`Ui.Info`, errors) goes to stderr and results go to stdout as JSON; `Ui.Table` prints a JSON array of objects (keys = lower-cased column names) in that mode, which gave `models`, `chats`, `downloads`, `presets` and every other table verb a JSON form at once, and `hardware`, `daemon status`, `ps`, `ls` have explicit JSON documents; quiet hides informational lines but keeps tables and errors. Stable exit codes: 0 ok · 1 generic · 2 usage / unsupported · 3 not found · 4 unauthorised · 5 unreachable · 6 out of memory or does not fit · 7 cancelled · 8 conflict; `ExitCodes.For(exception)` maps what a verb throws, usage and not-found errors pick their code explicitly, and the README documents the table. Golden files in `tests/LLMHost.Tests/Golden/*.json` pin the key sets of `hardware`, `preset` and `downloads` output; the tests run real verbs in-process with captured stdout / stderr and check that the whole of stdout parses as JSON. Deviation: the plan's full `IOutput` refactor of the 1500-line `Shell.cs` was not done; the same effect comes from routing `Ui` through `Out`, and verbs that print free text rather than tables (for example `fit`, `runtime list` details) still only print text, to stderr in JSON mode.
 
 ### §8 Remote / multi-device
 

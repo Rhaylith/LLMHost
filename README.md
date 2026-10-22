@@ -40,6 +40,24 @@ Every command also works inside the interactive shell with a leading `/` (`/load
 | CLI | streaming chat, history, undo/regenerate, save/resume/export chats, raw completion, embeddings, token counting, logs |
 | Web UI | chat with parameter panel, model manager (load dialog), discover/download, hardware + settings, logs |
 
+## Command line: machine-readable output and exit codes
+
+Global flags work with every verb: `--json` (results as JSON on stdout, everything meant for people on stderr), `--quiet` / `-q` (no informational lines), `--no-color`, `--verbose` (log lines on stderr). Lists and tables (`ls`, `preset`, `chats`, `downloads`, `ps`, `hardware`, `daemon status` ...) become JSON arrays or objects with stable keys; streaming verbs such as `log stream --source request --json` print one JSON document per line.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | ok |
+| 1 | generic failure |
+| 2 | usage error, or not available in this build (`push`, `dev`, `link ...`) |
+| 3 | not found (model, preset, file) |
+| 4 | not authorised (bad or missing token) |
+| 5 | server unreachable |
+| 6 | out of memory / the model does not fit |
+| 7 | cancelled |
+| 8 | conflict / already exists / already running |
+
+`login --hf-token <token>` checks a Hugging Face token and stores it encrypted; `clone <user/model>` is `get`.
+
 ## Files
 
 Settings, presets and chats live in `%USERPROFILE%\.llmhost` (override with `LLMHOST_HOME`). Models are downloaded to a

@@ -124,7 +124,7 @@ Priorities: **P1** = core gap users will hit quickly, **P2** = expected by BlahL
 - [x] **P1** Missing verbs: `server start|stop|status`, `daemon up|down|status|update`, `log stream`, `import`, `runtime` (list/get/select/update), `load --identifier --gpu max|auto|<0–1> --context-length`, `unload --all`, `ls`/`ps` with `--json`, `get` interactive search+quant picker, `chat` against a running server
 - [ ] **P2** `link` verbs (`enable|disable|status|set-device-name|set-preferred-device`) once LM Link-style remoting exists
 - [ ] **P2** `login` / `push` / `clone` / `dev` equivalents if a hub/plugin concept is added
-- [ ] **P2** Machine-readable output (`--json`), stable exit codes, quiet mode
+- [x] **P2** Machine-readable output (`--json`), stable exit codes, quiet mode
 - [ ] **P3** Shell completion scripts, richer line editing (history, multi-line editor, Ctrl+R)
 
 ## 8. Remote / multi-device

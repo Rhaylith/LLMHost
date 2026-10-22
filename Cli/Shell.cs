@@ -105,13 +105,64 @@ public class Shell
         };
         try
         {
-            return await DispatchAsync(command, args) ? 0 : 1;
+            bool ok = await DispatchAsync(command, args);
+            return ok ? 0 : Out.ExitCode != 0 ? Out.ExitCode : ExitCodes.Generic;
         }
         catch (Exception ex)
         {
-            Ui.Error(ex.Message);
-            return 1;
+            Ui.Error(ex.Message, ExitCodes.For(ex));
+            return Out.ExitCode;
         }
+    }
+
+    // ===================================================================== link / login / clone / push / dev
+
+    private static readonly string[] LinkVerbs = { "enable", "disable", "status", "set-device-name", "set-preferred-device" };
+
+    /// <summary>link enable|disable|status|set-device-name &lt;name&gt;|set-preferred-device &lt;device&gt; — asks the server's /api/link/*.</summary>
+    private async Task<bool> LinkVerbAsync(Args a)
+    {
+        string sub = a.Positional.FirstOrDefault() ?? "status";
+        if (!LinkVerbs.Contains(sub)) { Ui.Error("usage: link enable | disable | status | set-device-name <name> | set-preferred-device <device>", ExitCodes.Usage); return false; }
+        string? arg = a.Positional.Skip(1).FirstOrDefault();
+        if (sub is "set-device-name" or "set-preferred-device" && arg == null) { Ui.Error($"usage: link {sub} <value>", ExitCodes.Usage); return false; }
+
+        var daemon = await Daemon.ProbeAsync();
+        string baseUrl = daemon?.Info.Url ?? _server.Url ?? "";
+        if (baseUrl.Length == 0) { Ui.Error("Linking devices is not available in this build.", ExitCodes.Usage); return false; }
+        using var http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(15) };
+        if (!string.IsNullOrEmpty(daemon?.Info.Token)) http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", daemon!.Value.Info.Token);
+        var body = new StringContent(sub switch { "set-device-name" => JsonSerializer.Serialize(new { name = arg }), "set-preferred-device" => JsonSerializer.Serialize(new { device = arg }), _ => "{}" }, Encoding.UTF8, "application/json");
+        using var resp = sub == "status" ? await http.GetAsync("/api/link/status") : await http.PostAsync("/api/link/" + sub.Replace("set-", "").Replace("-", "/"), body);
+        string text = await resp.Content.ReadAsStringAsync();
+        if ((int)resp.StatusCode == 501) { Ui.Error("Linking devices is not available in this build.", ExitCodes.Usage); return false; }
+        if (!resp.IsSuccessStatusCode) { Ui.Error(text, (int)resp.StatusCode is 401 or 403 ? ExitCodes.Unauthorized : (int)resp.StatusCode == 404 ? ExitCodes.NotFound : ExitCodes.Generic); return false; }
+        if (Out.IsJson) Console.WriteLine(text); else Ui.Info(text);
+        return true;
+    }
+
+    /// <summary>login [--hf-token] &lt;token&gt; — checks a Hugging Face token and stores it (encrypted for this Windows user).</summary>
+    private async Task<bool> LoginAsync(Args a)
+    {
+        string? token = a.Value("hf-token") ?? a.Positional.FirstOrDefault() ?? Environment.GetEnvironmentVariable("HF_TOKEN");
+        if (string.IsNullOrWhiteSpace(token)) { Ui.Error("usage: login --hf-token <token>   (or set HF_TOKEN)", ExitCodes.Usage); return false; }
+        var who = await HuggingFace.WhoAmIAsync(token);
+        if (!who.Valid && !a.Flag("force"))
+        {
+            Ui.Error(who.Error ?? "The token was not accepted.", who.Error?.StartsWith("Could not reach") == true ? ExitCodes.Unreachable : ExitCodes.Unauthorized);
+            return false;
+        }
+        _host.Settings.HuggingFaceToken = token.Trim();
+        _host.Settings.Save();
+        Out.Result(new { valid = who.Valid, name = who.Name });
+        Ui.Info(who.Valid ? $"Signed in to Hugging Face as {who.Name}. The token is stored encrypted." : "Token stored (not verified).");
+        return true;
+    }
+
+    private bool NotApplicable(string verb, string why)
+    {
+        Ui.Error($"'{verb}' is not available: {why}", ExitCodes.Usage);
+        return false;
     }
 
     // ===================================================================== dispatch
@@ -129,6 +180,11 @@ public class Shell
             case "search": return await SearchAsync(a);
             case "files": return await FilesAsync(a);
             case "get": case "download": case "pull": return await GetAsync(a);
+            case "clone": return await GetAsync(a);                                  // alias of get: clone <user/model>
+            case "login": return await LoginAsync(a);
+            case "link": return await LinkVerbAsync(a);
+            case "push": return NotApplicable("push", "there is no hub to publish to; share a preset file with 'preset export' instead");
+            case "dev": return NotApplicable("dev", "there is no plugin system to develop for");
             case "downloads": case "dl": return ShowDownloads();
             case "cancel": return Cancel(a);
             case "pause": return Pause(a, pause: true);
@@ -182,7 +238,7 @@ public class Shell
             case "template": return ShowTemplate(a);
             case "chat": return await ChatCommandAsync(a);
             default:
-                Ui.Error($"unknown command '{cmd}'. Type /help.");
+                Ui.Error($"unknown command '{cmd}'. Type /help.", ExitCodes.Usage);
                 return false;
         }
     }
@@ -256,6 +312,12 @@ public class Shell
     private bool Hardware_()
     {
         var hw = Hardware.Detect();
+        if (Out.IsJson)
+        {
+            Out.Result(new { cpu = hw.Cpu, logicalCores = hw.LogicalCores, physicalCores = CpuTopology.Detect().PhysicalCores, ramBytes = hw.TotalRamBytes,
+                gpus = hw.Gpus.Select(g => new { g.Index, g.Name, g.Vendor, g.Integrated, g.VramBytes, g.SharedBytes, g.Driver }), npus = hw.Npus.Select(x => new { x.Name, x.Vendor, x.Architecture, x.Status }) });
+            return true;
+        }
         Ui.Info($"CPU      {hw.Cpu}  ({hw.LogicalCores} logical cores)");
         Ui.Info($"RAM      {Ui.Bytes(hw.TotalRamBytes)}");
         foreach (var g in hw.Gpus)
@@ -312,7 +374,7 @@ public class Shell
         if (a.Flag("json"))
         {
             var loadedJson = _host.Models.Loaded;
-            Ui.Info(JsonSerializer.Serialize(_host.Library.List().Select(m => new
+            Out.Stdout.WriteLine(JsonSerializer.Serialize(_host.Library.List().Select(m => new
             {
                 m.Id, m.FileName, m.SizeBytes, m.Architecture, m.Quantization, m.ContextLength, m.IsEmbedding,
                 vision = m.SupportsVision, capabilities = m.Capabilities.Names(), loaded = loadedJson.Any(l => l.Model.Path == m.Path),
@@ -350,7 +412,7 @@ public class Shell
 
     private async Task<bool> SearchAsync(Args a)
     {
-        if (a.Positional.Count == 0) { Ui.Error("usage: search <query>"); return false; }
+        if (a.Positional.Count == 0) { Ui.Error("usage: search <query>", ExitCodes.Usage); return false; }
         var found = await HuggingFace.SearchAsync(string.Join(' ', a.Positional), 25);
         Ui.Table(found.Select(m => new[] { m.Id, m.Downloads.ToString("N0"), m.Likes.ToString("N0") }), "REPOSITORY", "DOWNLOADS", "LIKES");
         return true;
@@ -360,7 +422,7 @@ public class Shell
 
     private async Task<bool> FilesAsync(Args a)
     {
-        if (a.Positional.Count == 0) { Ui.Error("usage: files <repo|catalog-key>"); return false; }
+        if (a.Positional.Count == 0) { Ui.Error("usage: files <repo|catalog-key>", ExitCodes.Usage); return false; }
         string repo = ResolveRepo(a.Positional[0]);
         var files = await HuggingFace.ListFilesAsync(repo);
         if (files.Count == 0) { Ui.Info("No GGUF files found."); return true; }
@@ -456,7 +518,7 @@ public class Shell
     private bool ShowDownloads()
     {
         var jobs = _host.Downloads.Jobs;
-        if (jobs.Count == 0) { Ui.Info("No downloads in this session."); return true; }
+        if (jobs.Count == 0) { if (Out.IsJson) Out.Result(Array.Empty<object>()); else Ui.Info("No downloads in this session."); return true; }
         Ui.Table(jobs.Select(j => new[]
         {
             j.Id, j.State.ToString() + (j.Note != null ? " (" + j.Note + ")" : ""), $"{j.Progress * 100:0.0}%",
@@ -467,7 +529,7 @@ public class Shell
 
     private bool Cancel(Args a)
     {
-        if (a.Positional.Count == 0) { Ui.Error("usage: cancel <download id>"); return false; }
+        if (a.Positional.Count == 0) { Ui.Error("usage: cancel <download id>", ExitCodes.Usage); return false; }
         return _host.Downloads.Cancel(a.Positional[0]);
     }
 
@@ -544,9 +606,9 @@ public class Shell
             case "status":
             {
                 var st = await Daemon.ProbeAsync();
-                if (st == null) { Ui.Info("Daemon: not running" + (Daemon.IsInstalledAsTask() ? "  (starts at logon)" : "")); return a.Flag("json") ? true : true; }
+                if (st == null) { if (Out.IsJson) Out.Result(new { running = false }); else Ui.Info("Daemon: not running" + (Daemon.IsInstalledAsTask() ? "  (starts at logon)" : "")); return true; }
                 var (i, status) = st.Value;
-                if (a.Flag("json")) { Ui.Info(status.GetRawText()); return true; }
+                if (a.Flag("json")) { Out.Stdout.WriteLine(status.GetRawText()); return true; }
                 int loaded = status.TryGetProperty("loaded", out var l) ? l.GetArrayLength() : 0;
                 var up = DateTime.UtcNow - i.StartedAt;
                 Ui.Info(Ui.Green("Daemon running") + $"  pid {i.Pid}  {i.Url}  up {(int)up.TotalHours}h{up.Minutes:00}m  {loaded} model(s) loaded");
@@ -574,7 +636,7 @@ public class Shell
                 Ui.Info(Daemon.Uninstall());
                 return true;
             default:
-                Ui.Error("usage: daemon up [--port N] [--lan] [--model m] | down | status [--json] | update | install [--service] | uninstall");
+                Ui.Error("usage: daemon up [--port N] [--lan] [--model m] | down | status [--json] | update | install [--service] | uninstall", ExitCodes.Usage);
                 return false;
         }
     }
@@ -611,7 +673,7 @@ public class Shell
             case "reload":
                 _host.Mcp.Reload(); Ui.Info("mcp.json reloaded."); return true;
             default:
-                Ui.Error("usage: mcp list [server] | tools [server] | call <server> <tool> [json args] | reload");
+                Ui.Error("usage: mcp list [server] | tools [server] | call <server> <tool> [json args] | reload", ExitCodes.Usage);
                 return false;
         }
     }
@@ -653,7 +715,7 @@ public class Shell
                 Ui.Info(u == null ? "No such token." : $"{u.Name}: {(u.Disabled ? "disabled" : "enabled")}");
                 return u != null;
             default:
-                Ui.Error("usage: token list | create <name> [--perm a,b] | revoke <id> | disable <id> | enable <id>   (permissions: " + string.Join(", ", Scopes.All) + ")");
+                Ui.Error("usage: token list | create <name> [--perm a,b] | revoke <id> | disable <id> | enable <id>   (permissions: " + string.Join(", ", Scopes.All) + ")", ExitCodes.Usage);
                 return false;
         }
     }
@@ -699,7 +761,7 @@ public class Shell
                 Ui.Info(RuntimeManager.Remove(arg) ? "Removed." : "Only user-installed runtimes can be removed.");
                 return true;
             default:
-                Ui.Error("usage: runtime list | select <id|auto> | install <zip|url|folder> [--name n] | update | remove <id>");
+                Ui.Error("usage: runtime list | select <id|auto> | install <zip|url|folder> [--name n] | update | remove <id>", ExitCodes.Usage);
                 return false;
         }
     }
@@ -708,7 +770,7 @@ public class Shell
     private bool Fit(Args a)
     {
         var m = _host.Library.Find(string.Join(' ', a.Positional));
-        if (m == null) { Ui.Error("usage: fit <model> [--ctx N] [--gpu-layers N | --cpu | --gpu] [--kv-k q8_0] [--kv-v q8_0] [--flash]"); return false; }
+        if (m == null) { Ui.Error("usage: fit <model> [--ctx N] [--gpu-layers N | --cpu | --gpu] [--kv-k q8_0] [--kv-v q8_0] [--flash]", ExitCodes.Usage); return false; }
         var o = (_host.ModelDefaults.LoadFor(m.Id) ?? _load).Clone();
         if (a.Flag("cpu")) o.Device = "cpu";
         ApplyGpuFlag(a, o);
@@ -739,7 +801,7 @@ public class Shell
     {
         if (a.Positional.Count == 0)
         {
-            Ui.Error("usage: import <file.gguf> [--copy|--move|--link] [--publisher <name>] [--name <model>] [--no-mmproj]");
+            Ui.Error("usage: import <file.gguf> [--copy|--move|--link] [--publisher <name>] [--name <model>] [--no-mmproj]", ExitCodes.Usage);
             return false;
         }
         string mode = a.Flag("move") ? "move" : a.Flag("link") ? "link" : "copy";
@@ -751,7 +813,7 @@ public class Shell
     private bool Remove(Args a)
     {
         var m = _host.Library.Find(string.Join(' ', a.Positional));
-        if (m == null) { Ui.Error("model not found"); return false; }
+        if (m == null) { Ui.Error("model not found", ExitCodes.NotFound); return false; }
         if (_host.Models.Loaded.Any(l => l.Model.Path == m.Path)) { Ui.Error("unload it first"); return false; }
         if (!a.Flag("y"))
         {
@@ -774,7 +836,7 @@ public class Shell
 
     private async Task<bool> LoadAsync(Args a)
     {
-        if (a.Positional.Count == 0) { Ui.Error("usage: load <model> [--cpu|--gpu] [--gpu-layers N] [--ctx N] ..."); return false; }
+        if (a.Positional.Count == 0) { Ui.Error("usage: load <model> [--cpu|--gpu] [--gpu-layers N] [--ctx N] ...", ExitCodes.Usage); return false; }
         // the model's own saved defaults win over the session defaults; explicit flags win over both
         var target = _host.Library.Find(string.Join(' ', a.Positional));
         var saved = target != null ? _host.ModelDefaults.LoadFor(target.Id) : null;
@@ -904,7 +966,7 @@ public class Shell
         var l = _host.Models.Loaded;
         if (a.Flag("json"))
         {
-            Ui.Info(JsonSerializer.Serialize(l.Select(r => new
+            Out.Stdout.WriteLine(JsonSerializer.Serialize(l.Select(r => new
             {
                 id = r.Identifier, file = r.Model.FileName, device = r.GpuLayers > 0 ? "gpu" : "cpu", r.GpuLayers,
                 contextSize = r.ContextSize, sizeBytes = r.Model.SizeBytes, r.Requests, active = r.ActiveRequests, queued = r.QueuedRequests,
@@ -926,7 +988,7 @@ public class Shell
     {
         if (a.Positional.Count == 0) { Ui.Info(_activeModel ?? "(none)"); return true; }
         var r = _host.Models.Get(a.Positional[0]);
-        if (r == null) { Ui.Error("not loaded; use /load first"); return false; }
+        if (r == null) { Ui.Error("not loaded; use /load first", ExitCodes.NotFound); return false; }
         _activeModel = r.Identifier;
         return true;
     }
@@ -944,7 +1006,7 @@ public class Shell
 
     private bool SetParam(Args a)
     {
-        if (a.Positional.Count < 2) { Ui.Error("usage: set <name> <value>   (see: params)"); return false; }
+        if (a.Positional.Count < 2) { Ui.Error("usage: set <name> <value>   (see: params)", ExitCodes.Usage); return false; }
         string name = a.Positional[0];
         string value = string.Join(' ', a.Positional.Skip(1));
         object target = _gen;
@@ -982,7 +1044,7 @@ public class Shell
             case "save" when name != null:
                 _host.Presets.Save(name, _gen.Clone()); Ui.Info($"Saved preset '{name}'."); return true;
             case "load" when name != null:
-                if (!_host.Presets.All().TryGetValue(name, out var p)) { Ui.Error("no such preset"); return false; }
+                if (!_host.Presets.All().TryGetValue(name, out var p)) { Ui.Error("no such preset", ExitCodes.NotFound); return false; }
                 foreach (var prop in typeof(GenerationOptions).GetProperties().Where(x => x.CanWrite))
                     prop.SetValue(_gen, prop.GetValue(p));
                 Ui.Info($"Loaded preset '{name}'."); return true;
@@ -991,7 +1053,7 @@ public class Shell
             case "export" when name != null:
             {
                 var pf = _host.Presets.Get(name);
-                if (pf == null) { Ui.Error("no such preset"); return false; }
+                if (pf == null) { Ui.Error("no such preset", ExitCodes.NotFound); return false; }
                 string json = System.Text.Json.JsonSerializer.Serialize(pf, Json.Options);
                 string? target = a.Positional.Skip(2).FirstOrDefault();
                 if (target == null) Console.WriteLine(json);
@@ -1021,8 +1083,8 @@ public class Shell
             case "duplicate" when name != null:
                 Ui.Info($"Created preset '{_host.Presets.Duplicate(name, a.Positional.Skip(2).FirstOrDefault())}'."); return true;
             default:
-                foreach (var kv in _host.Presets.All())
-                    Ui.Info($"  {kv.Key}  (temp {kv.Value.Temperature}, top_p {kv.Value.TopP}, top_k {kv.Value.TopK})");
+                Ui.Table(_host.Presets.Files().Select(p => { var g = p.ToGeneration(); return new[] { p.Name, g.Temperature.ToString("0.##"), g.TopP.ToString("0.##"), g.TopK.ToString(), p.Description ?? "" }; }),
+                    "NAME", "TEMP", "TOP_P", "TOP_K", "DESCRIPTION");
                 return true;
         }
     }
@@ -1042,7 +1104,7 @@ public class Shell
         var rest = a.Positional.Where(p => p is not ("show" or "save" or "clear")).ToList();
         string query = rest.Count > 0 ? string.Join(' ', rest) : _activeModel ?? "";
         var m = _host.Library.Find(query) ?? (_host.Models.Get(query)?.Model);
-        if (m == null) { Ui.Error("usage: defaults [show|save|clear] <model>   (or load a model first)"); return false; }
+        if (m == null) { Ui.Error("usage: defaults [show|save|clear] <model>   (or load a model first)", ExitCodes.Usage); return false; }
         switch (sub)
         {
             case "save":
@@ -1322,7 +1384,7 @@ public class Shell
     private bool Resume(Args a)
     {
         var c = a.Positional.Count > 0 ? _host.Chats.Get(a.Positional[0]) : null;
-        if (c == null) { Ui.Error("usage: resume <chat id> (see /chats)"); return false; }
+        if (c == null) { Ui.Error("usage: resume <chat id> (see /chats)", ExitCodes.Usage); return false; }
         _conversation = c;
         _history.Clear();
         _history.AddRange(c.ActivePath().Where(m => m.Role is "user" or "assistant" or "system").Select(m => new ChatMessage(m.Role, m.Content)));
@@ -1363,7 +1425,7 @@ public class Shell
     /// <summary>rerank &lt;query&gt; &lt;document&gt;... [--model m] — orders the documents by relevance to the query.</summary>
     private async Task<bool> RerankAsync(Args a)
     {
-        if (a.Positional.Count < 2) { Ui.Error("usage: rerank <query> <document> [<document> ...] [--model <reranker or embedding model>]"); return false; }
+        if (a.Positional.Count < 2) { Ui.Error("usage: rerank <query> <document> [<document> ...] [--model <reranker or embedding model>]", ExitCodes.Usage); return false; }
         var rt = await _host.Models.ResolveAsync(a.Value("model"), embeddings: true);
         string query = a.Positional[0];
         var docs = a.Positional.Skip(1).ToList();
@@ -1420,7 +1482,7 @@ public class Shell
     {
         string? query = a.Positional.FirstOrDefault() ?? _activeModel;
         var model = query == null ? null : _host.Library.Find(query);
-        if (model == null) { Ui.Error("usage: template <model>   (a downloaded model)"); return false; }
+        if (model == null) { Ui.Error("usage: template <model>   (a downloaded model)", ExitCodes.Usage); return false; }
         var info = FitEstimator.ReadModel(model.Path).Info;
         if (!info.HasChatTemplate) { Ui.Info("The model file has no chat template (ChatML is used)."); return true; }
         Ui.Info(Ui.Dim("--- chat template ---"));
@@ -1586,7 +1648,7 @@ public class Shell
     /// <summary>Search Hugging Face, pick a repository, pick a quantization, download.</summary>
     private async Task<bool> GetInteractiveAsync(string? term, Args a)
     {
-        if (Console.IsInputRedirected) { Ui.Error("usage: get <repo|catalog-key|link|url> [quant|file]  (the interactive picker needs a terminal)"); return false; }
+        if (Console.IsInputRedirected) { Ui.Error("usage: get <repo|catalog-key|link|url> [quant|file]  (the interactive picker needs a terminal)", ExitCodes.Usage); return false; }
         if (string.IsNullOrWhiteSpace(term))
         {
             Console.Write("Search Hugging Face for GGUF models: ");

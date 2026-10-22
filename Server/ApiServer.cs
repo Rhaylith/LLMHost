@@ -1663,6 +1663,9 @@ public partial class ApiServer
                 live.Gpus.Where(g => g.ProcessDedicatedBytes.HasValue).Select(g => (g.Index.ToString(), g.ProcessDedicatedBytes!.Value))));
         });
 
+        // ---- linking devices: reserved (see §8.1); until it exists every call says so with 501
+        app.Map("/api/link/{**rest}", async ctx => await WriteError(ctx, 501, "Linking devices is not available in this build.", "link_unavailable"));
+
         // ---- chat folders
         object FolderDto(ChatFolder f) => new { f.Id, f.Name, f.ParentId, f.Order };
         app.MapGet("/api/chat-folders", async ctx => await WriteJson(ctx, _host.ChatFolders.List().Select(FolderDto)));

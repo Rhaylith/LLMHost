@@ -9,6 +9,8 @@ public static class Program
     public static async Task<int> Main(string[] args)
     {
         Ui.EnableAnsi();
+        args = Out.ParseGlobalFlags(args);                         // --json, --quiet / -q, --no-color, --verbose
+        if (Out.Verbose) LogBuffer.Written += l => Out.Stderr.WriteLine(Ui.Dim(l));
         using var host = new AppHost();
         var shell = new Shell(host);
 
