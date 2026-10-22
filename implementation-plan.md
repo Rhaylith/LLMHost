@@ -11,7 +11,7 @@ Effort (one engineer, includes tests): **S** ≤ 2 d · **M** 3–5 d · **L** 6
 **Status convention:** a finished item gets ✅ at the very start of its heading or table row (never at the end), with its commit
 hash in the status note or heading; tick its `- [x]` checkbox in [todo.md](todo.md), and update the progress line below.
 
-**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts (23 of ~50).
+**Progress:** section 2 prerequisites X1–X5 done. Section 4 items done: §1.4 samplers, §1.1 prompt-cache follow-ups, §1.2 vision follow-ups, §1.2b speculative decoding, §1.3 prompt-template override, §1.5 context-overflow policies, §1.6 MoE controls, §1.7 LoRA adapters, §1.8 multiple instances, §1.11 logprobs and n, §1.12 embeddings and reranking, §2.4 GPU offload ratio, §2.3 live hardware monitor, §2.6 CPU thread pool and affinity, §3.1 capability badges and model card, §3.2 Discover filters and staff picks, §3.3 gated-model flow, §3.4 model update check, §3.5 models-directory management, §9.0 UI split into files, §4.1 chat management, §4.5 token counter and message stats, §4.6 keyboard shortcuts, §4.3 per-chat settings (24 of ~50).
 
 ---
 
@@ -395,12 +395,14 @@ behind no feature flag (same URL). Add a Playwright smoke test (launch host, ope
   progress; warn about memory from `FitEstimator` before loading a second one).
 * Persistence: layout in `localStorage`; each pane is an ordinary chat.
 
-#### §4.3 Per-chat settings panel — **M**
+#### ✅ §4.3 Per-chat settings panel — **M**
 * Chat JSON gains `settings { model, systemPrompt, generation:{…}, load? }` (load options shown but applied only on explicit
   "Reload model"). Resolution order: request override > chat > preset > model default > global (single resolver function
   `SettingsResolver.Effective(chat, preset, model)` shared by UI and server so the API can echo the effective config).
 * UI: side panel with sections, per-field "differs from default" dot, buttons *Save as preset*, *Save as model default*,
   *Reset to preset*. (Relies on §5.1 for the preset dirty-indicator.)
+
+**As built:** `Core/SettingsResolver.cs` is the single resolver: `Effective(chatOverrides, preset, modelDefault, global, requestOverride)` returns the merged generation settings and, per field, its source (`request | chat | preset | model | global`). A preset, a model default and the global settings are complete sets (the first that exists is the base, as before); the chat stores only what it changed (`Conversation.Settings { preset, overrides, load }`, chat schema v3). The page sends its whole form as `settings.generation` with every save and the server keeps just the fields that differ from the chat's base (`Diff`, only real generation settings; a float written back as a double is not a change); saving messages without a `settings` block keeps what is stored. API: `GET /api/effective-settings?chat=&model=&preset=` (also for a chat that is not saved yet) returns `base`, `overrides`, `effective` and `sources`; `POST /api/chats/{id}/settings/reset` (`?preset=1` also leaves the preset), `POST /api/chats/{id}/settings/save-as` with `{target:"preset", name}` (the chat then follows the new preset) or `{target:"modelDefault"}`. UI (`Web/ui/chatsettings.js`): the Parameters panel marks every field that differs from the preset / model default / global setting with a ● (tooltip names the base), a note counts the differences, and **Save as model default** and **Reset** sit under the presets; the preset chosen with Load is remembered per chat. Deviations: the stored `load` options and "Reload model" have no panel of their own (the existing load dialog is the place for them; the field is kept in the chat file and API); a request to `/v1/chat/completions` still takes its own parameters as before, the request layer of the resolver is available to the endpoint and used by `/api/effective-settings` callers but the OpenAI routes were not rewired to read a chat id.
 
 #### §4.4 Rich rendering — **M**
 * Replace the minimal renderer with `marked` (or `markdown-it`) + `DOMPurify` + `highlight.js` (core + ~20 languages, copy

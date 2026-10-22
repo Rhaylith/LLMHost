@@ -85,6 +85,8 @@
     <h3>Presets</h3>
     <div class="row"><select id="preset-sel"></select><button class="b sec" onclick="loadPreset()">Load</button></div>
     <div class="row" style="margin-top:6px"><input id="preset-name" placeholder="name"><button class="b sec" onclick="savePreset()">Save</button></div>
+    <div id="chat-settings-note" class="dim" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:6px"><button class="b sec" style="flex:1" title="Use the values of this chat as the defaults of its model" onclick="saveAsModelDefault()">Save as model default</button><button class="b sec" style="flex:1" title="Drop this chat's changes: back to the preset or default it started from" onclick="resetChatSettings()">Reset</button></div>
   </div>
 </section>
 
@@ -435,6 +437,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
 <script src="/ui/shell.js"></script>
 <script src="/ui/chat.js"></script>
 <script src="/ui/chats.js"></script>
+<script src="/ui/chatsettings.js"></script>
 <script src="/ui/shortcuts.js"></script>
 <script src="/ui/models.js"></script>
 <script src="/ui/discover.js"></script>

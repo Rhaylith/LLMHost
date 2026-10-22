@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------- chat
 let conv = newConv(), abort = null;
-function newConv() { return {id: Math.random().toString(16).slice(2, 14), title: 'New chat', messages: [], all: [], docs: []}; }
-function newChat() { conv = newConv(); editing = null; renderMsgs(); renderAttachments(); renderChatList(); }
+function newConv() { return {id: Math.random().toString(16).slice(2, 14), title: 'New chat', messages: [], all: [], docs: [], persisted: false, preset: null}; }
+function newChat() { conv = newConv(); editing = null; renderMsgs(); renderAttachments(); renderChatList(); if (typeof refreshEffective === 'function') refreshEffective(); }
 // ---- conversation tree: conv.all holds every message of every variant (id + parent), conv.messages is the active branch
 const rid = () => Math.random().toString(16).slice(2, 12);
 function addMsg(m) {
@@ -94,13 +94,13 @@ function renderMsgs() {
   if (typeof scheduleCtxBar === 'function') scheduleCtxBar();
 }
 async function persist() {
-  const body = {title: conv.title, model: $('p-model').value || null, systemPrompt: $('p-system').value || null, generation: genForServer(),
+  const body = {title: conv.title, model: $('p-model').value || null, systemPrompt: $('p-system').value || null, generation: genForServer(), settings: {preset: conv.preset || null, generation: genForServer()},
     activeLeaf: conv.messages.length ? conv.messages[conv.messages.length - 1].id : null,
     documents: (conv.docs || []).map(d => ({id:d.id, name:d.name, chars:d.chars})),
     messages: conv.all.map(m => ({id:m.id, parentId:m.parent, role:m.role, content:m.content, reasoning:m.reasoning || null, images:m.images?.length ? m.images : null,
       toolCalls:m.toolCalls?.length ? m.toolCalls : null, toolCallId:m.toolCallId || null, name:m.role === 'tool' ? m.name : null, stats:m.stats || null}))};
   const saved = await api('/api/chats/' + conv.id, {method:'PUT', body});
-  conv.title = saved.title; renderChatList();
+  conv.title = saved.title; conv.persisted = true; renderChatList(); refreshEffective();
 }
 // ---------------------------------------------------------------- image attachments
 let pendingImages = [];

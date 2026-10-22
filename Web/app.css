@@ -92,3 +92,4 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 #quickopen-list{max-height:50vh;overflow:auto}
 #quickopen-list .qo{padding:7px 12px;cursor:pointer}
 #quickopen-list .qo.on,#quickopen-list .qo:hover{background:var(--panel2)}
+#params label.diff::after{content:" ●";color:var(--acc2)}

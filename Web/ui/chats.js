@@ -81,13 +81,13 @@ async function dropOn(folderId, payload) {
   chatSelected.clear(); renderChatList();
 }
 async function openChat(id, messageId) {
-  const c = await api('/api/chats/' + id); conv = c; editing = null; conv.docs = (c.documents || []).map(d => ({id:d.id, name:d.name, chars:d.chars}));
+  const c = await api('/api/chats/' + id); conv = c; conv.persisted = true; conv.preset = c.settings?.preset || null; if (conv.preset && window._presets?.[conv.preset]) $('preset-sel').value = conv.preset; editing = null; conv.docs = (c.documents || []).map(d => ({id:d.id, name:d.name, chars:d.chars}));
   { const t = fromStored(c.messages, c.activeLeaf); conv.all = t.all; conv.messages = []; const leaf = t.all.find(n => n.id === t.leaf); if (leaf) setBranchVia(leaf); }
   if (messageId) { const hit = conv.all.find(n => n.id === messageId); if (hit) setBranchVia(hit); }
   if (c.generation) applyGen(c.generation);
   $('p-system').value = c.systemPrompt || '';
   if (c.model && [...$('p-model').options].some(o => o.value === c.model)) $('p-model').value = c.model;
-  renderMsgs(); renderAttachments(); drawChatList();
+  renderMsgs(); renderAttachments(); drawChatList(); refreshEffective();
   if (messageId) { const el = document.querySelector(`[data-msg="${messageId}"]`); if (el) { el.scrollIntoView({block: 'center'}); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1500); } }
 }
 

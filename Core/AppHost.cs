@@ -55,6 +55,8 @@ public class Conversation
     public bool Pinned { get; set; }
     /// <summary>The title was made up by the app (first words or a model suggestion) and may be replaced; a title the user typed is never touched.</summary>
     public bool TitleAuto { get; set; }
+    /// <summary>Per-chat settings: the preset followed, the fields changed for this chat, and load options kept for a later reload (see <see cref="SettingsResolver"/>).</summary>
+    public ChatSettings? Settings { get; set; }
 
     /// <summary>The branch that is currently active, root first. Chats saved without ids are one linear branch.</summary>
     public List<StoredMessage> ActivePath()

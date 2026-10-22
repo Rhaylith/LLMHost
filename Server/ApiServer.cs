@@ -1249,6 +1249,17 @@ public partial class ApiServer
                 c.FolderId = old.FolderId; c.Pinned = old.Pinned; c.CreatedAt = old.CreatedAt;
                 c.TitleAuto = old.TitleAuto && c.Title == old.Title;
             }
+            // per-chat settings: the page sends the complete form as settings.generation; only what differs from the base the chat follows is kept
+            c.Settings = old?.Settings;
+            if (body["settings"] is JsonObject bs)
+            {
+                c.Settings ??= new ChatSettings();
+                if (bs.ContainsKey("preset")) c.Settings.Preset = string.IsNullOrEmpty(bs["preset"]?.GetValue<string>()) ? null : bs["preset"]!.GetValue<string>();
+                var (preset, modelDefault) = BaseLayers(c.Settings.Preset, c.Model);
+                var baseSet = SettingsResolver.Effective(null, preset, modelDefault, _host.Settings.DefaultGeneration).Generation;
+                if (bs["generation"] is JsonObject full) c.Settings.Overrides = SettingsResolver.Diff(baseSet, full);
+                if (bs["load"] != null) c.Settings.Load = bs["load"].Deserialize<LoadOptions>(Json.Options);
+            }
             await WriteJson(ctx, _host.Chats.Save(c));
         });
         app.MapDelete("/api/chats/{id}", async ctx =>
@@ -1387,6 +1398,62 @@ public partial class ApiServer
         {
             var eff = LLMHostProject.Core.Shortcuts.Effective(_host.Settings.Shortcuts);
             await WriteJson(ctx, LLMHostProject.Core.Shortcuts.Defaults.Select(a => new { a.Id, a.Label, a.Group, @default = a.Keys, keys = eff.GetValueOrDefault(a.Id, "") }));
+        });
+
+        // ---- effective settings of a chat: request override > chat > preset > model default > global (see SettingsResolver)
+        string LibraryId(string? model) => model == null ? "" : _host.Models.Loaded.FirstOrDefault(r => r.Identifier == model)?.Model.Id ?? model;
+        (GenerationOptions? Preset, GenerationOptions? ModelDefault) BaseLayers(string? presetName, string? model)
+        {
+            GenerationOptions? preset = !string.IsNullOrEmpty(presetName) && _host.Presets.All().TryGetValue(presetName, out var p) ? p : null;
+            return (preset, string.IsNullOrEmpty(model) ? null : _host.ModelDefaults.GenerationFor(LibraryId(model)));
+        }
+        object EffectiveDto(Conversation? chat, string? presetName, string? model, JsonObject? requestOverride = null)
+        {
+            var (preset, modelDefault) = BaseLayers(presetName, model);
+            var eff = SettingsResolver.Effective(chat?.Settings?.Overrides, preset, modelDefault, _host.Settings.DefaultGeneration, requestOverride);
+            var baseOnly = SettingsResolver.Effective(null, preset, modelDefault, _host.Settings.DefaultGeneration);
+            return new { preset = presetName, model, baseLayer = eff.BaseLayer, @base = baseOnly.Json, overrides = chat?.Settings?.Overrides ?? new JsonObject(), effective = eff.Json, sources = eff.Sources };
+        }
+        app.MapGet("/api/effective-settings", async ctx =>
+        {
+            string? chatId = Q(ctx, "chat");
+            var chat = !string.IsNullOrEmpty(chatId) && ChatStore.ValidId(chatId) ? _host.Chats.Get(chatId) : null;
+            string? preset = string.IsNullOrEmpty(Q(ctx, "preset")) ? chat?.Settings?.Preset : Q(ctx, "preset");
+            string? model = string.IsNullOrEmpty(Q(ctx, "model")) ? chat?.Model : Q(ctx, "model");
+            await WriteJson(ctx, EffectiveDto(chat, preset, model));
+        });
+        app.MapPost("/api/chats/{id}/settings/reset", async ctx =>
+        {
+            var c = _host.Chats.Get(ChatId(ctx));
+            if (c == null) { await WriteError(ctx, 404, "Chat not found", "not_found"); return; }
+            if (c.Settings != null) { c.Settings.Overrides = null; if (Q(ctx, "preset") == "1") c.Settings.Preset = null; }
+            c.SystemPrompt = null; c.Generation = null;                          // the snapshot is rebuilt by the next save
+            _host.Chats.Save(c);
+            await WriteJson(ctx, EffectiveDto(c, c.Settings?.Preset, c.Model));
+        });
+        // body: { target: "preset", name } or { target: "modelDefault" }; stores what applies to this chat right now
+        app.MapPost("/api/chats/{id}/settings/save-as", async ctx =>
+        {
+            var c = _host.Chats.Get(ChatId(ctx));
+            if (c == null) { await WriteError(ctx, 404, "Chat not found", "not_found"); return; }
+            var body = await ReadBody(ctx);
+            var (preset, modelDefault) = BaseLayers(c.Settings?.Preset, c.Model);
+            var eff = SettingsResolver.Effective(c.Settings?.Overrides, preset, modelDefault, _host.Settings.DefaultGeneration).Generation;
+            string target = body["target"]?.GetValue<string>() ?? "";
+            if (target == "preset")
+            {
+                string name = (body["name"]?.GetValue<string>() ?? "").Trim();
+                if (name.Length == 0) throw new ArgumentException("A preset needs a name.");
+                _host.Presets.Save(name, eff);
+                if (c.Settings != null) { c.Settings.Preset = name; c.Settings.Overrides = null; _host.Chats.Save(c); }       // the chat now follows the new preset unchanged
+            }
+            else if (target == "modelDefault")
+            {
+                if (string.IsNullOrEmpty(c.Model)) throw new ArgumentException("This chat has no model.");
+                _host.ModelDefaults.Set(LibraryId(c.Model), null, eff);
+            }
+            else throw new ArgumentException("target must be 'preset' or 'modelDefault'.");
+            await WriteJson(ctx, EffectiveDto(c, c.Settings?.Preset, c.Model));
         });
 
         // ---- chat folders
