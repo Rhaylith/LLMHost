@@ -53,16 +53,17 @@ Object.assign(TIPS, {
 
 (function initTips() {
   const tip = document.createElement('div');
-  tip.id = 'tip'; document.body.appendChild(tip);
+  tip.id = 'tip'; tip.setAttribute('popover', 'manual'); document.body.appendChild(tip);   // a popover sits in the top layer, so it also shows above an open modal dialog
   const show = (qm, d) => {
     tip.innerHTML = `<div>${esc(d.t)}</div><div class="tr"><b>Range:</b> ${esc(d.r)}</div><div class="te"><b>Example:</b> ${esc(d.e)}</div>`;
     tip.style.display = 'block';
+    try { tip.hidePopover(); tip.showPopover(); } catch (e) { /* no popover support: z-index only */ }
     const r = qm.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
     let x = r.left - w - 8; if (x < 8) x = Math.min(window.innerWidth - w - 8, r.right + 8);
     let y = Math.min(window.innerHeight - h - 8, Math.max(8, r.top - 6));
     tip.style.left = x + 'px'; tip.style.top = y + 'px';
   };
-  const hide = () => { tip.style.display = 'none'; };
+  const hide = () => { try { tip.hidePopover(); } catch (e) {} tip.style.display = 'none'; };
   for (const [id, d] of Object.entries(TIPS)) {
     const el = document.getElementById(id); if (!el) continue;
     let label = el.closest('label');

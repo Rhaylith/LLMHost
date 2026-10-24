@@ -62,7 +62,7 @@ th{color:var(--dim);font-weight:500;font-size:12px}
 pre.log{background:var(--code-bg);padding:10px;border-radius:6px;overflow:auto;font:12px/1.4 Consolas,monospace;white-space:pre-wrap}
 .qm{display:inline-block;margin-left:6px;width:15px;height:15px;line-height:15px;text-align:center;border-radius:50%;background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-size:10px;font-weight:700;cursor:help;vertical-align:1px;user-select:none}
 .qm:hover,.qm:focus{background:var(--acc2);color:var(--on-acc);border-color:var(--acc2);outline:0}
-#tip{display:none;position:fixed;z-index:1000;max-width:300px;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.45;box-shadow:0 6px 20px var(--shadow);pointer-events:none}
+#tip{display:none;position:fixed;inset:auto;margin:0;overflow:visible;color:var(--text);z-index:1000;max-width:300px;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.45;box-shadow:0 6px 20px var(--shadow);pointer-events:none}
 #tip .tr,#tip .te{margin-top:5px;color:var(--dim)}#tip b{color:var(--text)}
 .help dl{margin:0 0 6px}.help .h{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:8px;max-width:860px}
 .help dt{font-weight:600}.help dd{margin:4px 0 0;color:var(--text)}.help .ex{margin-top:6px;padding:6px 8px;background:var(--panel2);border-radius:6px;color:var(--dim);font-size:12.5px}
