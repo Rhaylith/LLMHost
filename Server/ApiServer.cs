@@ -738,7 +738,7 @@ public partial class ApiServer
         model = m.Id, e.Verdict, e.WeightsBytes, e.KvCacheBytes, e.ComputeBytes, e.ProjectorBytes, e.GpuBytes, e.CpuBytes,
         e.BlockCount, e.OffloadedLayers, e.OutputOnGpu, e.MaxGpuLayers, e.SuggestedContext, e.Moe,
         ramTotalBytes = e.RamTotalBytes, ramAvailableBytes = e.RamAvailableBytes,
-        devices = e.Devices.Select(d => new { d.Name, d.IsGpu, needBytes = d.NeedBytes, budgetBytes = d.BudgetBytes, ratio = double.IsFinite(d.Ratio) ? Math.Round(d.Ratio, 3) : (double?)null }),
+        devices = e.Devices.Select(d => new { d.Name, d.IsGpu, d.GpuIndex, needBytes = d.NeedBytes, budgetBytes = d.BudgetBytes, reservedByOthersBytes = d.ReservedByOthers, d.SharedWith, ratio = double.IsFinite(d.Ratio) ? Math.Round(d.Ratio, 3) : (double?)null }),
         warnings = e.Warnings, summary = e.Describe(),
     };
 
@@ -819,6 +819,12 @@ public partial class ApiServer
             notes = s.Notes,
         }, withNulls)!;
         app.MapGet("/api/hardware/live", async ctx => await WriteJson(ctx, LiveDto(HardwareMonitor.Shared.Latest())));
+        // which loaded model occupies how much of which GPU (the ledger the memory estimate subtracts)
+        app.MapGet("/api/hardware/gpu-use", async ctx =>
+        {
+            var hw = Hardware.Detect();
+            await WriteJson(ctx, new { gpus = hw.Gpus.Select(g => new { index = g.Index, name = g.Name, integrated = g.Integrated, vramBytes = g.VramBytes, reservedBytes = GpuLedger.Reserved(g.Index), models = GpuLedger.Users(g.Index).Select(u => new { model = u.Model, bytes = u.Bytes }) }) });
+        });
         app.MapGet("/api/hardware/stream", async ctx =>
         {
             SseHeaders(ctx);

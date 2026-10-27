@@ -8,6 +8,12 @@ namespace LLMHostProject.Inference;
 /// <summary>Memory the model needs on one device, against what that device can offer.</summary>
 public record DeviceFit(string Name, bool IsGpu, long NeedBytes, long BudgetBytes)
 {
+    /// <summary>Adapter index of the GPU (<see cref="Core.GpuInfo.Index"/>); -1 for system memory.</summary>
+    public int GpuIndex { get; init; } = -1;
+    /// <summary>What other loaded models already occupy on this GPU.</summary>
+    public long ReservedByOthers { get; init; }
+    /// <summary>The other loaded models that have part of this GPU.</summary>
+    public IReadOnlyList<string> SharedWith { get; init; } = Array.Empty<string>();
     public double Ratio => BudgetBytes > 0 ? (double)NeedBytes / BudgetBytes : double.PositiveInfinity;
 }
 
@@ -123,11 +129,27 @@ public static class FitEstimator
             var visible = auto.Where(g => GpuDevices.For(g) != null).ToList();
             if (visible.Count > 0) auto = visible;
         }
+        // another loaded model already occupies a GPU: put this one on the GPU with the most memory left (first choice for the
+        // model, the rest take what spills over). Without other models the hardware order is kept.
+        if (auto.Count > 1 && auto.Any(g => GpuLedger.Reserved(g.Index) > 0))
+            auto = auto.Select((g, i) => (g, i, left: g.VramBytes - GpuLedger.Reserved(g.Index)))
+                       .OrderByDescending(x => x.left).ThenBy(x => x.i).Select(x => x.g).ToList();
         return auto;
     }
 
     /// <summary>Memory a GPU can really offer a model, honouring the "dedicated memory only" guardrail.</summary>
     public static long GpuBudget(GpuInfo g, bool dedicatedOnly, long ramAvailable)
+    {
+        long raw = RawGpuBudget(g, dedicatedOnly, ramAvailable);
+        // what the models that are already loaded were estimated to need on this GPU is not available again, even when the
+        // driver has not caught up with their allocations yet (the lower of the two figures: no double counting)
+        long reserved = GpuLedger.Reserved(g.Index);
+        if (reserved <= 0) return raw;
+        long capacity = g.Integrated ? (dedicatedOnly ? g.VramBytes : g.VramBytes + Math.Min(g.SharedBytes, ramAvailable)) : g.VramBytes;
+        return capacity > 0 ? Math.Min(raw, Math.Max(0, capacity - reserved)) : raw;
+    }
+
+    private static long RawGpuBudget(GpuInfo g, bool dedicatedOnly, long ramAvailable)
     {
         if (!g.Integrated)
         {
@@ -274,7 +296,17 @@ public static class FitEstimator
             var share = GpuPlanner.Shares(o, devices.Count, budgets.Select(b => b * 0.92).ToList(), gpuBytes,
                 o.SplitMode.ToLowerInvariant());
             for (int i = 0; i < devices.Count; i++)
-                est.Devices.Add(new DeviceFit(devices[i].Name + (devices[i].Integrated ? " (integrated)" : ""), true, (long)(gpuBytes * share[i]), budgets[i]));
+            {
+                var users = GpuLedger.Users(devices[i].Index);
+                est.Devices.Add(new DeviceFit(devices[i].Name + (devices[i].Integrated ? " (integrated)" : ""), true, (long)(gpuBytes * share[i]), budgets[i])
+                {
+                    GpuIndex = devices[i].Index, ReservedByOthers = users.Sum(u => u.Bytes), SharedWith = users.Select(u => u.Model).ToList(),
+                });
+                // the overlap check: a GPU that another loaded model already uses is allowed when the memory is enough, but said so
+                if (share[i] > 0 && users.Count > 0)
+                    est.Warnings.Add($"{devices[i].Name} is also used by {string.Join(", ", users.Select(u => $"{u.Model} ({Hardware.FormatBytes(u.Bytes)})"))}; this model shares it" +
+                                     (est.Devices[^1].Ratio > 1.0 ? " and does not fit next to it." : "."));
+            }
 
             // an integrated GPU draws its "shared" part from system RAM, which then also has to hold the CPU part
             long sharedFromRam = 0;
@@ -328,10 +360,12 @@ public static class FitEstimator
     {
         var worst = e.Devices.OrderByDescending(d => d.Ratio).First();
         string msg = $"'{model.FileName}' will probably not fit in memory: {e.Describe()}. " +
-                     $"{worst.Name} would need {Hardware.FormatBytes(worst.NeedBytes)} but only {Hardware.FormatBytes(worst.BudgetBytes)} is available.";
+                     $"{worst.Name} would need {Hardware.FormatBytes(worst.NeedBytes)} but only {Hardware.FormatBytes(worst.BudgetBytes)} is available" +
+                     (worst.SharedWith.Count > 0 ? $" ({Hardware.FormatBytes(worst.ReservedByOthers)} of it is taken by {string.Join(", ", worst.SharedWith)})." : ".");
         var tips = new List<string>();
         if (e.MaxGpuLayers >= 0 && e.OffloadedLayers > Math.Max(e.MaxGpuLayers, 0) && e.MaxGpuLayers < 999)
             tips.Add($"offload fewer layers to the GPU (about {e.MaxGpuLayers} fit)");
+        if (worst.SharedWith.Count > 0 && e.Devices.Count(d => d.IsGpu) > 0) tips.Add("choose another GPU in the load dialog (Devices) or unload " + worst.SharedWith[0]);
         if (e.SuggestedContext > 0) tips.Add($"use a smaller context (about {e.SuggestedContext} tokens fits)");
         tips.Add("pick a smaller quantization");
         tips.Add("quantize the KV cache (q8_0) with flash attention");

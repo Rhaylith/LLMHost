@@ -80,3 +80,15 @@ Temperature, top-k/p, min-p, typical-p, penalties, Mirostat v1/v2, DRY, XTC, top
 
 * `GET /api/hardware/live` (unavailable counters are `null`, with notes) and `GET /api/hardware/stream` (SSE).
 * UI: a CPU/GPU sparkline in the top bar and a "Live load" card in Settings. GPU temperature is not available.
+
+## Several models on several GPUs
+
+You can load model A on one GPU and model B on another at the same time. `LoadOptions.GpuDevices` (load dialog: Devices; CLI/API: `devices`) pins a load to chosen GPUs, in priority order.
+
+* **Ledger:** `Inference/GpuLedger.cs` records what each loaded model was estimated to need on each GPU (by adapter index) and forgets it when the model unloads. Instances that share weights count only their own context and cache.
+* **Per-GPU budget:** the memory estimate (`FitEstimator.GpuBudget`) takes the lower of the driver's current free memory and the GPU's capacity minus what the ledger holds for other models. The driver figure alone lags behind a load that is still allocating, and neither figure alone counts a model that has just been estimated.
+* **Automatic placement:** with no devices chosen and another model already on a GPU, the GPU with the most memory left becomes the first choice, so a second model that fits on one GPU goes to the empty one instead of being split across both. With nothing loaded the hardware order is kept.
+* **Overlap check:** an explicit device choice is always honoured, even when another model is on that GPU. The estimate (load dialog, `GET /api/models/estimate`, load log) then warns "<GPU> is also used by <model> (<size>); this model shares it". If it no longer fits next to the other model the load is refused by the usual guardrail, and the message names the model that holds the memory and suggests choosing another GPU or unloading it. "Skip fit check" overrides it as before.
+* **API:** `GET /api/hardware/gpu-use` lists each GPU with its reserved bytes and the models on it. The estimate's `devices` entries carry `gpuIndex`, `reservedByOthersBytes` and `sharedWith`.
+
+Limits: the ledger holds estimates, not measurements. If the model that first loaded some shared weights unloads while another instance still uses them, the ledger drops those weights although they stay in memory. Pinning applies per load; there is no setting that forbids two models on one GPU.

@@ -527,6 +527,7 @@ public sealed class ModelRuntime : IDisposable
         rt.LoadWarnings.AddRange(warnings);
         rt.Estimate = estimate;
         rt.Plan = plan;
+        if (estimate != null) GpuLedger.Register(rt, identifier, estimate.Devices.Where(d => d.IsGpu && d.GpuIndex >= 0).GroupBy(d => d.GpuIndex).ToDictionary(g => g.Key, g => g.Sum(d => d.NeedBytes)));
         try
         {
             rt.ValidateTemplate();
@@ -2056,6 +2057,7 @@ public sealed class ModelRuntime : IDisposable
         if (_disposed) return;
         _disposed = true;
         NativeThreadPolicy.Release(this);
+        GpuLedger.Release(this);
         _stop.Cancel();
         _wake.Release();
         try { _loop?.Wait(TimeSpan.FromSeconds(10)); } catch { }
