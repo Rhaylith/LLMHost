@@ -132,6 +132,15 @@ public static class ClaudeCodeLauncher
             throw new InvalidDataException($"{path} is not valid JSON; fix or remove it first so no settings are lost.");
         }
         var env = root["env"] as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+        ApplyEnv(env, url, authToken, model);
+        root["model"] = model;
+        root["env"] = env;
+        File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        return path;
+    }
+
+    private static void ApplyEnv(System.Text.Json.Nodes.JsonObject env, string url, string authToken, string model)
+    {
         env["ANTHROPIC_BASE_URL"] = url;
         env["ANTHROPIC_AUTH_TOKEN"] = authToken;
         env["ANTHROPIC_MODEL"] = model;
@@ -141,12 +150,24 @@ public static class ClaudeCodeLauncher
         env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model;
         env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model;
         env["CLAUDE_CODE_SUBAGENT_MODEL"] = model;
-        root["model"] = model;
         env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1";
-        root["env"] = env;
-        File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-        return path;
     }
+
+    /// <summary>
+    /// The content of a <c>settings.local.json</c> that makes Claude Code on another computer use this server: the same
+    /// entries as <see cref="Configure"/> but with the address that computer reaches this one at. Nothing is written here;
+    /// the caller hands the text to the user.
+    /// </summary>
+    public static string RemoteSettings(string baseUrl, string authToken, string model)
+    {
+        var env = new System.Text.Json.Nodes.JsonObject();
+        ApplyEnv(env, baseUrl.Trim().TrimEnd('/'), authToken, model);
+        var root = new System.Text.Json.Nodes.JsonObject { ["model"] = model, ["env"] = env };
+        return root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+    }
+
+    /// <summary>A guess at the address other computers use: this machine's name and the server's port.</summary>
+    public static string SuggestRemoteAddress(int port, bool https = false) => $"{(https ? "https" : "http")}://{Environment.MachineName.ToLowerInvariant()}:{port}";
 
     /// <summary>Removes only the values <see cref="Configure"/> wrote. Returns false when there was nothing to remove.</summary>
     public static bool Remove(string? directory)
@@ -164,5 +185,37 @@ public static class ClaudeCodeLauncher
         if (root.Count == 0) File.Delete(path);
         else File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
         return true;
+    }
+
+    // ------------------------------------------------------------------ the running Claude desktop app
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int cmd);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
+
+    /// <summary>
+    /// Brings the already running Claude desktop app to the front (restoring it when minimised); when it is not running,
+    /// or its window is hidden in the tray, the app's own <c>claude://</c> protocol handler starts it or activates the
+    /// running instance. The app has no interface for creating a session from outside, so the session itself is started
+    /// by the user in the configured folder. Returns what was done.
+    /// </summary>
+    public static string FocusClaudeApp()
+    {
+        foreach (var p in Process.GetProcessesByName("Claude"))
+        {
+            try
+            {
+                string? path = p.MainModule?.FileName;
+                // the desktop app ("...\app\Claude.exe"), not the claude-code command line program that it starts
+                if (path == null || p.MainWindowHandle == IntPtr.Zero || path.Contains("claude-code", StringComparison.OrdinalIgnoreCase)) continue;
+                if (IsIconic(p.MainWindowHandle)) ShowWindow(p.MainWindowHandle, 9 /* restore */);
+                SetForegroundWindow(p.MainWindowHandle);
+                return "focused";
+            }
+            catch { /* a process we may not inspect */ }
+            finally { p.Dispose(); }
+        }
+        Process.Start(new ProcessStartInfo("claude://") { UseShellExecute = true });
+        return "started";
     }
 }

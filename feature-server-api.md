@@ -58,3 +58,11 @@ Supported: streaming events, `system` blocks, `stop_sequences`, `top_k`, image b
 ## MCP host
 
 `Core/Mcp.cs`, `Server/McpApi.cs`. `mcp.json` in Cursor notation with local (stdio) and remote (URL + headers) servers. Tools are listed in the chat UI with a per-call confirmation. CLI: `mcp`. `tests/fixtures/mcp-test-server.ps1` is a small test server.
+
+## Using Claude Code with the hosted model
+
+Three buttons under the presets in the Chat tab (Power mode) and matching endpoints (`Core/ClaudeCodeLauncher.cs`):
+
+* **Launch Claude Code** (`POST /api/launch/claude-code`): opens PowerShell with `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` and friends set for the loaded model and starts `claude`. CLI: `claude-code`.
+* **Open in Claude app…** (`POST /api/launch/claude-code/configure`): writes the same values into a folder's `.claude/settings.local.json` (blank folder = `~/.claude/settings.json`), then brings the running Claude desktop app to the front. You start the new session yourself; the app has no interface for creating one from outside. **Undo** removes the entries.
+* **Save settings file for another computer…** (`GET .../remote-address`, `POST .../remote-settings`): downloads a `settings.local.json` whose address is this computer's name or IP instead of `127.0.0.1`. Copy it to `<project>/.claude/` (or `~/.claude/settings.json`) on the other computer. With authentication on, a new chat-only API token is created and put in the file (revoke it in Settings → API tokens); with it off the file carries the placeholder `local`. Addresses that point back at the same computer are refused. The server must listen beyond loopback (`--lan`); the page warns when it does not or when authentication is off.

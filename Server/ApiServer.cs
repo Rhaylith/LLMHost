@@ -1839,7 +1839,47 @@ public partial class ApiServer
             if (rt == null) { await WriteError(ctx, 400, "Load a chat model first.", "invalid_request_error"); return; }
             string token = Auth.Required ? Auth.UiToken : "local";
             string path = ClaudeCodeLauncher.Configure(Url!, token, rt.Identifier, body["directory"]?.GetValue<string>());
-            await WriteJson(ctx, new { ok = true, path, model = rt.Identifier, note = Auth.Required ? "authentication is on: the token is only valid until this app restarts" : null });
+            string app; try { app = ClaudeCodeLauncher.FocusClaudeApp(); } catch (Exception ex) { app = "failed: " + ex.Message; }
+            LogBuffer.Add("server", $"Configured Claude Code for model {rt.Identifier} in {path}; Claude app {app}");
+            await WriteJson(ctx, new { ok = true, path, model = rt.Identifier, app, note = Auth.Required ? "authentication is on: the token is only valid until this app restarts" : null });
+        });
+        // a settings file for Claude Code on ANOTHER computer; the user carries it over themselves
+        List<string> RemoteWarnings()
+        {
+            var w = new List<string>();
+            if (System.Net.IPAddress.TryParse(_bindHost, out var ip) && System.Net.IPAddress.IsLoopback(ip))
+                w.Add("This server only listens on this computer. Start it with --lan (or set the host to 0.0.0.0 in Settings) or the other computer cannot connect.");
+            if (!Auth.Required)
+                w.Add("Authentication is off, so anyone who can reach this address can use the model. Turn on API tokens in Settings first if the network is not private.");
+            return w;
+        }
+        app.MapGet("/api/launch/claude-code/remote-address", async ctx =>
+            await WriteJson(ctx, new { address = ClaudeCodeLauncher.SuggestRemoteAddress(new Uri(Url!).Port), warnings = RemoteWarnings() }));
+        app.MapPost("/api/launch/claude-code/remote-settings", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            string? requested = body["model"]?.GetValue<string>();
+            var loaded = _host.Models.Loaded.Where(r => !r.Model.IsEmbedding && !r.Options.Embeddings).ToList();
+            var rt = !string.IsNullOrWhiteSpace(requested)
+                ? loaded.FirstOrDefault(r => r.Identifier.Equals(requested, StringComparison.OrdinalIgnoreCase))
+                : loaded.OrderByDescending(r => r.LastUsed).FirstOrDefault();
+            if (rt == null) { await WriteError(ctx, 400, "Load a chat model first.", "invalid_request_error"); return; }
+            string address = (body["address"]?.GetValue<string>() ?? "").Trim();
+            if (!Uri.TryCreate(address, UriKind.Absolute, out var au) || au.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(au.PathAndQuery.Trim('/')))
+            { await WriteError(ctx, 400, "Give the address as http(s)://name-or-ip:port, for example http://my-pc:1234.", "invalid_request_error"); return; }
+            if (au.IsLoopback) { await WriteError(ctx, 400, "That address points back to the computer it is used on. Use this computer's name or network address.", "invalid_request_error"); return; }
+            string secret = "local", tokenName = "";
+            if (Auth.Required)
+            {
+                tokenName = $"Claude remote {rt.Identifier} {DateTime.Now:yyyy-MM-dd HH:mm}";
+                secret = Auth.Create(tokenName, new[] { Scopes.Chat }).Secret;     // chat only: enough for Claude Code, nothing else
+            }
+            LogBuffer.Add("server", $"Created remote Claude Code settings for model {rt.Identifier} at {au.GetLeftPart(UriPartial.Authority)}" + (tokenName != "" ? $" with token '{tokenName}'" : ""));
+            await WriteJson(ctx, new
+            {
+                fileName = "settings.local.json", model = rt.Identifier, address = au.GetLeftPart(UriPartial.Authority), tokenName,
+                json = ClaudeCodeLauncher.RemoteSettings(au.GetLeftPart(UriPartial.Authority), secret, rt.Identifier), warnings = RemoteWarnings(),
+            });
         });
         app.MapPost("/api/launch/claude-code/unconfigure", async ctx =>
         {

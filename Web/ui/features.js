@@ -11,7 +11,7 @@ const FEATURES = [
   // Chat: samplers, presets, tools
   ['row:p-top_k', 'power'], ['row:p-min_p', 'power'], ['row:p-repeat_penalty', 'power'], ['row:p-frequency_penalty', 'power'], ['row:p-presence_penalty', 'power'],
   ['#adv-sampling', 'power'], ['#params h3', 'power'], ['#preset-sel', 'power'], ['#preset-name', 'power'], ['#preset-update', 'power'], ['#preset-reset', 'power'], ['#chat-settings-note', 'power'],
-  ['#params button[onclick*="launchClaudeCode"]', 'power'], ['#params button[onclick*="configureClaudeApp"]', 'power'], ['#params button[onclick*="saveAsModelDefault"]', 'power'], ['#params button[onclick*="resetChatSettings"]', 'power'],
+  ['#params button[onclick*="launchClaudeCode"]', 'power'], ['#params button[onclick*="configureClaudeApp"]', 'power'],  ['#params button[onclick*="saveRemoteClaudeSettings"]', 'power'], ['#params button[onclick*="saveAsModelDefault"]', 'power'], ['#params button[onclick*="resetChatSettings"]', 'power'],
   ['#params button[onclick*="exportPreset"], #params button[onclick*="openPresetImport"], #params button[onclick*="duplicatePreset"]', 'power'],
   ['#compare-btn', 'power'],
   // Models: per-model configuration

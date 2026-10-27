@@ -44,12 +44,29 @@ async function launchClaudeCode(model) {
 
 async function configureClaudeApp(model) {
   const last = localStorage.getItem('claudeAppDir') || '';
-  const dir = prompt('Project folder to configure for the Claude Code app / CLI.\nBlank = your user-level settings (affects every project):', last);
+  const dir = prompt('Project folder for the new Claude Code session.\nBlank = your user-level settings (affects every project):', last);
   if (dir === null) return;
   localStorage.setItem('claudeAppDir', dir);
   try {
     const r = await api('/api/launch/claude-code/configure', {method:'POST', body:{model: model || null, directory: dir || null}});
-    alert('Wrote the settings for "' + r.model + '" to:\n' + r.path + '\n\nOpen ' + (dir ? 'that folder' : 'a project') + ' in the Claude Code app (restart the session if it was already open).' + (r.note ? '\n\n' + r.note : ''));
+    const shown = r.app === 'focused' ? 'The running Claude app is now in front.' : r.app === 'started' ? 'The Claude app was started (or asked to come forward).' : 'The Claude app could not be brought forward (' + r.app + ').';
+    alert('"' + r.model + '" is set up in:\n' + r.path + '\n\n' + shown + '\nStart a new session in ' + (dir ? 'that folder' : 'any project') + ' (a session that was already open must be restarted).' + (r.note ? '\n\n' + r.note : ''));
+  } catch (e) { alert(e.message); }
+}
+// a settings file for Claude Code on another computer: the user moves the file there themselves
+async function saveRemoteClaudeSettings(model) {
+  try {
+    const info = await api('/api/launch/claude-code/remote-address');
+    const address = prompt('Address the OTHER computer uses to reach this one (http://name-or-ip:port):', localStorage.getItem('claudeRemoteAddr') || info.address);
+    if (address === null) return;
+    localStorage.setItem('claudeRemoteAddr', address);
+    const r = await api('/api/launch/claude-code/remote-settings', {method:'POST', body:{model: model || null, address}});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([r.json], {type: 'application/json'})); a.download = r.fileName; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    alert('Saved ' + r.fileName + ' for "' + r.model + '" at ' + r.address + '.\n\nCopy it to <project folder>/.claude/ on the other computer (or ~/.claude/settings.json for every project) and start Claude Code there.'
+      + (r.tokenName ? '\n\nIt contains a new API token ("' + r.tokenName + '", chat only). Anyone with the file can use this server; revoke the token under Settings → API tokens.' : '')
+      + (r.warnings.length ? '\n\nCheck:\n- ' + r.warnings.join('\n- ') : ''));
   } catch (e) { alert(e.message); }
 }
 async function unconfigureClaudeApp() {
