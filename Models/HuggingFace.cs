@@ -5,7 +5,7 @@ using LLMHostProject.Core;
 
 namespace LLMHostProject.Models;
 
-public record RemoteModel(string Id, long Downloads, long Likes, string? LastModified, string? Pipeline, IReadOnlyList<string>? Tags = null);
+public record RemoteModel(string Id, long Downloads, long Likes, string? LastModified, string? Pipeline, IReadOnlyList<string>? Tags = null, long Parameters = 0);
 
 /// <summary>A downloadable GGUF (possibly split into several shards).</summary>
 public record RemoteFile(string Repo, string FileName, long SizeBytes, string Quant, IReadOnlyList<string> Shards,
@@ -66,6 +66,8 @@ public static partial class HuggingFace
         if (!string.IsNullOrWhiteSpace(s.Family) && Regex.IsMatch(s.Family, @"^[A-Za-z0-9._-]{1,40}$")) sb.Append("&filter=").Append(Uri.EscapeDataString(s.Family));
         string? pipeline = !string.IsNullOrWhiteSpace(s.Pipeline) ? s.Pipeline : s.Vision ? "image-text-to-text" : null;
         if (pipeline != null && Regex.IsMatch(pipeline, @"^[a-z0-9-]{1,40}$")) sb.Append("&pipeline_tag=").Append(pipeline);
+        // the list answers with only a few fields unless asked: the date and the exact parameter count (gguf.total) are wanted too
+        foreach (var f in new[] { "downloads", "likes", "lastModified", "pipeline_tag", "tags", "gguf" }) sb.Append("&expand[]=").Append(f);
         sb.Append("&sort=").Append(sort).Append("&direction=-1&limit=").Append(Math.Clamp(s.Limit, 1, 100));
         if (!string.IsNullOrEmpty(s.Cursor) && Regex.IsMatch(s.Cursor, @"^[A-Za-z0-9_%=.~-]{1,2000}$")) sb.Append("&cursor=").Append(s.Cursor);
         return sb.ToString();
@@ -101,7 +103,8 @@ public static partial class HuggingFace
                 e.TryGetProperty("likes", out var l) ? l.GetInt64() : 0,
                 e.TryGetProperty("lastModified", out var m) ? m.GetString() : null,
                 e.TryGetProperty("pipeline_tag", out var p) ? p.GetString() : null,
-                e.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array ? tg.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : null);
+                e.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array ? tg.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : null,
+                e.TryGetProperty("gguf", out var gg) && gg.ValueKind == JsonValueKind.Object && gg.TryGetProperty("total", out var tot) && tot.TryGetInt64(out var tv) ? tv : 0);
             // tools / reasoning have no Hugging Face filter of their own: judged from the tags and the name (approximate)
             if (s.Tools || s.Reasoning)
             {

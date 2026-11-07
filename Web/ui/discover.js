@@ -1,30 +1,114 @@
 // ---------------------------------------------------------------- discover
-async function renderCatalog() {
-  const catData = await api('/api/models/catalog'); const cat = catData.entries;
-  const card = e => `<div class="card"><b>${esc(e.name)}</b> <span class="tag">${esc(e.family)}</span><span class="tag">${esc(e.params)}</span><span class="tag" title="Download size of the recommended quantization" data-size-repo="${esc(e.repo)}" data-size-quant="${esc(e.recommendedQuant)}">size …</span>${e.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}
-    <div class="dim">${esc(e.repo)} ${esc(e.notes || '')}</div>
-    <div style="margin-top:6px"><button class="b" onclick='showFiles(${JSON.stringify(e.repo)})'>Choose quantization…</button>
-    <button class="b sec" onclick='dl(${JSON.stringify(e.repo)}, null, ${JSON.stringify(e.recommendedQuant)})'>Download ${esc(e.recommendedQuant)}</button></div></div>`;
-  $('catalog').innerHTML = `<div class="dim">Staff picks · updated ${esc(catData.updated || 'unknown')} · ${esc(catData.source)}${catData.url ? ' <button class="b sec" onclick="refreshCatalog()">Refresh</button>' : ''}</div>` + '<h4>LLMs</h4>' + cat.filter(e => !e.isVision).map(card).join('')
-    + '<h4>Image models (vision)</h4>' + cat.filter(e => e.isVision).map(card).join('');
-  fillRepoSizes($('catalog'));
-}
-// download sizes: one request fills every cell marked data-size-repo (the server reads each repository's file list once an hour)
-async function fillRepoSizes(root) {
-  const cells = [...root.querySelectorAll('[data-size-repo]:not([data-filled])')];
-  if (!cells.length) return;
-  cells.forEach(c => { c.dataset.filled = '1'; });
-  const repos = [...new Map(cells.map(c => [c.dataset.sizeRepo, {repo: c.dataset.sizeRepo, quant: c.dataset.sizeQuant || null}])).values()];
-  let sizes = {};
-  try { sizes = (await api('/api/models/repo-sizes', {method: 'POST', body: {repos}})).sizes || {}; } catch (e) { /* offline: dashes below */ }
-  for (const c of cells) {
-    const s = sizes[c.dataset.sizeRepo];
-    if (!s || !s.files) { c.textContent = '—'; c.title = 'Size not available (gated, unknown or offline)'; continue; }
-    const range = s.minBytes === s.maxBytes ? fmt(s.maxBytes) : fmt(s.minBytes) + ' – ' + fmt(s.maxBytes);
-    if (c.dataset.sizeQuant) c.textContent = s.quantBytes ? `${c.dataset.sizeQuant} ${fmt(s.quantBytes)}` : range;
-    else c.textContent = range;
-    c.title = `${s.files} file${s.files === 1 ? '' : 's'}, ${range}` + (c.dataset.sizeQuant && s.quantBytes ? ` · ${c.dataset.sizeQuant} is the recommended download` : '');
+// ---------------------------------------------------------------- the model table (staff picks and search results)
+// One table for both. Click a column header to sort (click again to reverse). Name, parameters, size and the capability columns
+// sort the rows that are loaded; downloads, likes and updated also ask Hugging Face for that order, so the first rows really are
+// the top of the list. Sizes are fetched in one request after the rows appear and sort once they are in.
+const DT = {mode: 'picks', view: 'table', rows: [], picks: [], info: '', picksInfo: '', canMore: false, sort: {key: null, dir: -1}};
+const DT_SERVER_SORT = {downloads: 'downloads', likes: 'likes', updated: 'updated'};
+const DT_COLS = [
+  {key: 'name', label: 'Model', dir: 1, get: r => r.name.toLowerCase()},
+  {key: 'params', label: 'Params', title: 'Number of parameters (read from the model name)', get: r => r.params},
+  {key: 'size', label: 'Size', title: 'Download size: the Q4_K_M file when the repository has one, otherwise the smallest file', get: r => r.sizeSort},
+  {key: 'vision', label: '👁', title: 'Vision (image input)', flag: true, get: r => r.caps.vision ? 1 : 0},
+  {key: 'tools', label: '🔧', title: 'Tool use', flag: true, get: r => r.caps.tools ? 1 : 0},
+  {key: 'reasoning', label: '🧠', title: 'Reasoning', flag: true, get: r => r.caps.reasoning ? 1 : 0},
+  {key: 'moe', label: '⚙', title: 'Mixture of experts', flag: true, get: r => r.caps.moe ? 1 : 0},
+  {key: 'downloads', label: 'Downloads', get: r => r.downloads},
+  {key: 'likes', label: 'Likes', get: r => r.likes},
+  {key: 'updated', label: 'Updated', get: r => r.updated || null},
+];
+// "8B", "135M", "0.5B"; the largest number wins ("30B-A3B" is 30B), a digit glued to a letter ("A3B", "E4B") is not a size
+function parseParams(text) {
+  let best = null;
+  for (const m of String(text || '').matchAll(/(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)([BbMm])(?![A-Za-z0-9])/g)) {
+    const v = parseFloat(m[1]) * (m[2].toLowerCase() === 'b' ? 1 : 0.001);
+    if (!best || v > best.v) best = {v, label: m[1] + m[2].toUpperCase()};
   }
+  return best;
+}
+const capsOfTags = tags => ({vision: tags.includes('vision'), tools: tags.includes('tools'), reasoning: tags.includes('reasoning'), moe: tags.includes('moe'), embedding: tags.includes('embeddings'), rerank: tags.includes('rerank')});
+function pickRow(e) {
+  const p = parseParams(e.params) || parseParams(e.name);
+  return {kind: 'pick', repo: e.repo, name: e.name, sub: e.repo + (e.notes ? ' · ' + e.notes : ''), params: p ? p.v : null, paramsLabel: p ? p.label : (e.params || ''),
+    caps: capsOfTags(e.tags || []), downloads: null, likes: null, updated: null, quant: e.recommendedQuant, size: null, sizeSort: null};
+}
+// exact parameter count from the GGUF header (Hugging Face reports it) as a size label: 134515008 -> 135M, 7615616512 -> 7.6B
+function paramsLabel(n) { return n >= 1e9 ? (n >= 1e10 ? Math.round(n / 1e9) : (n / 1e9).toFixed(1).replace(/\.0$/, "")) + "B" : Math.round(n / 1e6) + "M"; }
+function searchRow(m) {
+  const p = m.parameters > 0 ? {v: m.parameters / 1e9, label: paramsLabel(m.parameters)} : parseParams(m.id);
+  return {kind: 'search', repo: m.id, name: m.id, license: m.license, params: p ? p.v : null, paramsLabel: p ? p.label : '', caps: m.capabilities || {},
+    downloads: m.downloads, likes: m.likes, updated: (m.lastModified || '').slice(0, 10), quant: 'Q4_K_M', size: null, sizeSort: null};
+}
+function dtSorted(rows = DT.rows) {
+  const col = DT_COLS.find(c => c.key === DT.sort.key), dir = DT.sort.dir;
+  if (!col) return rows.slice();
+  return rows.map((r, i) => [r, i]).sort(([a, i], [b, j]) => {
+    const x = col.get(a), y = col.get(b);
+    if (x == null && y == null) return i - j;
+    if (x == null) return 1; if (y == null) return -1;                           // rows without a value stay at the bottom either way
+    const c = typeof x === 'string' ? x.localeCompare(y) : x - y;
+    return c ? c * dir : i - j;
+  }).map(p => p[0]);
+}
+function dtSizeCell(r) {
+  const s = r.size;
+  if (!s) return r.sizeFailed ? '<span class="dim" title="Size not available (gated, unknown or offline)">—</span>' : '<span class="dim">…</span>';
+  const range = s.minBytes === s.maxBytes ? fmt(s.maxBytes) : fmt(s.minBytes) + ' – ' + fmt(s.maxBytes);
+  const title = `${s.files} file${s.files === 1 ? '' : 's'}: ${range}`;
+  return `<span title="${esc(title)}">${s.quantBytes ? esc(r.quant) + ' ' + fmt(s.quantBytes) : range}</span>`;
+}
+function dtRow(r) {
+  const J = v => JSON.stringify(v);
+  const flag = k => r.caps[k] ? `<span class="ok" title="${k}">✓</span>` : '<span class="dim">·</span>';
+  const others = ['audio', 'embedding', 'rerank'].filter(k => r.caps[k]).map(k => `<span class="tag">${k}</span>`).join('');
+  const name = r.kind === 'pick' ? `<b>${esc(r.name)}</b> ${others}<div class="dim">${esc(r.sub)}</div>` : `${esc(r.name)} ${others} ${licenseTag(r.license, '')}`;
+  const dl = r.kind === 'pick' ? `<button class="b" title="Download ${esc(r.quant)}" onclick='dl(${J(r.repo)}, null, ${J(r.quant)})'>Download</button> ` : '';
+  return `<tr><td>${name}</td><td style="white-space:nowrap">${esc(r.paramsLabel || '—')}</td><td style="white-space:nowrap">${dtSizeCell(r)}</td>`
+    + ['vision', 'tools', 'reasoning', 'moe'].map(k => `<td class="flag">${flag(k)}</td>`).join('')
+    + `<td>${r.downloads == null ? '' : r.downloads.toLocaleString()}</td><td>${r.likes == null ? '' : r.likes}</td><td style="white-space:nowrap">${esc(r.updated || '')}</td>`
+    + `<td style="white-space:nowrap">${dl}<button class="b sec" onclick='showFiles(${J(r.repo)})'>Files</button> <button class="b sec" title="README, licence and details" onclick='showCard(${J(r.repo)})'>Details</button></td></tr>`;
+}
+function dtRender() {
+  if (DT.view !== 'table') return;
+  const head = DT_COLS.map(c => {
+    const on = DT.sort.key === c.key;
+    return `<th class="sortable${c.flag ? ' flag' : ''}" title="${esc(c.title || 'Sort by ' + c.label)}" onclick="dtSort('${c.key}')">${esc(c.label)}${on ? (DT.sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+  }).join('') + '<th></th>';
+  $('results').innerHTML = (DT.info ? `<div class="dim" style="margin-bottom:4px">${DT.info}</div>` : '')
+    + [['LLMs', DT.rows.filter(r => !r.caps.vision)], ['Image models (vision)', DT.rows.filter(r => r.caps.vision)]].filter(g => g[1].length)   // text and image models stay in separate lists
+      .map(([title, rows]) => `<h4 style="margin:20px 0 6px;padding-bottom:4px;border-bottom:2px solid var(--line);font-size:22px;font-weight:600">${title} <span class="dim">(${rows.length})</span></h4><table class="dt"><thead><tr>${head}</tr></thead><tbody>${dtSorted(rows).map(dtRow).join('')}</tbody></table>`).join('')
+    + (DT.rows.length ? '' : '<span class="dim">Nothing found.</span>')
+    + (DT.canMore ? '<div style="margin-top:8px"><button class="b sec" onclick="search(true)">Load more</button></div>' : '');
+}
+function dtSort(key) {
+  const col = DT_COLS.find(c => c.key === key);
+  if (DT.sort.key === key) DT.sort.dir = -DT.sort.dir; else DT.sort = {key, dir: col.dir || -1};
+  const server = DT_SERVER_SORT[key];
+  if (server && DT.mode === 'search' && DT.sort.dir < 0 && $('d-sort').value !== server) { $('d-sort').value = server; search(); return; }   // new top of the list from Hugging Face
+  dtRender();
+}
+function dtBack() { DT.view = 'table'; dtRender(); }
+async function dtLoadSizes(rows) {
+  const need = rows.filter(r => !r.size && !r.sizeTried);
+  need.forEach(r => { r.sizeTried = true; });
+  for (let i = 0; i < need.length; i += 50) {
+    const part = need.slice(i, i + 50);
+    let sizes = {};
+    try { sizes = (await api('/api/models/repo-sizes', {method: 'POST', body: {repos: part.map(r => ({repo: r.repo, quant: r.quant}))}})).sizes || {}; } catch (e) { /* offline: dashes */ }
+    for (const r of part) { const s = sizes[r.repo]; if (s && s.files) { r.size = s; r.sizeSort = s.quantBytes || s.minBytes; } else r.sizeFailed = true; }
+    if (rows.some(r => DT.rows.includes(r))) dtRender();
+  }
+}
+function showPicks() {
+  DT.mode = 'picks'; DT.rows = DT.picks; DT.canMore = false; DT.info = DT.picksInfo;
+  if (DT.sort.key && DT_SERVER_SORT[DT.sort.key]) DT.sort = {key: null, dir: -1};   // staff picks have no downloads, likes or dates
+  dtRender(); dtLoadSizes(DT.picks);
+}
+async function renderCatalog() {
+  const catData = await api('/api/models/catalog');
+  DT.picks = catData.entries.map(pickRow);
+  DT.picksInfo = `Staff picks · updated ${esc(catData.updated || 'unknown')} · ${esc(catData.source)}${catData.url ? ' <button class="b sec" onclick="refreshCatalog()">Refresh</button>' : ''} · search above for anything else`;
+  if (DT.mode === 'picks' && DT.view === 'table') showPicks();
 }
 // ---------------------------------------------------------------- model badges and detail drawer
 const CAP_BADGES = [['vision', '👁 vision'], ['audio', '🎧 audio'], ['tools', '🔧 tools'], ['reasoning', '🧠 reasoning'], ['moe', '⚙ MoE'], ['embedding', '📐 embedding'], ['rerank', '↕ rerank']];
@@ -167,23 +251,24 @@ function searchParams(cursor) {
   if (cursor) p.set('cursor', cursor);
   return p.toString();
 }
-function resultRow(m) {
-  return `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)} ${licenseTag(m.license, '')}</td><td>${m.downloads.toLocaleString()}</td><td data-size-repo="${esc(m.id)}" style="white-space:nowrap">…</td><td>${m.likes}</td><td>${esc((m.lastModified || '').slice(0, 10))}</td><td style="white-space:nowrap"><button class="b sec" onclick='showFiles(${JSON.stringify(m.id)})'>Files</button> <button class="b sec" title="README, licence and details" onclick='showCard(${JSON.stringify(m.id)})'>Details</button></td></tr>`;
-}
 async function search(more) {
   discSave();
   if (!more) { searchQuery = $('q').value.trim(); searchNext = null; }
-  if (!more && !searchQuery && $('d-sort').value === 'downloads' && !$('d-family').value.trim() && !$('d-vision').checked && !$('d-tools').checked && !$('d-reason').checked) return;
-  if (!more) $('results').innerHTML = '<span class="dim">Searching…</span>';
+  const plain = !searchQuery && $('d-sort').value === 'downloads' && !$('d-family').value.trim() && !$('d-vision').checked && !$('d-tools').checked && !$('d-reason').checked;
+  if (!more && plain) { DT.view = 'table'; showPicks(); return; }               // nothing asked for: the staff picks
+  if (!more) {
+    DT.mode = 'search'; DT.view = 'table'; DT.rows = []; DT.info = ''; DT.canMore = false;
+    // the Sort box and the column headers say the same thing; a sort by a column Hugging Face cannot do (params, size ...) is kept
+    if (!DT.sort.key || DT_SERVER_SORT[DT.sort.key]) { const k = Object.keys(DT_SERVER_SORT).find(k => DT_SERVER_SORT[k] === $('d-sort').value); DT.sort = {key: k || null, dir: -1}; }
+    $('results').innerHTML = '<span class="dim">Searching…</span>';
+  }
   try {
     const r = await api('/api/models/search?' + searchParams(more ? searchNext : null));
     searchNext = r.next;
-    const rows = r.items.map(resultRow).join('');
-    if (more) { const t = $('results').querySelector('tbody'); t.insertAdjacentHTML('beforeend', rows); }
-    else $('results').innerHTML = '<table><tbody><tr><th>Repository</th><th>Downloads</th><th title="Smallest to largest file in the repository">Size</th><th>Likes</th><th>Updated</th><th></th></tr>' + rows + '</tbody></table>' + (r.items.length ? '' : '<span class="dim">Nothing found.</span>');
-    fillRepoSizes($('results'));
-    $('results').querySelector('#more-results')?.remove();
-    if (searchNext) $('results').insertAdjacentHTML('beforeend', '<div id="more-results" style="margin-top:8px"><button class="b sec" onclick="search(true)">Load more</button></div>');
+    const fresh = r.items.map(searchRow);
+    DT.rows = more ? DT.rows.concat(fresh) : fresh;
+    DT.canMore = !!searchNext;
+    dtRender(); dtLoadSizes(fresh);
   } catch (e) { $('results').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
 async function refreshCatalog() {
@@ -193,17 +278,18 @@ async function refreshCatalog() {
 $('q').onkeydown = e => { if (e.key === 'Enter') search(); };
 discLoad();
 async function showFiles(repo) {
+  DT.view = 'files';                                                  // the table is hidden until Back
   $('results').innerHTML = '<span class="dim">Loading files…</span>';
   try {
     discSave();
     const fp = new URLSearchParams({repo}); if ($('d-quant').value.trim()) fp.set('quant', $('d-quant').value.trim()); if ($('d-maxsize').value) fp.set('maxSize', $('d-maxsize').value); if ($('d-fits').value) fp.set('fits', $('d-fits').value);
     const f = await api('/api/models/files?' + fp.toString());
     const vram = (status?.hardware?.gpus || []).reduce((a, g) => Math.max(a, g.usableBytes ?? g.vramBytes), 0);
-    $('results').innerHTML = `<h3>${esc(repo)}</h3><table><tr><th>Quant</th><th>Size</th><th>File</th><th>Fit</th><th></th></tr>` + f.map(x =>
+    $('results').innerHTML = `<button class="b sec" onclick="dtBack()">← Back to the list</button><h3>${esc(repo)}</h3><table><tr><th>Quant</th><th>Size</th><th>File</th><th>Fit</th><th></th></tr>` + f.map(x =>
       `<tr><td>${esc(x.quant)}</td><td>${fmt(x.sizeBytes)}</td><td>${esc(x.fileName)}${x.isSplit ? ' <span class="tag">split</span>' : ''}${x.vision ? ` <span class="tag">vision +${fmt(x.mmprojBytes)}</span>` : ''}</td>
        <td>${x.fitsGpu ? '<span class="ok">fits GPU</span>' : x.fitsRam ? '<span class="dim">fits RAM</span>' : '<span class="err">too large</span>'}</td>
        <td><button class="b" onclick='dl(${JSON.stringify(repo)}, ${JSON.stringify(x.fileName)})'>Download</button></td></tr>`).join('') + '</table>';
-  } catch (e) { $('results').innerHTML = errHtml(e, 'showFiles(' + JSON.stringify(repo).replace(/"/g, "&quot;") + ')'); }
+  } catch (e) { $('results').innerHTML = '<button class="b sec" onclick="dtBack()">← Back to the list</button> ' + errHtml(e, 'showFiles(' + JSON.stringify(repo).replace(/"/g, "&quot;") + ')'); }
 }
 async function dl(repo, file, quant) {
   try { await api('/api/downloads', {method:'POST', body:{repo, file, quant}}); refreshDownloads(); }

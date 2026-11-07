@@ -31,6 +31,9 @@ public record LicenseInfo(string? Id, string Kind)
 /// <summary>Guesses what a not-yet-downloaded model can do from its Hugging Face tags and name.</summary>
 public static class RemoteCapabilities
 {
+    /// <summary>Names of vision models that carry no vision tag on Hugging Face (SmolVLM, LLaVA, Pixtral ... and the "-VL" suffix).</summary>
+    private const string VisionNames = @"vlm|llava|pixtral|moondream|minicpm-v|paligemma|internvl|idefics|molmo|vision|(^|[-_/.])vl([-_.]|$)";
+
     public static ModelCapabilities FromTags(IEnumerable<string>? tags, string? pipeline, string repoId)
     {
         var t = new HashSet<string>((tags ?? Array.Empty<string>()).Select(x => x.ToLowerInvariant()));
@@ -39,7 +42,7 @@ public static class RemoteCapabilities
         bool rerank = id.Contains("rerank") || t.Contains("text-ranking");
         if (rerank) embedding = false;
         bool chat = !embedding && !rerank;
-        bool vision = chat && (pipeline == "image-text-to-text" || t.Contains("image-text-to-text") || t.Contains("vision") || t.Contains("multimodal") || id.Contains("-vl") || id.Contains("vision"));
+        bool vision = chat && (pipeline == "image-text-to-text" || t.Contains("image-text-to-text") || t.Contains("vision") || t.Contains("multimodal") || Regex.IsMatch(id, VisionNames));
         bool audio = chat && (t.Contains("audio-text-to-text") || id.Contains("omni") || id.Contains("audio"));
         bool tools = chat && (t.Contains("function-calling") || t.Contains("tool-use") || t.Contains("tools") || id.Contains("function"));
         bool reasoning = chat && (t.Contains("reasoning") || t.Contains("thinking") || Regex.IsMatch(id, @"(qwen3|deepseek-r1|qwq|-r1|thinking|reason|gpt-oss|magistral)"));

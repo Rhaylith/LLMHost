@@ -109,3 +109,26 @@ public class ModelInfoApiTests : IClassFixture<ServerFixture>
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, r.StatusCode);
     }
 }
+
+[Trait("Category", "Unit")]
+public class RemoteVisionNameTests
+{
+    [Theory]
+    [InlineData("ggml-org/SmolVLM2-2.2B-Instruct-GGUF")]
+    [InlineData("bartowski/Qwen2.5-VL-7B-Instruct-GGUF")]
+    [InlineData("unsloth/Qwen3-VL-8B-Instruct-GGUF")]
+    [InlineData("mradermacher/llava-v1.6-mistral-7b-GGUF")]
+    [InlineData("lmstudio-community/pixtral-12b-GGUF")]
+    [InlineData("x/MiniCPM-V-2_6-gguf")]
+    [InlineData("x/Llama-3.2-11B-Vision-Instruct-GGUF")]
+    public void VisionModelsWithoutAVisionTagAreRecognisedByName(string repo) =>
+        Assert.True(RemoteCapabilities.FromTags(new[] { "gguf" }, null, repo).Vision);
+
+    [Theory]
+    [InlineData("unsloth/Llama-3.2-1B-Instruct-GGUF")]
+    [InlineData("bartowski/vllm-compat-7B-GGUF")]
+    [InlineData("x/Qwen3-30B-A3B-GGUF")]
+    [InlineData("bartowski/Meta-Llama-3.1-8B-Instruct-GGUF")]
+    public void OrdinaryTextModelsAreNotMistakenForVisionModels(string repo) =>
+        Assert.False(RemoteCapabilities.FromTags(new[] { "gguf" }, "text-generation", repo).Vision);
+}

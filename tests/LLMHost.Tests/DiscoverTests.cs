@@ -21,6 +21,8 @@ public class DiscoverSearchTests
         Assert.Contains("direction=-1", url);
         Assert.Contains("limit=20", url);
         Assert.EndsWith("&cursor=abc%3D_1", url);
+        Assert.Contains("expand[]=lastModified", url);                           // the date and the exact parameter count are asked for
+        Assert.Contains("expand[]=gguf", url);
     }
 
     [Theory]
@@ -36,7 +38,7 @@ public class DiscoverSearchTests
         var url = HuggingFace.SearchUrl(new HuggingFace.HfSearch("a b&c", "downloads", "x&evil=1", "bad pipeline", 9999, "x&y=1"));
         Assert.Contains("search=a%20b%26c", url);
         Assert.DoesNotContain("evil", url);
-        Assert.DoesNotContain("pipeline_tag", url);
+        Assert.DoesNotContain("&pipeline_tag=", url);                   // the filter; "expand[]=pipeline_tag" only asks for the field
         Assert.DoesNotContain("y=1", url);
         Assert.Contains("limit=100", url);
     }

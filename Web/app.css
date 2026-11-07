@@ -22,6 +22,7 @@ label{display:block;font-size:12px;color:var(--dim);margin:10px 0 3px}
 table{border-collapse:collapse;width:100%}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
 th{color:var(--dim);font-weight:500;font-size:12px}
+.dt th.sortable{cursor:pointer;user-select:none;white-space:nowrap}.dt th.sortable:hover{color:var(--text)}.dt th.flag,.dt td.flag{text-align:center;padding-left:4px;padding-right:4px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px}
 .tag.err{color:var(--acc)}.tag.warn{color:var(--warn)}
 .readme{margin-top:10px;white-space:pre-wrap;word-break:break-word;font-size:13px}.readme pre{background:var(--panel2);padding:8px;overflow:auto;white-space:pre}

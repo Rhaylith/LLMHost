@@ -1064,7 +1064,7 @@ public partial class ApiServer
                 next = page.NextCursor,
                 items = page.Items.Select(m => new
                 {
-                    m.Id, m.Downloads, m.Likes, m.LastModified, m.Pipeline,
+                    m.Id, m.Downloads, m.Likes, m.LastModified, m.Pipeline, parameters = m.Parameters,
                     license = m.Tags?.FirstOrDefault(t => t.StartsWith("license:"))?[8..],
                     capabilities = RemoteCapabilities.FromTags(m.Tags, m.Pipeline, m.Id).ToApi(),
                 }),
