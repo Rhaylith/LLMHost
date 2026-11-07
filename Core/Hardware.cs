@@ -40,8 +40,15 @@ public static class Hardware
             {
                 // DXGI reports the real (64-bit) dedicated VRAM, unlike WMI's 4 GB capped AdapterRAM
                 var drivers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                using (var g = new ManagementObjectSearcher("select Name, DriverVersion from Win32_VideoController"))
-                    foreach (var o in g.Get()) drivers[o["Name"]?.ToString() ?? ""] = o["DriverVersion"]?.ToString() ?? "";
+                var pciCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                using (var g = new ManagementObjectSearcher("select Name, DriverVersion, PNPDeviceID from Win32_VideoController"))
+                    foreach (var o in g.Get())
+                    {
+                        string n = o["Name"]?.ToString() ?? "";
+                        drivers[n] = o["DriverVersion"]?.ToString() ?? "";
+                        if (o["PNPDeviceID"]?.ToString()?.StartsWith("PCI\\", StringComparison.OrdinalIgnoreCase) == true) pciCounts[n] = pciCounts.GetValueOrDefault(n) + 1;
+                    }
+                dxgi = DedupeAdapters(dxgi, pciCounts, CounterLuids());
                 int idx = 0;
                 foreach (var (name, vendorId, vram, shared, luid) in dxgi)
                 {
@@ -157,6 +164,39 @@ public static class Hardware
         void SetPrivateData(); void SetPrivateDataInterface(); void GetPrivateData(); void GetParent();
         void EnumAdapters(); void MakeWindowAssociation(); void GetWindowAssociation(); void CreateSwapChain(); void CreateSoftwareAdapter();
         [PreserveSig] int EnumAdapters1(uint index, [MarshalAs(UnmanagedType.Interface)] out IDXGIAdapter1 adapter);
+    }
+
+    /// <summary>
+    /// DXGI can list one card twice (a second adapter object with another LUID, seen in remote-desktop sessions and after
+    /// driver resets), which showed up as a third GPU. A name that Windows reports for fewer PCI video controllers than
+    /// DXGI has adapters is capped to that number; of the duplicates the ones that have GPU performance counters (the real
+    /// adapter) are kept. Names WMI does not know about are left alone, so two identical cards still count as two.
+    /// </summary>
+    internal static List<(string Name, uint VendorId, long Vram, long Shared, long Luid)> DedupeAdapters(
+        List<(string Name, uint VendorId, long Vram, long Shared, long Luid)> adapters, IReadOnlyDictionary<string, int> pciControllers, ISet<long>? counterLuids)
+    {
+        var drop = new HashSet<int>();
+        foreach (var group in adapters.Select((a, i) => (a, i)).GroupBy(x => x.a.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!pciControllers.TryGetValue(group.Key, out int real) || real <= 0 || group.Count() <= real) continue;
+            var keep = group.OrderByDescending(x => counterLuids?.Contains(x.a.Luid) == true).ThenBy(x => x.i).Take(real).Select(x => x.i).ToHashSet();
+            foreach (var x in group) if (!keep.Contains(x.i)) drop.Add(x.i);
+        }
+        return drop.Count == 0 ? adapters : adapters.Where((_, i) => !drop.Contains(i)).ToList();
+    }
+
+    /// <summary>LUIDs of the adapters that have GPU performance counters (null when the counters cannot be read).</summary>
+    private static HashSet<long>? CounterLuids()
+    {
+        try
+        {
+            var set = new HashSet<long>();
+            using var s = new ManagementObjectSearcher("select Name from Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory");
+            foreach (var o in s.Get())
+                if (GpuCounterName.Parse(o["Name"]?.ToString()) is { } c) set.Add(c.Luid);
+            return set.Count > 0 ? set : null;
+        }
+        catch { return null; }
     }
 
     private static List<(string Name, uint VendorId, long Vram, long Shared, long Luid)> EnumerateDxgi()

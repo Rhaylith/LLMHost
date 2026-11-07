@@ -54,6 +54,7 @@ public static class Scopes
             || path.StartsWith("/api/mcp") || path.StartsWith("/api/shutdown")) return read && !path.StartsWith("/api/tokens") && !path.StartsWith("/api/settings") ? ModelsRead : Admin;
         if (path.StartsWith("/api/chats") || path.StartsWith("/api/chat-folders") || path.StartsWith("/api/context") || path.StartsWith("/api/notifications") || path == "/api/effective-settings" || path == "/api/shortcuts" || path.StartsWith("/api/presets") || path.StartsWith("/api/preset-list") || path.StartsWith("/api/logs") || path.StartsWith("/api/documents")) return App;
         if (path == "/api/status" || path == "/api/hardware" || path == "/api/hardware/gpu-use") return ModelsRead;
+        if (path == "/api/models/repo-sizes") return ModelsRead;                    // a POST only because of the list it takes
         if (!read && (path.StartsWith("/api/models/directory") || path.StartsWith("/api/models/disk"))) return Admin;     // changes where files live
         if (path.StartsWith("/api/models/") || path.StartsWith("/api/downloads"))
         {

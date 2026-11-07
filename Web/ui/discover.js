@@ -1,12 +1,30 @@
 // ---------------------------------------------------------------- discover
 async function renderCatalog() {
   const catData = await api('/api/models/catalog'); const cat = catData.entries;
-  const card = e => `<div class="card"><b>${esc(e.name)}</b> <span class="tag">${esc(e.family)}</span><span class="tag">${esc(e.params)}</span>${e.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}
+  const card = e => `<div class="card"><b>${esc(e.name)}</b> <span class="tag">${esc(e.family)}</span><span class="tag">${esc(e.params)}</span><span class="tag" title="Download size of the recommended quantization" data-size-repo="${esc(e.repo)}" data-size-quant="${esc(e.recommendedQuant)}">size …</span>${e.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}
     <div class="dim">${esc(e.repo)} ${esc(e.notes || '')}</div>
     <div style="margin-top:6px"><button class="b" onclick='showFiles(${JSON.stringify(e.repo)})'>Choose quantization…</button>
     <button class="b sec" onclick='dl(${JSON.stringify(e.repo)}, null, ${JSON.stringify(e.recommendedQuant)})'>Download ${esc(e.recommendedQuant)}</button></div></div>`;
   $('catalog').innerHTML = `<div class="dim">Staff picks · updated ${esc(catData.updated || 'unknown')} · ${esc(catData.source)}${catData.url ? ' <button class="b sec" onclick="refreshCatalog()">Refresh</button>' : ''}</div>` + '<h4>LLMs</h4>' + cat.filter(e => !e.isVision).map(card).join('')
     + '<h4>Image models (vision)</h4>' + cat.filter(e => e.isVision).map(card).join('');
+  fillRepoSizes($('catalog'));
+}
+// download sizes: one request fills every cell marked data-size-repo (the server reads each repository's file list once an hour)
+async function fillRepoSizes(root) {
+  const cells = [...root.querySelectorAll('[data-size-repo]:not([data-filled])')];
+  if (!cells.length) return;
+  cells.forEach(c => { c.dataset.filled = '1'; });
+  const repos = [...new Map(cells.map(c => [c.dataset.sizeRepo, {repo: c.dataset.sizeRepo, quant: c.dataset.sizeQuant || null}])).values()];
+  let sizes = {};
+  try { sizes = (await api('/api/models/repo-sizes', {method: 'POST', body: {repos}})).sizes || {}; } catch (e) { /* offline: dashes below */ }
+  for (const c of cells) {
+    const s = sizes[c.dataset.sizeRepo];
+    if (!s || !s.files) { c.textContent = '—'; c.title = 'Size not available (gated, unknown or offline)'; continue; }
+    const range = s.minBytes === s.maxBytes ? fmt(s.maxBytes) : fmt(s.minBytes) + ' – ' + fmt(s.maxBytes);
+    if (c.dataset.sizeQuant) c.textContent = s.quantBytes ? `${c.dataset.sizeQuant} ${fmt(s.quantBytes)}` : range;
+    else c.textContent = range;
+    c.title = `${s.files} file${s.files === 1 ? '' : 's'}, ${range}` + (c.dataset.sizeQuant && s.quantBytes ? ` · ${c.dataset.sizeQuant} is the recommended download` : '');
+  }
 }
 // ---------------------------------------------------------------- model badges and detail drawer
 const CAP_BADGES = [['vision', '👁 vision'], ['audio', '🎧 audio'], ['tools', '🔧 tools'], ['reasoning', '🧠 reasoning'], ['moe', '⚙ MoE'], ['embedding', '📐 embedding'], ['rerank', '↕ rerank']];
@@ -150,7 +168,7 @@ function searchParams(cursor) {
   return p.toString();
 }
 function resultRow(m) {
-  return `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)} ${licenseTag(m.license, '')}</td><td>${m.downloads.toLocaleString()}</td><td>${m.likes}</td><td>${esc((m.lastModified || '').slice(0, 10))}</td><td style="white-space:nowrap"><button class="b sec" onclick='showFiles(${JSON.stringify(m.id)})'>Files</button> <button class="b sec" title="README, licence and details" onclick='showCard(${JSON.stringify(m.id)})'>Details</button></td></tr>`;
+  return `<tr><td>${esc(m.id)} ${capBadges(m.capabilities)} ${licenseTag(m.license, '')}</td><td>${m.downloads.toLocaleString()}</td><td data-size-repo="${esc(m.id)}" style="white-space:nowrap">…</td><td>${m.likes}</td><td>${esc((m.lastModified || '').slice(0, 10))}</td><td style="white-space:nowrap"><button class="b sec" onclick='showFiles(${JSON.stringify(m.id)})'>Files</button> <button class="b sec" title="README, licence and details" onclick='showCard(${JSON.stringify(m.id)})'>Details</button></td></tr>`;
 }
 async function search(more) {
   discSave();
@@ -162,7 +180,8 @@ async function search(more) {
     searchNext = r.next;
     const rows = r.items.map(resultRow).join('');
     if (more) { const t = $('results').querySelector('tbody'); t.insertAdjacentHTML('beforeend', rows); }
-    else $('results').innerHTML = '<table><tbody><tr><th>Repository</th><th>Downloads</th><th>Likes</th><th>Updated</th><th></th></tr>' + rows + '</tbody></table>' + (r.items.length ? '' : '<span class="dim">Nothing found.</span>');
+    else $('results').innerHTML = '<table><tbody><tr><th>Repository</th><th>Downloads</th><th title="Smallest to largest file in the repository">Size</th><th>Likes</th><th>Updated</th><th></th></tr>' + rows + '</tbody></table>' + (r.items.length ? '' : '<span class="dim">Nothing found.</span>');
+    fillRepoSizes($('results'));
     $('results').querySelector('#more-results')?.remove();
     if (searchNext) $('results').insertAdjacentHTML('beforeend', '<div id="more-results" style="margin-top:8px"><button class="b sec" onclick="search(true)">Load more</button></div>');
   } catch (e) { $('results').innerHTML = `<span class="err">${esc(e.message)}</span>`; }

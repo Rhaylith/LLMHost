@@ -1123,6 +1123,22 @@ public partial class ApiServer
         });
 
         // card data + README of a Hugging Face repository (cached 24 h)
+        // download sizes for the Discover lists: {repos:[{repo, quant?}]} → {sizes:{repo:{files,minBytes,maxBytes,quantBytes,quant}}}
+        app.MapPost("/api/models/repo-sizes", async ctx =>
+        {
+            var body = await ReadBody(ctx);
+            var wanted = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in (body["repos"] as JsonArray) ?? new JsonArray())
+            {
+                string? repo = item is JsonValue v && v.TryGetValue<string>(out var s) ? s : item?["repo"]?.GetValue<string>();
+                if (repo == null || !HuggingFace.ValidRepo(repo)) continue;
+                wanted[repo] = item is JsonObject o ? o["quant"]?.GetValue<string>() : null;
+                if (wanted.Count >= 60) break;
+            }
+            var sizes = await RepoSizes.GetAsync(wanted, ctx.RequestAborted);
+            await WriteJson(ctx, new { sizes = sizes.ToDictionary(kv => kv.Key, kv => new { files = kv.Value.Files, minBytes = kv.Value.MinBytes, maxBytes = kv.Value.MaxBytes, quantBytes = kv.Value.QuantBytes, quant = kv.Value.Quant }) });
+        });
+
         app.MapGet("/api/models/card", async ctx =>
         {
             var c = await HuggingFace.GetCardAsync(Q(ctx, "repo"), ctx.RequestAborted, Q(ctx, "refresh") == "1");
