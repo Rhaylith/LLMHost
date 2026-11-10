@@ -19,7 +19,7 @@ function fillLoad(d) {
   $('l-device').value = d.device || 'cpu';
   $('l-gpulayers').value = d.gpuLayers ?? '';
   $('l-useratio').checked = d.gpuRatio != null; $('l-gpuratio').value = d.gpuRatio != null ? Math.round(d.gpuRatio * 100) : 50; updateRatioText();
-  $('l-ctx').value = d.contextSize || 4096;
+  $('l-ctx').value = d.contextSize || 32768;
   $('l-threads').value = d.threads || 0; $('l-bthreads').value = d.batchThreads || 0; $('l-affinity').value = d.cpuAffinity || ''; $('l-prio').value = d.threadPriority || 'normal';
   $('l-batch').value = d.batchSize || 512;
   $('l-ttl').value = d.ttlMinutes || 0;

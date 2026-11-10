@@ -325,7 +325,7 @@
         <div class="ex">CLI: <code>load qwen3 --gpu max</code> · <code>--gpu auto</code> · <code>--gpu 0.5</code> (half of the layers) · <code>--gpu-layers 20</code>.</div></dd></div>
     <div class="h" data-k="context length ctx"><dt>Context length</dt>
       <dd>How many tokens (prompt + conversation + answer) the model can keep in view. Bigger = longer conversations, but more memory (KV cache).
-        <div class="ex">4096 for chat · 16384+ for long documents. The "Will it fit?" box shows the memory cost live.</div></dd></div>
+        <div class="ex">32768 default · 4096 for light chat to save memory. The "Will it fit?" box shows the memory cost live.</div></dd></div>
     <div class="h" data-k="batch size"><dt>Batch size</dt>
       <dd>How many prompt tokens are processed at once. Larger = faster prompt processing, slightly more memory.</dd></div>
     <div class="h" data-k="threads cpu"><dt>CPU threads</dt>
@@ -435,7 +435,7 @@ Inside the shell: /help lists everything, /set temperature 0.3, /params shows th
     <div><label data-i18n="lbl.gpu_layers_blank_by_device">GPU layers (blank = by device)</label><input type="number" id="l-gpulayers"></div>
     <div><label><input type="checkbox" id="l-useratio" style="width:auto"> Offload a share of the layers</label>
       <div class="row"><input type="range" id="l-gpuratio" min="0" max="100" step="1" value="50"><span id="l-ratio-out" class="dim"></span></div></div>
-    <div><label data-i18n="lbl.context_length">Context length</label><input type="number" id="l-ctx" value="4096"></div>
+    <div><label data-i18n="lbl.context_length">Context length</label><input type="number" id="l-ctx" value="32768"></div>
     <div><label id="l-threads-label" data-i18n="lbl.cpu_threads_0_default_physical">CPU threads (0 = default: physical cores)</label><input type="number" id="l-threads" value="0"></div>
     <div><label data-i18n="lbl.batch_threads_0_default">Batch threads (0 = default)</label><input type="number" id="l-bthreads" value="0"></div>
     <div><label data-i18n="lbl.cpu_affinity_blank_any">CPU affinity (blank = any)</label><input type="text" id="l-affinity" placeholder="0-15, node:1, physical"></div>

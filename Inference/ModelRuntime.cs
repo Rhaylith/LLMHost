@@ -271,7 +271,7 @@ public sealed class ModelRuntime : IDisposable
         if (embeddings)
         {
             // an input must fit one evaluation step, and the pooling decides how its token vectors become one
-            int step = o.EmbedBatchSize > 0 ? o.EmbedBatchSize : (int)Math.Min(o.ContextSize == 0 ? 4096u : o.ContextSize, 8192u);
+            int step = o.EmbedBatchSize > 0 ? o.EmbedBatchSize : (int)Math.Min(o.ContextSize == 0 ? LoadOptions.DefaultContextSize : o.ContextSize, 8192u);
             p.BatchSize = p.UBatchSize = (uint)Math.Max(8, step);
             p.PoolingType = EmbeddingMath.PoolingFor(o.Pooling, model.IsEmbedding, model.Capabilities.Rerank);
         }
@@ -379,7 +379,7 @@ public sealed class ModelRuntime : IDisposable
         if (model.Path.EndsWith(".part", StringComparison.OrdinalIgnoreCase))
             throw new ModelLoadException("corrupt", "That file is an unfinished download (.part).");
 
-        if (options.ContextSize == 0 || options.ContextSize > 1_000_000) options.ContextSize = 4096;
+        if (options.ContextSize == 0 || options.ContextSize > 1_000_000) options.ContextSize = LoadOptions.DefaultContextSize;
         if (info.ContextLength > 0 && options.ContextSize > info.ContextLength)
         {
             warnings.Add($"Context length capped to the model's maximum of {info.ContextLength}.");

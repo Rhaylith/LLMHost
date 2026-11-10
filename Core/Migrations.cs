@@ -25,7 +25,8 @@ public static class Migrations
     private static readonly Dictionary<string, List<Func<JsonObject, JsonObject>>> Steps = new()
     {
         // v0 -> v1: version stamp only
-        [Settings] = new() { o => o },
+        // v1 -> v2: the default context length went from 4096 to 32768; a global default still at the old value is moved with it
+        [Settings] = new() { o => o, MoveDefaultContext },
         // v1 -> v2: folderId, pinned and titleAuto were added; absent values mean "no folder", "not pinned", "title set by the user"
         // v2 -> v3: settings { preset, overrides, load } was added
         [Chat] = new() { o => o, o => o, o => o },
@@ -35,6 +36,13 @@ public static class Migrations
     };
 
     private static JsonObject WrapItems(JsonObject legacy) => new() { ["items"] = legacy };
+
+    private static JsonObject MoveDefaultContext(JsonObject o)
+    {
+        if (o["defaultLoad"] is JsonObject load && load["contextSize"] is JsonValue v && v.TryGetValue<long>(out var n) && n == 4096)
+            load["contextSize"] = (int)LoadOptions.DefaultContextSize;
+        return o;
+    }
 
     public static int CurrentVersion(string kind) => Steps[kind].Count;
 

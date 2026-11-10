@@ -22,7 +22,7 @@ const TIPS = {
   'l-device': {t:'Where the model runs: CPU only, GPU with every layer, or GPU with as many layers as fit.', r:'cpu · auto · gpu', e:'gpu for speed when the model fits in VRAM; auto for big models'},
   'l-gpuratio': {t:'Offload a share of the layers instead of counting them: 50% puts about half of the layers on the GPU. An exact layer count, when given, wins.', r:'0 – 100 %', e:'60% of a 33-layer model = 20 layers'},
   'l-gpulayers': {t:'Exact number of layers placed on the GPU. Blank = decided by Device.', r:'blank or 0 – layer count (999 = all)', e:'20 → 20 layers on the GPU, the rest on the CPU'},
-  'l-ctx': {t:'How many tokens (prompt + conversation + answer) the model can keep in view. Bigger costs more memory (KV cache).', r:'512 – the model\'s maximum', e:'4096 chat · 16384+ long documents'},
+  'l-ctx': {t:'How many tokens (prompt + conversation + answer) the model can keep in view. Bigger costs more memory (KV cache).', r:'512 – the model\'s maximum', e:'32768 default · 4096 saves memory'},
   'l-bthreads': {t:'Threads for prompt processing. 0 = every logical processor (allowed by the affinity).', r:'0 or more', e:'0'},
   'l-affinity': {t:'Pin the compute threads to chosen processors: ranges such as 0-15,32, node:1 for one NUMA node, physical for one thread per core.', r:'blank = any', e:'node:0'},
   'l-prio': {t:'Windows priority of the compute threads.', r:'normal, high, low', e:'normal'},

@@ -178,7 +178,7 @@ public static class FitEstimator
 
         bool backendGpu = gpuBackend ?? NativeBackend.GpuPlanned;
         var devices = SelectDevices(o, hw, backendGpu);
-        uint ctx = contextOverride ?? (o.ContextSize == 0 ? 4096u : o.ContextSize);
+        uint ctx = contextOverride ?? (o.ContextSize == 0 ? LoadOptions.DefaultContextSize : o.ContextSize);
         if (info.ContextLength > 0 && ctx > info.ContextLength) ctx = (uint)info.ContextLength;
         bool dedicatedOnly = settings.LimitToDedicatedGpuMemory;
 

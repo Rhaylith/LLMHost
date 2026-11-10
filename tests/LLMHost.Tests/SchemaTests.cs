@@ -150,3 +150,25 @@ public class SettingsApiValidationTests : IClassFixture<ServerFixture>
         Assert.NotEqual(0, AppSettings.Current.Port);   // nothing was applied
     }
 }
+
+[Trait("Category", "Unit")]
+public class DefaultContextMigrationTests
+{
+    private static JsonObject Upgrade(string json) => Migrations.Upgrade(Migrations.Settings, JsonNode.Parse(json)!.AsObject(), out _)!;
+
+    [Fact]
+    public void AGlobalDefaultStillAtTheOldValueMovesToTheNewDefault()
+    {
+        var o = Upgrade("""{"schemaVersion":1,"defaultLoad":{"contextSize":4096,"device":"cpu"}}""");
+        Assert.Equal(32768, (int)o["defaultLoad"]!["contextSize"]!);
+        Assert.Equal("cpu", (string)o["defaultLoad"]!["device"]!);
+        Assert.Equal(Migrations.CurrentVersion(Migrations.Settings), (int)o["schemaVersion"]!);
+    }
+
+    [Fact]
+    public void ADefaultTheUserChangedIsLeftAlone()
+    {
+        Assert.Equal(8192, (int)Upgrade("""{"schemaVersion":1,"defaultLoad":{"contextSize":8192}}""")["defaultLoad"]!["contextSize"]!);
+        Assert.Null(Upgrade("""{"schemaVersion":1}""")["defaultLoad"]);                  // nothing stored: nothing invented
+    }
+}

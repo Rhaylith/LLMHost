@@ -112,7 +112,9 @@ public class LoadOptions
     public string SplitMode { get; set; } = "layer";
     /// <summary>Load even when the memory estimate says the model will not fit (skips the guardrail).</summary>
     public bool SkipFitCheck { get; set; }
-    public uint ContextSize { get; set; } = 4096;
+    /// <summary>Context length when none is chosen; a model whose own maximum is smaller is capped to that.</summary>
+    public const uint DefaultContextSize = 32768;
+    public uint ContextSize { get; set; } = DefaultContextSize;
     /// <summary>Requests generated at the same time (continuous batching); the rest wait in a queue. 1 = one at a time.</summary>
     public int MaxConcurrent { get; set; } = 4;
     /// <summary>
